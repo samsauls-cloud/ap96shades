@@ -8,9 +8,10 @@ interface Props {
   filters: InvoiceFilters;
   onChange: (f: InvoiceFilters) => void;
   vendors: string[];
+  tags?: string[];
 }
 
-export function InvoiceFiltersBar({ filters, onChange, vendors }: Props) {
+export function InvoiceFiltersBar({ filters, onChange, vendors, tags = [] }: Props) {
   const update = (patch: Partial<InvoiceFilters>) => onChange({ ...filters, ...patch, page: 1 });
 
   return (
@@ -64,6 +65,18 @@ export function InvoiceFiltersBar({ filters, onChange, vendors }: Props) {
             <SelectItem value="disputed">Disputed</SelectItem>
           </SelectContent>
         </Select>
+
+        {tags.length > 0 && (
+          <Select value={filters.tag || "__all"} onValueChange={v => update({ tag: v === "__all" ? undefined : v })}>
+            <SelectTrigger className="w-[140px] bg-secondary border-border text-xs h-8">
+              <SelectValue placeholder="Tag" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all">All Tags</SelectItem>
+              {tags.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        )}
 
         <Input
           type="date"
