@@ -68,6 +68,7 @@ export function InvoiceTable({ invoices, filters, onSort, onRowClick, totalCount
               <TableHead className="text-xs font-semibold text-right">Units</TableHead>
               <SortableHead field="total" label="Total" filters={filters} onSort={onSort} className="text-right" />
               <TableHead className="text-xs font-semibold">Terms</TableHead>
+              <TableHead className="text-xs font-semibold">Tags</TableHead>
               <SortableHead field="status" label="Status" filters={filters} onSort={onSort} />
             </TableRow>
           </TableHeader>
@@ -87,6 +88,15 @@ export function InvoiceTable({ invoices, filters, onSort, onRowClick, totalCount
                 <TableCell className="text-xs text-right tabular-nums">{getTotalUnits(inv)}</TableCell>
                 <TableCell className="text-right font-semibold text-sm tabular-nums">{formatCurrency(inv.total)}</TableCell>
                 <TableCell className="text-xs text-muted-foreground">{inv.payment_terms || "—"}</TableCell>
+                <TableCell>
+                  <div className="flex flex-wrap gap-1">
+                    {((inv as any).tags ?? []).map((t: string) => (
+                      <span key={t} className="px-1.5 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-medium border border-primary/20">
+                        {t}
+                      </span>
+                    ))}
+                  </div>
+                </TableCell>
                 <TableCell><StatusBadge status={inv.status} /></TableCell>
               </TableRow>
             ))}
