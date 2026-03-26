@@ -8,6 +8,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Trash2, Copy, Download } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge, DocTypeBadge } from "./Badges";
+import { MatchReportSection } from "./MatchReportSection";
 import type { VendorInvoice, InvoiceStatus } from "@/lib/supabase-queries";
 import { formatCurrency, formatDate, getLineItems, getTotalUnits, lineItemsToCSV, updateInvoiceStatus, updateInvoiceNotes, deleteInvoice } from "@/lib/supabase-queries";
 
@@ -194,7 +195,10 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
           )}
         </div>
 
-        <Separator className="mb-4" />
+        {/* Match Report */}
+        <MatchReportSection invoice={inv} />
+
+        <Separator className="my-4" />
 
         {/* Actions */}
         <div className="flex flex-wrap gap-2">
