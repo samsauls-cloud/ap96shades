@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -9,8 +10,9 @@ import { Trash2, Copy, Download } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge, DocTypeBadge } from "./Badges";
 import { MatchReportSection } from "./MatchReportSection";
+import { TagInput } from "./TagInput";
 import type { VendorInvoice, InvoiceStatus } from "@/lib/supabase-queries";
-import { formatCurrency, formatDate, getLineItems, getTotalUnits, lineItemsToCSV, updateInvoiceStatus, updateInvoiceNotes, deleteInvoice } from "@/lib/supabase-queries";
+import { formatCurrency, formatDate, getLineItems, getTotalUnits, lineItemsToCSV, updateInvoiceStatus, updateInvoiceNotes, updateInvoiceTags, fetchDistinctTags, deleteInvoice } from "@/lib/supabase-queries";
 
 interface Props {
   invoice: VendorInvoice | null;
@@ -21,10 +23,19 @@ interface Props {
 
 export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
   const [notes, setNotes] = useState("");
+  const [tags, setTags] = useState<string[]>([]);
   const inv = invoice;
 
+  const { data: allTags = [] } = useQuery({
+    queryKey: ["distinct_tags"],
+    queryFn: fetchDistinctTags,
+  });
+
   useEffect(() => {
-    if (inv) setNotes(inv.notes || "");
+    if (inv) {
+      setNotes(inv.notes || "");
+      setTags((inv as any).tags ?? []);
+    }
   }, [inv]);
 
   if (!inv) return null;
@@ -164,6 +175,23 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
             onBlur={handleNotesBlur}
             className="bg-secondary border-border text-sm min-h-[60px]"
             placeholder="Add notes…"
+          />
+        </div>
+
+        {/* Tags */}
+        <div className="mb-4">
+          <label className="text-xs font-semibold text-muted-foreground mb-1 block">Tags</label>
+          <TagInput
+            tags={tags}
+            onChange={async (newTags) => {
+              setTags(newTags);
+              try {
+                await updateInvoiceTags(inv.id, newTags);
+                toast.success("Tags saved");
+                onUpdate();
+              } catch { toast.error("Failed to save tags"); }
+            }}
+            suggestions={allTags}
           />
         </div>
 

@@ -208,6 +208,7 @@ export type Database = {
           shipment_count: number
           status: string
           subtotal: number | null
+          tags: string[] | null
           tax: number | null
           total: number
           vendor: string
@@ -238,6 +239,7 @@ export type Database = {
           shipment_count?: number
           status?: string
           subtotal?: number | null
+          tags?: string[] | null
           tax?: number | null
           total?: number
           vendor: string
@@ -268,6 +270,7 @@ export type Database = {
           shipment_count?: number
           status?: string
           subtotal?: number | null
+          tags?: string[] | null
           tax?: number | null
           total?: number
           vendor?: string

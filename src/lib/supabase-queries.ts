@@ -29,6 +29,7 @@ export interface InvoiceFilters {
   vendor?: string;
   docType?: string;
   status?: string;
+  tag?: string;
   dateFrom?: string;
   dateTo?: string;
   minTotal?: number;
@@ -69,6 +70,7 @@ export async function fetchInvoices(filters: InvoiceFilters) {
   if (filters.vendor) query = query.eq("vendor", filters.vendor);
   if (filters.docType) query = query.eq("doc_type", filters.docType);
   if (filters.status) query = query.eq("status", filters.status);
+  if (filters.tag) query = query.contains("tags" as any, [filters.tag]);
   if (filters.dateFrom) query = query.gte("invoice_date", filters.dateFrom);
   if (filters.dateTo) query = query.lte("invoice_date", filters.dateTo);
   if (filters.minTotal !== undefined) query = query.gte("total", filters.minTotal);
@@ -97,6 +99,24 @@ export async function updateInvoiceNotes(id: string, notes: string) {
     .update({ notes })
     .eq("id", id);
   if (error) throw error;
+}
+
+export async function updateInvoiceTags(id: string, tags: string[]) {
+  const { error } = await supabase
+    .from("vendor_invoices")
+    .update({ tags } as any)
+    .eq("id", id);
+  if (error) throw error;
+}
+
+export async function fetchDistinctTags(): Promise<string[]> {
+  const { data, error } = await supabase
+    .from("vendor_invoices")
+    .select("tags")
+    .not("tags", "eq", "{}");
+  if (error) throw error;
+  const all = (data ?? []).flatMap((d: any) => d.tags ?? []);
+  return [...new Set(all)].sort();
 }
 
 export async function deleteInvoice(id: string) {
