@@ -59,7 +59,11 @@ export type Database = {
       invoice_payments: {
         Row: {
           amount_due: number
+          amount_paid: number | null
+          balance_remaining: number | null
+          check_number: string | null
           created_at: string
+          dispute_reason: string | null
           due_date: string
           id: string
           installment_label: string | null
@@ -68,15 +72,26 @@ export type Database = {
           invoice_id: string | null
           invoice_number: string
           is_paid: boolean
+          last_payment_date: string | null
           notes: string | null
           paid_date: string | null
+          payment_history: Json | null
+          payment_method: string | null
+          payment_reference: string | null
+          payment_status: string | null
           po_number: string | null
+          recorded_by: string | null
           terms: string | null
           vendor: string
+          void_reason: string | null
         }
         Insert: {
           amount_due: number
+          amount_paid?: number | null
+          balance_remaining?: number | null
+          check_number?: string | null
           created_at?: string
+          dispute_reason?: string | null
           due_date: string
           id?: string
           installment_label?: string | null
@@ -85,15 +100,26 @@ export type Database = {
           invoice_id?: string | null
           invoice_number: string
           is_paid?: boolean
+          last_payment_date?: string | null
           notes?: string | null
           paid_date?: string | null
+          payment_history?: Json | null
+          payment_method?: string | null
+          payment_reference?: string | null
+          payment_status?: string | null
           po_number?: string | null
+          recorded_by?: string | null
           terms?: string | null
           vendor: string
+          void_reason?: string | null
         }
         Update: {
           amount_due?: number
+          amount_paid?: number | null
+          balance_remaining?: number | null
+          check_number?: string | null
           created_at?: string
+          dispute_reason?: string | null
           due_date?: string
           id?: string
           installment_label?: string | null
@@ -102,11 +128,18 @@ export type Database = {
           invoice_id?: string | null
           invoice_number?: string
           is_paid?: boolean
+          last_payment_date?: string | null
           notes?: string | null
           paid_date?: string | null
+          payment_history?: Json | null
+          payment_method?: string | null
+          payment_reference?: string | null
+          payment_status?: string | null
           po_number?: string | null
+          recorded_by?: string | null
           terms?: string | null
           vendor?: string
+          void_reason?: string | null
         }
         Relationships: [
           {
