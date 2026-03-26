@@ -14,7 +14,78 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      vendor_invoices: {
+        Row: {
+          account_number: string | null
+          carrier: string | null
+          created_at: string
+          doc_type: string | null
+          due_date: string | null
+          filename: string | null
+          freight: number
+          id: string
+          invoice_date: string
+          invoice_number: string
+          line_items: Json | null
+          notes: string | null
+          paid_date: string | null
+          payment_terms: string | null
+          po_number: string | null
+          status: Database["public"]["Enums"]["invoice_status"]
+          subtotal: number
+          tax: number
+          total: number
+          updated_at: string
+          vendor: string
+        }
+        Insert: {
+          account_number?: string | null
+          carrier?: string | null
+          created_at?: string
+          doc_type?: string | null
+          due_date?: string | null
+          filename?: string | null
+          freight?: number
+          id?: string
+          invoice_date: string
+          invoice_number: string
+          line_items?: Json | null
+          notes?: string | null
+          paid_date?: string | null
+          payment_terms?: string | null
+          po_number?: string | null
+          status?: Database["public"]["Enums"]["invoice_status"]
+          subtotal?: number
+          tax?: number
+          total?: number
+          updated_at?: string
+          vendor: string
+        }
+        Update: {
+          account_number?: string | null
+          carrier?: string | null
+          created_at?: string
+          doc_type?: string | null
+          due_date?: string | null
+          filename?: string | null
+          freight?: number
+          id?: string
+          invoice_date?: string
+          invoice_number?: string
+          line_items?: Json | null
+          notes?: string | null
+          paid_date?: string | null
+          payment_terms?: string | null
+          po_number?: string | null
+          status?: Database["public"]["Enums"]["invoice_status"]
+          subtotal?: number
+          tax?: number
+          total?: number
+          updated_at?: string
+          vendor?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
@@ -23,7 +94,7 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      [_ in never]: never
+      invoice_status: "unpaid" | "paid" | "disputed"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +221,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      invoice_status: ["unpaid", "paid", "disputed"],
+    },
   },
 } as const
