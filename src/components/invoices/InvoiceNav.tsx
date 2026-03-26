@@ -1,5 +1,6 @@
 import { Link, useLocation } from "react-router-dom";
-import { FileText, ScanLine, GitCompare, BarChart3 } from "lucide-react";
+import { FileText, ScanLine, GitCompare, BarChart3, LogOut } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 export function InvoiceNav() {
   const { pathname } = useLocation();
@@ -10,6 +11,11 @@ export function InvoiceNav() {
     { to: "/invoices/match", label: "Match Report", icon: GitCompare },
     { to: "/invoices/dashboard", label: "AP Dashboard", icon: BarChart3 },
   ];
+
+  const handleLogout = () => {
+    sessionStorage.removeItem("invoice_companion_auth");
+    window.location.reload();
+  };
 
   return (
     <header className="border-b border-border bg-card/80 backdrop-blur-sm sticky top-0 z-20">
@@ -41,6 +47,15 @@ export function InvoiceNav() {
             ))}
           </nav>
         </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={handleLogout}
+          className="text-muted-foreground hover:text-foreground gap-1.5 text-xs"
+        >
+          <LogOut className="h-3.5 w-3.5" />
+          Lock
+        </Button>
       </div>
     </header>
   );
