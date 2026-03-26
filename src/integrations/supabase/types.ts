@@ -101,6 +101,87 @@ export type Database = {
         }
         Relationships: []
       }
+      master_assortment: {
+        Row: {
+          assortment: string | null
+          backstock_location: string | null
+          brand: string | null
+          bridge_size: string | null
+          color: string | null
+          created_at: string
+          default_price: number | null
+          go_out_location: string | null
+          id: string
+          image_url: string | null
+          lens_height: string | null
+          model: string | null
+          msrp: number | null
+          online_price: number | null
+          polarized: string | null
+          price_rule: number | null
+          rxable: string | null
+          size: string | null
+          system_id: string | null
+          temple_length: string | null
+          title: string | null
+          upc: string | null
+          vendor: string | null
+          wholesale: number | null
+        }
+        Insert: {
+          assortment?: string | null
+          backstock_location?: string | null
+          brand?: string | null
+          bridge_size?: string | null
+          color?: string | null
+          created_at?: string
+          default_price?: number | null
+          go_out_location?: string | null
+          id?: string
+          image_url?: string | null
+          lens_height?: string | null
+          model?: string | null
+          msrp?: number | null
+          online_price?: number | null
+          polarized?: string | null
+          price_rule?: number | null
+          rxable?: string | null
+          size?: string | null
+          system_id?: string | null
+          temple_length?: string | null
+          title?: string | null
+          upc?: string | null
+          vendor?: string | null
+          wholesale?: number | null
+        }
+        Update: {
+          assortment?: string | null
+          backstock_location?: string | null
+          brand?: string | null
+          bridge_size?: string | null
+          color?: string | null
+          created_at?: string
+          default_price?: number | null
+          go_out_location?: string | null
+          id?: string
+          image_url?: string | null
+          lens_height?: string | null
+          model?: string | null
+          msrp?: number | null
+          online_price?: number | null
+          polarized?: string | null
+          price_rule?: number | null
+          rxable?: string | null
+          size?: string | null
+          system_id?: string | null
+          temple_length?: string | null
+          title?: string | null
+          upc?: string | null
+          vendor?: string | null
+          wholesale?: number | null
+        }
+        Relationships: []
+      }
       vendor_invoices: {
         Row: {
           account_number: string | null
