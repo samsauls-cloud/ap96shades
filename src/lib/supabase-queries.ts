@@ -48,7 +48,10 @@ export function getLineItems(inv: VendorInvoice): LineItem[] {
 
 export function getTotalUnits(inv: VendorInvoice): number {
   const items = getLineItems(inv);
-  return items.reduce((sum, li) => sum + (li.qty_shipped ?? li.qty_ordered ?? li.qty ?? 0), 0);
+  return items.reduce((sum, li) => {
+    const val = li.qty_shipped || li.qty_ordered || li.qty;
+    return sum + (typeof val === "number" ? val : Number(val) || 0);
+  }, 0);
 }
 
 export async function fetchInvoices(filters: InvoiceFilters) {
