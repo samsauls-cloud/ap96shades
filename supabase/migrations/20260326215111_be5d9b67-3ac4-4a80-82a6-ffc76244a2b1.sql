@@ -1,0 +1,1 @@
+ALTER TABLE public.vendor_invoices ADD COLUMN tags text[] DEFAULT '{}'::text[];
