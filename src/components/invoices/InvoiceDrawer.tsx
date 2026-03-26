@@ -35,6 +35,12 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
     queryFn: fetchDistinctTags,
   });
 
+  const { data: existingPayments = [] } = useQuery({
+    queryKey: ["invoice_payments_detail", inv?.id],
+    queryFn: () => fetchPaymentsForInvoice(inv!.id),
+    enabled: !!inv,
+  });
+
   useEffect(() => {
     if (inv) {
       setNotes(inv.notes || "");
@@ -255,6 +261,54 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
 
         {/* Match Report */}
         <MatchReportSection invoice={inv} />
+
+        {/* Payment schedule */}
+        {hasTermsEngine(inv.vendor) && (
+          <div className="mb-4">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-xs font-semibold text-muted-foreground">Payment Schedule</h3>
+              {existingPayments.length === 0 && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="text-xs h-7"
+                  disabled={generatingPayments}
+                  onClick={async () => {
+                    setGeneratingPayments(true);
+                    try {
+                      const count = await generatePaymentsForInvoice(
+                        inv.id, inv.invoice_date, inv.total, inv.vendor, inv.invoice_number, inv.po_number
+                      );
+                      toast.success(`Generated ${count} payment installments`);
+                      queryClient.invalidateQueries({ queryKey: ["invoice_payments_detail", inv.id] });
+                      queryClient.invalidateQueries({ queryKey: ["invoice_payments"] });
+                      queryClient.invalidateQueries({ queryKey: ["ap_audit"] });
+                    } catch { toast.error("Failed to generate payments"); }
+                    finally { setGeneratingPayments(false); }
+                  }}
+                >
+                  {generatingPayments ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <DollarSign className="h-3 w-3 mr-1" />}
+                  Generate Payments
+                </Button>
+              )}
+            </div>
+            {existingPayments.length > 0 ? (
+              <div className="space-y-1">
+                {existingPayments.map(p => (
+                  <div key={p.id} className={`flex items-center justify-between text-[10px] p-2 rounded border border-border ${p.is_paid ? "opacity-50" : ""}`}>
+                    <span>{p.installment_label} — Due {formatDate(p.due_date)}</span>
+                    <span className="font-medium tabular-nums">{formatCurrency(Number(p.amount_due))}</span>
+                    <span className={p.is_paid ? "text-green-500" : "text-muted-foreground"}>
+                      {p.is_paid ? "✓ Paid" : "Unpaid"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[10px] text-muted-foreground">No payment schedule generated yet.</p>
+            )}
+          </div>
+        )}
 
         <Separator className="my-4" />
 
