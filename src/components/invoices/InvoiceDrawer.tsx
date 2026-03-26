@@ -1,18 +1,20 @@
 import { useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Separator } from "@/components/ui/separator";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Trash2, Copy, Download } from "lucide-react";
+import { Trash2, Copy, Download, DollarSign, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge, DocTypeBadge } from "./Badges";
 import { MatchReportSection } from "./MatchReportSection";
 import { TagInput } from "./TagInput";
 import type { VendorInvoice, InvoiceStatus } from "@/lib/supabase-queries";
 import { formatCurrency, formatDate, getLineItems, getTotalUnits, lineItemsToCSV, updateInvoiceStatus, updateInvoiceNotes, updateInvoiceTags, fetchDistinctTags, deleteInvoice } from "@/lib/supabase-queries";
+import { generatePaymentsForInvoice, fetchPaymentsForInvoice } from "@/lib/payment-queries";
+import { hasTermsEngine } from "@/lib/payment-terms";
 
 interface Props {
   invoice: VendorInvoice | null;
@@ -22,8 +24,10 @@ interface Props {
 }
 
 export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
+  const queryClient = useQueryClient();
   const [notes, setNotes] = useState("");
   const [tags, setTags] = useState<string[]>([]);
+  const [generatingPayments, setGeneratingPayments] = useState(false);
   const inv = invoice;
 
   const { data: allTags = [] } = useQuery({
