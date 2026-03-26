@@ -553,7 +553,7 @@ export default function ReaderPage() {
 
         {(queue.length > 0 || processing) && (
           <div className="space-y-3">
-            <div className="flex gap-2">
+            <div className="flex flex-col sm:flex-row gap-2">
               <Button onClick={processQueue} disabled={processing} className="flex-1">
                 {processing ? (
                   <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Processing…</>
@@ -570,12 +570,12 @@ export default function ReaderPage() {
             {processing && batchTotal > 0 && (
               <div className="space-y-2">
                 <Progress value={progressPercent} className="h-2.5" />
-                <div className="flex justify-between text-xs text-muted-foreground">
+                <div className="flex flex-col sm:flex-row justify-between text-xs text-muted-foreground gap-1">
                   <span>
                     {batchComplete} / {batchTotal} — {stats.saved} saved · {stats.extended} merged · {stats.trueDuplicates} dupes · {stats.failed} failed
                   </span>
                   <span>
-                    Elapsed: {formatElapsed(elapsed)}{estRemaining && ` · Est. remaining: ${estRemaining}`}
+                    Elapsed: {formatElapsed(elapsed)}{estRemaining && ` · Est: ${estRemaining}`}
                   </span>
                 </div>
                 {atomicMode && (

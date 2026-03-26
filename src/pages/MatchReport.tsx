@@ -66,8 +66,8 @@ export default function MatchReportPage() {
             <CardTitle className="text-sm">Match to Item Master</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex gap-3 items-end">
-              <div className="flex-1 max-w-md">
+            <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
+              <div className="flex-1 sm:max-w-md">
                 <label className="text-xs text-muted-foreground mb-1 block">Select Invoice</label>
                 <Select value={selectedId} onValueChange={setSelectedId}>
                   <SelectTrigger className="bg-secondary border-border text-xs">
@@ -83,7 +83,7 @@ export default function MatchReportPage() {
                 </Select>
               </div>
               {results && (
-                <Button variant="outline" size="sm" className="text-xs h-8" onClick={exportCSV}>
+                <Button variant="outline" size="sm" className="text-xs h-8 w-full sm:w-auto" onClick={exportCSV}>
                   <Download className="h-3 w-3 mr-1" /> Export CSV
                 </Button>
               )}
