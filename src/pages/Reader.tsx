@@ -266,13 +266,30 @@ export default function ReaderPage() {
         </Card>
 
         {(queue.length > 0 || processing) && (
-          <Button onClick={processQueue} disabled={processing} className="w-full">
-            {processing ? (
-              <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Processing…</>
-            ) : (
-              <>Process {queue.length} File(s)</>
+          <div className="space-y-3">
+            <div className="flex gap-2">
+              <Button onClick={processQueue} disabled={processing} className="flex-1">
+                {processing ? (
+                  <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Processing…</>
+                ) : (
+                  <>Process {queue.length} File(s)</>
+                )}
+              </Button>
+              {processing && (
+                <Button variant="destructive" onClick={handleCancel} className="shrink-0">
+                  <XCircle className="h-4 w-4 mr-2" /> Cancel Batch
+                </Button>
+              )}
+            </div>
+            {processing && batchTotal > 0 && (
+              <div className="space-y-1.5">
+                <Progress value={(batchComplete / batchTotal) * 100} className="h-2" />
+                <p className="text-xs text-muted-foreground text-center">
+                  Processing {Math.min(batchComplete + CONCURRENCY, batchTotal)} of {batchTotal} documents ({batchComplete} complete)
+                </p>
+              </div>
             )}
-          </Button>
+          </div>
         )}
 
         {/* Session summary */}
