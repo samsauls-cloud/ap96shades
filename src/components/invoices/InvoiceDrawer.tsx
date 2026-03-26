@@ -178,6 +178,23 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
           />
         </div>
 
+        {/* Tags */}
+        <div className="mb-4">
+          <label className="text-xs font-semibold text-muted-foreground mb-1 block">Tags</label>
+          <TagInput
+            tags={tags}
+            onChange={async (newTags) => {
+              setTags(newTags);
+              try {
+                await updateInvoiceTags(inv.id, newTags);
+                toast.success("Tags saved");
+                onUpdate();
+              } catch { toast.error("Failed to save tags"); }
+            }}
+            suggestions={allTags}
+          />
+        </div>
+
         <Separator className="mb-4" />
 
         {/* Line items */}
