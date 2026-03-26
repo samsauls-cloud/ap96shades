@@ -19,70 +19,76 @@ export type Database = {
           account_number: string | null
           carrier: string | null
           created_at: string
-          doc_type: string | null
-          due_date: string | null
+          currency: string
+          doc_type: string
           filename: string | null
-          freight: number
+          freight: number | null
           id: string
+          imported_at: string
+          imported_by: string | null
           invoice_date: string
           invoice_number: string
-          line_items: Json | null
+          line_items: Json
           notes: string | null
-          paid_date: string | null
           payment_terms: string | null
           po_number: string | null
-          status: Database["public"]["Enums"]["invoice_status"]
-          subtotal: number
-          tax: number
+          ship_to: string | null
+          status: string
+          subtotal: number | null
+          tax: number | null
           total: number
-          updated_at: string
           vendor: string
+          vendor_brands: string[] | null
         }
         Insert: {
           account_number?: string | null
           carrier?: string | null
           created_at?: string
-          doc_type?: string | null
-          due_date?: string | null
+          currency?: string
+          doc_type?: string
           filename?: string | null
-          freight?: number
+          freight?: number | null
           id?: string
+          imported_at?: string
+          imported_by?: string | null
           invoice_date: string
           invoice_number: string
-          line_items?: Json | null
+          line_items?: Json
           notes?: string | null
-          paid_date?: string | null
           payment_terms?: string | null
           po_number?: string | null
-          status?: Database["public"]["Enums"]["invoice_status"]
-          subtotal?: number
-          tax?: number
+          ship_to?: string | null
+          status?: string
+          subtotal?: number | null
+          tax?: number | null
           total?: number
-          updated_at?: string
           vendor: string
+          vendor_brands?: string[] | null
         }
         Update: {
           account_number?: string | null
           carrier?: string | null
           created_at?: string
-          doc_type?: string | null
-          due_date?: string | null
+          currency?: string
+          doc_type?: string
           filename?: string | null
-          freight?: number
+          freight?: number | null
           id?: string
+          imported_at?: string
+          imported_by?: string | null
           invoice_date?: string
           invoice_number?: string
-          line_items?: Json | null
+          line_items?: Json
           notes?: string | null
-          paid_date?: string | null
           payment_terms?: string | null
           po_number?: string | null
-          status?: Database["public"]["Enums"]["invoice_status"]
-          subtotal?: number
-          tax?: number
+          ship_to?: string | null
+          status?: string
+          subtotal?: number | null
+          tax?: number | null
           total?: number
-          updated_at?: string
           vendor?: string
+          vendor_brands?: string[] | null
         }
         Relationships: []
       }
@@ -94,7 +100,7 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      invoice_status: "unpaid" | "paid" | "disputed"
+      [_ in never]: never
     }
     CompositeTypes: {
       [_ in never]: never
@@ -221,8 +227,6 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {
-      invoice_status: ["unpaid", "paid", "disputed"],
-    },
+    Enums: {},
   },
 } as const
