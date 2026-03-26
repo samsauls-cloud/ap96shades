@@ -1,9 +1,11 @@
+import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { FileText, ScanLine, GitCompare, BarChart3, FileBarChart, LogOut } from "lucide-react";
+import { FileText, ScanLine, GitCompare, BarChart3, FileBarChart, LogOut, Menu, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export function InvoiceNav() {
   const { pathname } = useLocation();
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   const links = [
     { to: "/invoices", label: "Invoice Database", icon: FileText },
@@ -31,7 +33,7 @@ export function InvoiceNav() {
               <p className="text-[10px] text-muted-foreground">AP Invoice System</p>
             </div>
           </Link>
-          <nav className="flex gap-1 ml-4">
+          <nav className="hidden md:flex gap-1 ml-4">
             {links.map(l => (
               <Link
                 key={l.to}
@@ -48,16 +50,46 @@ export function InvoiceNav() {
             ))}
           </nav>
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={handleLogout}
-          className="text-muted-foreground hover:text-foreground gap-1.5 text-xs"
-        >
-          <LogOut className="h-3.5 w-3.5" />
-          Lock
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleLogout}
+            className="text-muted-foreground hover:text-foreground gap-1.5 text-xs"
+          >
+            <LogOut className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Lock</span>
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="md:hidden h-8 w-8"
+            onClick={() => setMobileOpen(v => !v)}
+          >
+            {mobileOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+          </Button>
+        </div>
       </div>
+      {/* Mobile nav dropdown */}
+      {mobileOpen && (
+        <nav className="md:hidden border-t border-border bg-card px-4 py-2 flex flex-col gap-1">
+          {links.map(l => (
+            <Link
+              key={l.to}
+              to={l.to}
+              onClick={() => setMobileOpen(false)}
+              className={`flex items-center gap-2 px-3 py-2.5 rounded-md text-sm font-medium transition-colors ${
+                pathname === l.to
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground hover:bg-accent"
+              }`}
+            >
+              <l.icon className="h-4 w-4" />
+              {l.label}
+            </Link>
+          ))}
+        </nav>
+      )}
     </header>
   );
 }

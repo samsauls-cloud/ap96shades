@@ -55,7 +55,8 @@ export function InvoiceTable({ invoices, filters, onSort, onRowClick, totalCount
 
   return (
     <div className="space-y-3">
-      <div className="rounded-lg border border-border bg-card overflow-auto">
+      {/* Desktop table */}
+      <div className="hidden md:block rounded-lg border border-border bg-card overflow-auto">
         <Table>
           <TableHeader>
             <TableRow className="border-border hover:bg-transparent">
@@ -104,10 +105,53 @@ export function InvoiceTable({ invoices, filters, onSort, onRowClick, totalCount
         </Table>
       </div>
 
+      {/* Mobile card layout */}
+      <div className="md:hidden space-y-2">
+        {invoices.map(inv => (
+          <div
+            key={inv.id}
+            className="rounded-lg border border-border bg-card p-3 cursor-pointer hover:bg-accent/50 transition-colors active:bg-accent/70"
+            onClick={() => onRowClick(inv)}
+          >
+            <div className="flex items-start justify-between gap-2 mb-2">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 mb-0.5">
+                  <DocTypeBadge docType={inv.doc_type} />
+                  <span className="font-medium text-sm truncate">{inv.vendor}</span>
+                </div>
+                <p className="font-mono text-xs text-muted-foreground truncate">{inv.invoice_number}</p>
+              </div>
+              <div className="text-right shrink-0">
+                <p className="font-semibold text-sm tabular-nums">{formatCurrency(inv.total)}</p>
+                <StatusBadge status={inv.status} />
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+              <span>{formatDate(inv.invoice_date)}</span>
+              {inv.po_number && <span>PO: {inv.po_number}</span>}
+              <span>{getTotalUnits(inv)} units</span>
+              {inv.payment_terms && <span>{inv.payment_terms}</span>}
+            </div>
+            {((inv as any).tags ?? []).length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-2">
+                {((inv as any).tags ?? []).map((t: string) => (
+                  <span key={t} className="px-1.5 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-medium border border-primary/20">
+                    {t}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
       {/* Pagination */}
       <div className="flex items-center justify-between text-xs text-muted-foreground">
-        <span>
+        <span className="hidden sm:inline">
           Showing {((page - 1) * perPage) + 1}–{Math.min(page * perPage, totalCount)} of {totalCount}
+        </span>
+        <span className="sm:hidden text-[10px]">
+          {((page - 1) * perPage) + 1}–{Math.min(page * perPage, totalCount)} / {totalCount}
         </span>
         <div className="flex gap-1">
           <Button
@@ -117,7 +161,7 @@ export function InvoiceTable({ invoices, filters, onSort, onRowClick, totalCount
             disabled={page <= 1}
             onClick={() => onPageChange(page - 1)}
           >
-            Previous
+            Prev
           </Button>
           {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
             const p = i + 1;
@@ -126,13 +170,14 @@ export function InvoiceTable({ invoices, filters, onSort, onRowClick, totalCount
                 key={p}
                 variant={p === page ? "default" : "outline"}
                 size="sm"
-                className="h-7 w-7 text-xs p-0"
+                className="h-7 w-7 text-xs p-0 hidden sm:inline-flex"
                 onClick={() => onPageChange(p)}
               >
                 {p}
               </Button>
             );
           })}
+          <span className="sm:hidden flex items-center text-xs px-1">{page}/{totalPages}</span>
           <Button
             variant="outline"
             size="sm"
