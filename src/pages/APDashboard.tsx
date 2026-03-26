@@ -164,6 +164,11 @@ export default function APDashboard() {
   const overduePayments = unpaid.filter(p => isBefore(new Date(p.due_date + "T00:00:00"), today));
 
   const handleTogglePaid = async (payment: InvoicePayment) => {
+    const previousPayments = queryClient.getQueryData<InvoicePayment[]>(["invoice_payments"]);
+    // Optimistic update
+    queryClient.setQueryData<InvoicePayment[]>(["invoice_payments"], (old) =>
+      (old ?? []).map(p => p.id === payment.id ? { ...p, is_paid: !p.is_paid } : p)
+    );
     try {
       if (payment.is_paid) {
         await markPaymentUnpaid(payment.id);
@@ -172,9 +177,10 @@ export default function APDashboard() {
         await markPaymentPaid(payment.id);
         toast.success(`✓ Marked paid — ${payment.invoice_number} installment ${payment.installment_label} — ${formatCurrency(Number(payment.amount_due))}`);
       }
-      queryClient.invalidateQueries({ queryKey: ["invoice_payments"] });
       queryClient.invalidateQueries({ queryKey: ["ap_audit"] });
     } catch {
+      // Revert optimistic update
+      queryClient.setQueryData(["invoice_payments"], previousPayments);
       toast.error("Failed to update payment");
     }
   };
