@@ -1,15 +1,17 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Upload, FileText, ExternalLink, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
+import { Upload, FileText, ExternalLink, CheckCircle2, AlertCircle, Loader2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
+import { Progress } from "@/components/ui/progress";
 import { Link } from "react-router-dom";
 import { InvoiceNav } from "@/components/invoices/InvoiceNav";
 import { DocTypeBadge, StatusBadge } from "@/components/invoices/Badges";
 import { insertInvoice, formatCurrency, type VendorInvoiceInsert } from "@/lib/supabase-queries";
+
+const CONCURRENCY = 5;
 
 interface ProcessedDoc {
   id: string;
@@ -32,6 +34,9 @@ export default function ReaderPage() {
   const [processing, setProcessing] = useState(false);
   const [queue, setQueue] = useState<File[]>([]);
   const [docs, setDocs] = useState<ProcessedDoc[]>([]);
+  const [batchTotal, setBatchTotal] = useState(0);
+  const [batchComplete, setBatchComplete] = useState(0);
+  const cancelRef = useRef(false);
 
   const saveApiKey = (key: string) => {
     const cleanKey = key.replace(/[^\x20-\x7E]/g, '').trim();
@@ -53,108 +58,155 @@ export default function ReaderPage() {
     e.target.value = "";
   }, []);
 
+  const processFile = async (file: File, docId: string) => {
+    const buffer = await file.arrayBuffer();
+    const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
+
+    const cleanKey = apiKey.replace(/[^\x20-\x7E]/g, '').trim();
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": cleanKey,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 4000,
+        system: SYSTEM_PROMPT,
+        messages: [{
+          role: "user",
+          content: [{
+            type: "document",
+            source: { type: "base64", media_type: "application/pdf", data: base64 },
+          }, {
+            type: "text",
+            text: "Extract all invoice/PO data from this document. Return only valid JSON.",
+          }],
+        }],
+      }),
+    });
+
+    if (!response.ok) {
+      const err = await response.text();
+      throw new Error(`API error ${response.status}: ${err}`);
+    }
+
+    const result = await response.json();
+    const textContent = result.content?.find((c: any) => c.type === "text")?.text;
+    if (!textContent) throw new Error("No text content in response");
+
+    let jsonStr = textContent;
+    const match = textContent.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (match) jsonStr = match[1];
+    const parsed = JSON.parse(jsonStr.trim());
+
+    const invoice: VendorInvoiceInsert = {
+      vendor: parsed.vendor || "Unknown",
+      doc_type: parsed.doc_type || "INVOICE",
+      invoice_number: parsed.invoice_number || file.name,
+      invoice_date: parsed.invoice_date || new Date().toISOString().split("T")[0],
+      po_number: parsed.po_number,
+      account_number: parsed.account_number,
+      ship_to: parsed.ship_to,
+      carrier: parsed.carrier,
+      payment_terms: parsed.payment_terms,
+      subtotal: parsed.subtotal,
+      tax: parsed.tax,
+      freight: parsed.freight,
+      total: parsed.total || 0,
+      currency: parsed.currency || "USD",
+      vendor_brands: parsed.vendor_brands,
+      notes: parsed.notes,
+      filename: file.name,
+      line_items: parsed.line_items || [],
+    };
+
+    const saved = await insertInvoice(invoice);
+
+    setDocs(prev => prev.map(d => d.id === docId ? {
+      ...d, status: "done" as const, vendor: invoice.vendor, doc_type: invoice.doc_type,
+      invoice_number: invoice.invoice_number, total: invoice.total,
+      line_items_count: (parsed.line_items || []).length, dbId: saved.id,
+    } : d));
+  };
+
   const processQueue = async () => {
     if (!apiKey) { toast.error("Please enter your Anthropic API key"); return; }
     if (queue.length === 0) { toast.error("No files in queue"); return; }
 
     setProcessing(true);
+    cancelRef.current = false;
+    const filesToProcess = [...queue];
+    setBatchTotal(filesToProcess.length);
+    setBatchComplete(0);
+    setQueue([]);
 
-    for (const file of queue) {
-      const docId = crypto.randomUUID();
-      const doc: ProcessedDoc = {
-        id: docId, filename: file.name, vendor: "", doc_type: "",
-        invoice_number: "", total: 0, line_items_count: 0, status: "processing",
-      };
-      setDocs(prev => [...prev, doc]);
+    // Pre-create all doc entries as "processing"
+    const fileDocPairs = filesToProcess.map(file => ({
+      file,
+      docId: crypto.randomUUID(),
+    }));
 
-      try {
-        // Convert PDF to base64
-        const buffer = await file.arrayBuffer();
-        const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
+    setDocs(prev => [
+      ...prev,
+      ...fileDocPairs.map(({ file, docId }) => ({
+        id: docId,
+        filename: file.name,
+        vendor: "",
+        doc_type: "",
+        invoice_number: "",
+        total: 0,
+        line_items_count: 0,
+        status: "processing" as const,
+      })),
+    ]);
 
-        const cleanKey = apiKey.replace(/[^\x20-\x7E]/g, '').trim();
-        const response = await fetch("https://api.anthropic.com/v1/messages", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-api-key": cleanKey,
-            "anthropic-version": "2023-06-01",
-            "anthropic-dangerous-direct-browser-access": "true",
-          },
-          body: JSON.stringify({
-            model: "claude-sonnet-4-20250514",
-            max_tokens: 4000,
-            system: SYSTEM_PROMPT,
-            messages: [{
-              role: "user",
-              content: [{
-                type: "document",
-                source: { type: "base64", media_type: "application/pdf", data: base64 },
-              }, {
-                type: "text",
-                text: "Extract all invoice/PO data from this document. Return only valid JSON.",
-              }],
-            }],
-          }),
-        });
+    let completed = 0;
 
-        if (!response.ok) {
-          const err = await response.text();
-          throw new Error(`API error ${response.status}: ${err}`);
-        }
-
-        const result = await response.json();
-        const textContent = result.content?.find((c: any) => c.type === "text")?.text;
-        if (!textContent) throw new Error("No text content in response");
-
-        // Parse JSON from response (handle markdown code blocks)
-        let jsonStr = textContent;
-        const match = textContent.match(/```(?:json)?\s*([\s\S]*?)```/);
-        if (match) jsonStr = match[1];
-        const parsed = JSON.parse(jsonStr.trim());
-
-        // Save to Supabase
-        const invoice: VendorInvoiceInsert = {
-          vendor: parsed.vendor || "Unknown",
-          doc_type: parsed.doc_type || "INVOICE",
-          invoice_number: parsed.invoice_number || file.name,
-          invoice_date: parsed.invoice_date || new Date().toISOString().split("T")[0],
-          po_number: parsed.po_number,
-          account_number: parsed.account_number,
-          ship_to: parsed.ship_to,
-          carrier: parsed.carrier,
-          payment_terms: parsed.payment_terms,
-          subtotal: parsed.subtotal,
-          tax: parsed.tax,
-          freight: parsed.freight,
-          total: parsed.total || 0,
-          currency: parsed.currency || "USD",
-          vendor_brands: parsed.vendor_brands,
-          notes: parsed.notes,
-          filename: file.name,
-          line_items: parsed.line_items || [],
-        };
-
-        const saved = await insertInvoice(invoice);
-
-        setDocs(prev => prev.map(d => d.id === docId ? {
-          ...d, status: "done" as const, vendor: invoice.vendor, doc_type: invoice.doc_type,
-          invoice_number: invoice.invoice_number, total: invoice.total,
-          line_items_count: (parsed.line_items || []).length, dbId: saved.id,
-        } : d));
-
-      } catch (err: any) {
-        setDocs(prev => prev.map(d => d.id === docId ? {
-          ...d, status: "error" as const, error: err.message,
-        } : d));
+    for (let i = 0; i < fileDocPairs.length; i += CONCURRENCY) {
+      if (cancelRef.current) {
+        // Mark remaining as error
+        const remaining = fileDocPairs.slice(i);
+        setDocs(prev => prev.map(d =>
+          remaining.some(r => r.docId === d.id) && d.status === "processing"
+            ? { ...d, status: "error" as const, error: "Cancelled" }
+            : d
+        ));
+        toast.info(`Batch cancelled. ${completed} of ${filesToProcess.length} processed.`);
+        break;
       }
+
+      const chunk = fileDocPairs.slice(i, i + CONCURRENCY);
+
+      await Promise.all(
+        chunk.map(async ({ file, docId }) => {
+          try {
+            await processFile(file, docId);
+          } catch (err: any) {
+            setDocs(prev => prev.map(d => d.id === docId
+              ? { ...d, status: "error" as const, error: err.message }
+              : d
+            ));
+          }
+        })
+      );
+
+      completed += chunk.length;
+      setBatchComplete(completed);
     }
 
-    setQueue([]);
     setProcessing(false);
+    setBatchTotal(0);
     queryClient.invalidateQueries({ queryKey: ["vendor_invoices"] });
     queryClient.invalidateQueries({ queryKey: ["distinct_vendors"] });
-    toast.success("Processing complete");
+    if (!cancelRef.current) toast.success("Processing complete");
+  };
+
+  const handleCancel = () => {
+    cancelRef.current = true;
+    toast.info("Cancelling after current chunk finishes…");
   };
 
   // Session summary
