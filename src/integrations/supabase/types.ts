@@ -14,6 +14,93 @@ export type Database = {
   }
   public: {
     Tables: {
+      current_planogram: {
+        Row: {
+          backstock_location: string | null
+          brand: string | null
+          brand_key: string | null
+          created_at: string
+          frame_source: string | null
+          go_out_location: string | null
+          id: string
+          is_discontinued: boolean | null
+          is_vendor_discontinued: boolean | null
+          model_number: string | null
+          upc: string | null
+        }
+        Insert: {
+          backstock_location?: string | null
+          brand?: string | null
+          brand_key?: string | null
+          created_at?: string
+          frame_source?: string | null
+          go_out_location?: string | null
+          id?: string
+          is_discontinued?: boolean | null
+          is_vendor_discontinued?: boolean | null
+          model_number?: string | null
+          upc?: string | null
+        }
+        Update: {
+          backstock_location?: string | null
+          brand?: string | null
+          brand_key?: string | null
+          created_at?: string
+          frame_source?: string | null
+          go_out_location?: string | null
+          id?: string
+          is_discontinued?: boolean | null
+          is_vendor_discontinued?: boolean | null
+          model_number?: string | null
+          upc?: string | null
+        }
+        Relationships: []
+      }
+      item_master: {
+        Row: {
+          article_name: string | null
+          brand: string | null
+          color: string | null
+          created_at: string
+          frame_shape: string | null
+          gender: string | null
+          id: string
+          model_number: string | null
+          retail_price: number | null
+          size: string | null
+          upc: string | null
+          wholesale_price: number | null
+        }
+        Insert: {
+          article_name?: string | null
+          brand?: string | null
+          color?: string | null
+          created_at?: string
+          frame_shape?: string | null
+          gender?: string | null
+          id?: string
+          model_number?: string | null
+          retail_price?: number | null
+          size?: string | null
+          upc?: string | null
+          wholesale_price?: number | null
+        }
+        Update: {
+          article_name?: string | null
+          brand?: string | null
+          color?: string | null
+          created_at?: string
+          frame_shape?: string | null
+          gender?: string | null
+          id?: string
+          model_number?: string | null
+          retail_price?: number | null
+          size?: string | null
+          upc?: string | null
+          wholesale_price?: number | null
+        }
+        Relationships: []
+      }
       vendor_invoices: {
         Row: {
           account_number: string | null
