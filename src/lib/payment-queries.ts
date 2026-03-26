@@ -1,6 +1,16 @@
 import { supabase } from "@/integrations/supabase/client";
 import { calculateInstallments, hasTermsEngine } from "./payment-terms";
 
+export interface PaymentHistoryEntry {
+  date: string;
+  amount: number;
+  method: string;
+  reference: string;
+  note: string;
+  recorded_by: string;
+  timestamp: string;
+}
+
 export interface InvoicePayment {
   id: string;
   invoice_id: string | null;
@@ -13,10 +23,64 @@ export interface InvoicePayment {
   installment_label: string | null;
   due_date: string;
   amount_due: number;
+  amount_paid: number;
+  balance_remaining: number;
+  payment_status: string;
+  payment_method: string | null;
+  check_number: string | null;
+  payment_reference: string | null;
+  payment_history: PaymentHistoryEntry[];
+  dispute_reason: string | null;
+  void_reason: string | null;
+  last_payment_date: string | null;
+  recorded_by: string | null;
   is_paid: boolean;
   paid_date: string | null;
   notes: string | null;
   created_at: string;
+}
+
+export type PaymentStatus = "unpaid" | "partial" | "paid" | "overpaid" | "disputed" | "void";
+
+export function derivePaymentStatus(amountDue: number, amountPaid: number): PaymentStatus {
+  if (amountPaid <= 0) return "unpaid";
+  if (amountPaid > amountDue) return "overpaid";
+  if (amountPaid >= amountDue) return "paid";
+  return "partial";
+}
+
+export function isOverdue(dueDate: string, status: string): boolean {
+  if (status === "paid" || status === "overpaid" || status === "void") return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return new Date(dueDate + "T00:00:00") < today;
+}
+
+export function getDaysOverdue(dueDate: string): number {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const due = new Date(dueDate + "T00:00:00");
+  const diff = Math.ceil((today.getTime() - due.getTime()) / (1000 * 60 * 60 * 24));
+  return Math.max(0, diff);
+}
+
+function normalizePayment(row: any): InvoicePayment {
+  const amountDue = Number(row.amount_due) || 0;
+  const amountPaid = Number(row.amount_paid) || 0;
+  const balanceRemaining = amountDue - amountPaid;
+  let paymentStatus = row.payment_status || derivePaymentStatus(amountDue, amountPaid);
+  // Override if manually disputed/void
+  if (row.payment_status === "disputed" || row.payment_status === "void") {
+    paymentStatus = row.payment_status;
+  }
+  return {
+    ...row,
+    amount_due: amountDue,
+    amount_paid: amountPaid,
+    balance_remaining: balanceRemaining,
+    payment_status: paymentStatus,
+    payment_history: Array.isArray(row.payment_history) ? row.payment_history : [],
+  };
 }
 
 export async function fetchPayments(): Promise<InvoicePayment[]> {
@@ -25,7 +89,7 @@ export async function fetchPayments(): Promise<InvoicePayment[]> {
     .select("*")
     .order("due_date", { ascending: true });
   if (error) throw error;
-  return (data ?? []) as InvoicePayment[];
+  return (data ?? []).map(normalizePayment);
 }
 
 export async function fetchPaymentsForInvoice(invoiceId: string): Promise<InvoicePayment[]> {
@@ -35,14 +99,100 @@ export async function fetchPaymentsForInvoice(invoiceId: string): Promise<Invoic
     .eq("invoice_id", invoiceId)
     .order("due_date", { ascending: true });
   if (error) throw error;
-  return (data ?? []) as InvoicePayment[];
+  return (data ?? []).map(normalizePayment);
+}
+
+export async function recordPayment(
+  paymentId: string,
+  amount: number,
+  paymentDate: string,
+  method: string,
+  reference: string,
+  note: string,
+  recordedBy: string
+): Promise<void> {
+  // Fetch current payment
+  const { data: current, error: fetchErr } = await supabase
+    .from("invoice_payments")
+    .select("*")
+    .eq("id", paymentId)
+    .single();
+  if (fetchErr) throw fetchErr;
+
+  const amountDue = Number(current.amount_due) || 0;
+  const prevPaid = Number(current.amount_paid) || 0;
+  const newPaid = prevPaid + amount;
+  const newBalance = amountDue - newPaid;
+  const newStatus = derivePaymentStatus(amountDue, newPaid);
+
+  const historyEntry: PaymentHistoryEntry = {
+    date: paymentDate,
+    amount,
+    method,
+    reference,
+    note,
+    recorded_by: recordedBy,
+    timestamp: new Date().toISOString(),
+  };
+
+  const existingHistory = Array.isArray(current.payment_history) ? current.payment_history : [];
+
+  const { error } = await supabase
+    .from("invoice_payments")
+    .update({
+      amount_paid: newPaid,
+      balance_remaining: newBalance,
+      payment_status: newStatus,
+      payment_method: method,
+      check_number: method === "Check" ? reference : current.check_number,
+      payment_reference: method === "ACH" || method === "Wire" ? reference : current.payment_reference,
+      last_payment_date: paymentDate,
+      is_paid: newStatus === "paid" || newStatus === "overpaid",
+      paid_date: newStatus === "paid" || newStatus === "overpaid" ? paymentDate : current.paid_date,
+      recorded_by: recordedBy,
+      payment_history: [...existingHistory, historyEntry],
+    } as any)
+    .eq("id", paymentId);
+  if (error) throw error;
+}
+
+export async function setPaymentDisputed(paymentId: string, reason: string): Promise<void> {
+  const { error } = await supabase
+    .from("invoice_payments")
+    .update({ payment_status: "disputed", dispute_reason: reason } as any)
+    .eq("id", paymentId);
+  if (error) throw error;
+}
+
+export async function setPaymentVoid(paymentId: string, reason: string): Promise<void> {
+  const { error } = await supabase
+    .from("invoice_payments")
+    .update({ payment_status: "void", void_reason: reason } as any)
+    .eq("id", paymentId);
+  if (error) throw error;
 }
 
 export async function markPaymentPaid(paymentId: string): Promise<void> {
+  const { data: current, error: fetchErr } = await supabase
+    .from("invoice_payments")
+    .select("amount_due, amount_paid, payment_history")
+    .eq("id", paymentId)
+    .single();
+  if (fetchErr) throw fetchErr;
+
+  const amountDue = Number(current.amount_due) || 0;
   const today = new Date().toISOString().split("T")[0];
+
   const { error } = await supabase
     .from("invoice_payments")
-    .update({ is_paid: true, paid_date: today })
+    .update({
+      is_paid: true,
+      paid_date: today,
+      amount_paid: amountDue,
+      balance_remaining: 0,
+      payment_status: "paid",
+      last_payment_date: today,
+    } as any)
     .eq("id", paymentId);
   if (error) throw error;
 }
@@ -50,7 +200,13 @@ export async function markPaymentPaid(paymentId: string): Promise<void> {
 export async function markPaymentUnpaid(paymentId: string): Promise<void> {
   const { error } = await supabase
     .from("invoice_payments")
-    .update({ is_paid: false, paid_date: null })
+    .update({
+      is_paid: false,
+      paid_date: null,
+      amount_paid: 0,
+      balance_remaining: null, // will be recalculated client-side
+      payment_status: "unpaid",
+    } as any)
     .eq("id", paymentId);
   if (error) throw error;
 }
@@ -63,7 +219,6 @@ export async function generatePaymentsForInvoice(
   invoiceNumber: string,
   poNumber: string | null
 ): Promise<number> {
-  // Check if payments already exist (idempotent)
   const { data: existing } = await supabase
     .from("invoice_payments")
     .select("id")
@@ -71,7 +226,6 @@ export async function generatePaymentsForInvoice(
     .limit(1);
 
   if (existing && existing.length > 0) return 0;
-
   if (!hasTermsEngine(vendor)) return 0;
 
   const installments = calculateInstallments(invoiceDate, total, vendor, invoiceNumber, poNumber);
@@ -88,6 +242,9 @@ export async function generatePaymentsForInvoice(
     installment_label: inst.installment_label,
     due_date: inst.due_date,
     amount_due: inst.amount_due,
+    amount_paid: 0,
+    balance_remaining: inst.amount_due,
+    payment_status: "unpaid",
   }));
 
   const { error } = await supabase.from("invoice_payments").insert(rows);
@@ -96,7 +253,6 @@ export async function generatePaymentsForInvoice(
 }
 
 export async function generateAllMissingPayments(): Promise<{ generated: number; invoices: number }> {
-  // Fetch all invoices that DON'T have payments yet
   const { data: allInvoices, error: invErr } = await supabase
     .from("vendor_invoices")
     .select("id, invoice_date, total, vendor, invoice_number, po_number");
@@ -119,4 +275,41 @@ export async function generateAllMissingPayments(): Promise<{ generated: number;
   }
 
   return { generated: totalGenerated, invoices: missing.length };
+}
+
+// Invoice-level rollup (computed, not stored)
+export interface InvoicePaymentRollup {
+  total_installments: number;
+  installments_paid: number;
+  installments_partial: number;
+  installments_unpaid: number;
+  total_amount_due: number;
+  total_amount_paid: number;
+  total_balance_remaining: number;
+  invoice_payment_status: string;
+}
+
+export function computeInvoiceRollup(payments: InvoicePayment[]): InvoicePaymentRollup {
+  const total_installments = payments.length;
+  const installments_paid = payments.filter(p => p.payment_status === "paid" || p.payment_status === "overpaid").length;
+  const installments_partial = payments.filter(p => p.payment_status === "partial").length;
+  const installments_unpaid = payments.filter(p => p.payment_status === "unpaid").length;
+  const total_amount_due = payments.reduce((s, p) => s + p.amount_due, 0);
+  const total_amount_paid = payments.reduce((s, p) => s + p.amount_paid, 0);
+  const total_balance_remaining = payments.reduce((s, p) => s + p.balance_remaining, 0);
+
+  let invoice_payment_status = "unpaid";
+  if (payments.some(p => p.payment_status === "disputed")) invoice_payment_status = "disputed";
+  else if (installments_paid === total_installments && total_installments > 0) invoice_payment_status = "paid";
+  else if (total_amount_paid > 0) invoice_payment_status = "partial";
+  // Check overdue
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  if (payments.some(p => isOverdue(p.due_date, p.payment_status))) {
+    if (invoice_payment_status === "unpaid" || invoice_payment_status === "partial") {
+      invoice_payment_status = "overdue";
+    }
+  }
+
+  return { total_installments, installments_paid, installments_partial, installments_unpaid, total_amount_due, total_amount_paid, total_balance_remaining, invoice_payment_status };
 }
