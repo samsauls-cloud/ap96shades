@@ -9,6 +9,7 @@ import InvoicesPage from "./pages/Invoices.tsx";
 import ReaderPage from "./pages/Reader.tsx";
 import MatchReportPage from "./pages/MatchReport.tsx";
 import APDashboardPage from "./pages/APDashboard.tsx";
+import ReportsPage from "./pages/Reports.tsx";
 import NotFound from "./pages/NotFound.tsx";
 
 const queryClient = new QueryClient();
@@ -26,6 +27,7 @@ const App = () => (
             <Route path="/invoices/reader" element={<ReaderPage />} />
             <Route path="/invoices/match" element={<MatchReportPage />} />
             <Route path="/invoices/dashboard" element={<APDashboardPage />} />
+            <Route path="/invoices/reports" element={<ReportsPage />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
