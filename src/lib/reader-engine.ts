@@ -167,33 +167,34 @@ export async function runRollingQueue<T>(
   let resolveAll: () => void;
   const allDone = new Promise<void>(r => { resolveAll = r; });
 
-  const startNext = () => {
-    while (nextIndex < items.length && active < maxConcurrency && !cancelRef.current) {
-      const idx = nextIndex++;
-      active++;
-      const staggerDelay = idx < maxConcurrency ? idx * staggerMs : 0;
-
-      setTimeout(() => {
-        if (cancelRef.current) {
-          active--;
-          if (active === 0 && (nextIndex >= items.length || cancelRef.current)) resolveAll();
-          return;
+  const launch = (idx: number, delay: number) => {
+    setTimeout(() => {
+      if (cancelRef.current) {
+        active--;
+        if (active === 0) resolveAll();
+        return;
+      }
+      onProcess(items[idx], idx).finally(() => {
+        active--;
+        // As soon as a slot opens, start next item immediately (no stagger)
+        if (!cancelRef.current && nextIndex < items.length) {
+          const ni = nextIndex++;
+          active++;
+          launch(ni, 0);
         }
-        onProcess(items[idx], idx).finally(() => {
-          active--;
-          if (!cancelRef.current) startNext();
-          if (active === 0 && (nextIndex >= items.length || cancelRef.current)) resolveAll();
-        });
-      }, staggerDelay);
-
-      // Only stagger the initial ramp-up; after that, start immediately as slots open
-      if (idx >= maxConcurrency - 1) break;
-    }
+        if (active === 0 && (nextIndex >= items.length || cancelRef.current)) resolveAll();
+      });
+    }, delay);
   };
 
-  startNext();
+  // Initial staggered ramp-up
+  const initialCount = Math.min(maxConcurrency, items.length);
+  for (let i = 0; i < initialCount; i++) {
+    nextIndex++;
+    active++;
+    launch(i, i * staggerMs);
+  }
 
-  // If no items, resolve immediately
   if (items.length === 0) return;
 
   await allDone;
