@@ -3,11 +3,14 @@ import type { VendorInvoiceInsert } from "@/lib/supabase-queries";
 
 const SYSTEM_PROMPT = `You are a document data extractor for an optical retail business (NinetySix Shades). Extract data from vendor invoices AND purchase orders from: Maui Jim, Kering (Gucci, Saint Laurent, Balenciaga, Bottega Veneta, Alexander McQueen), Safilo (Carrera, Fossil, Hugo Boss, Jimmy Choo), Marcolin (Tom Ford, Guess, Swarovski, Montblanc), Luxottica (Ray-Ban, Oakley, Prada, Versace, Persol, Coach, DKNY, Dolce & Gabbana, Emporio Armani, Giorgio Armani, Burberry, Michael Kors, Tiffany, Vogue). Luxottica POs use fields: Order Number, Account Number, Carrier, Terms, Item Number, Color Code, Temple, Quantity Ordered, Quantity Shipped, Unit Cost, Extended Cost. Detect INVOICE vs PO. Return ONLY valid JSON: { doc_type, vendor, vendor_brands[], invoice_number, invoice_date (YYYY-MM-DD), po_number, account_number, ship_to, carrier, payment_terms, subtotal, tax, freight, total, currency, line_items[{upc, item_number, sku, description, brand, model, color_code, color_desc, size, temple, qty_ordered, qty_shipped, qty, unit_price, line_total}], notes }`;
 
-export const CONCURRENCY = 10;
-const MAX_RETRIES = 2;
-const RETRY_DELAY_MS = 10_000;
+export const CONCURRENCY = 5;
+export const RETRY_CONCURRENCY = 3;
+export const STAGGER_DELAY = 3000;
+export const RETRY_WAITS = [20_000, 45_000, 90_000];
+export const MAX_RETRIES = 3;
+export const RETRY_COOLDOWN = 30_000;
 
-export type DocStatus = "processing" | "done" | "error" | "duplicate" | "retrying" | "staged";
+export type DocStatus = "processing" | "done" | "error" | "duplicate" | "retrying" | "staged" | "waiting-retry";
 
 export interface ProcessedDoc {
   id: string;
@@ -21,6 +24,7 @@ export interface ProcessedDoc {
   error?: string;
   dbId?: string;
   retryAttempt?: number;
+  retryCountdown?: number;
   duplicateDbId?: string;
   invoiceData?: VendorInvoiceInsert;
 }
@@ -37,14 +41,13 @@ export interface BatchStats {
   lineItems: number;
 }
 
-function sleep(ms: number) {
+export function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 export async function callAnthropicAPI(
   apiKey: string,
   base64: string,
-  retryCount = 0,
 ): Promise<any> {
   const cleanKey = apiKey.replace(/[^\x20-\x7E]/g, '').trim();
   const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -72,8 +75,8 @@ export async function callAnthropicAPI(
     }),
   });
 
-  if (response.status === 429 && retryCount < MAX_RETRIES) {
-    throw { isRateLimit: true, retryCount };
+  if (response.status === 429) {
+    throw { isRateLimit: true };
   }
 
   if (!response.ok) {
@@ -145,4 +148,54 @@ export async function batchInsertInvoices(invoices: VendorInvoiceInsert[]) {
   return data;
 }
 
-export { RETRY_DELAY_MS, MAX_RETRIES, sleep };
+export type FileDocPair = { file: File; docId: string };
+
+/**
+ * Staggered rolling queue processor.
+ * Starts tasks with STAGGER_DELAY between each, never exceeding maxConcurrency active.
+ * onProcess is called for each item; it should return a promise.
+ */
+export async function runRollingQueue<T>(
+  items: T[],
+  maxConcurrency: number,
+  staggerMs: number,
+  onProcess: (item: T, index: number) => Promise<void>,
+  cancelRef: { current: boolean },
+): Promise<void> {
+  let nextIndex = 0;
+  let active = 0;
+  let resolveAll: () => void;
+  const allDone = new Promise<void>(r => { resolveAll = r; });
+
+  const launch = (idx: number, delay: number) => {
+    setTimeout(() => {
+      if (cancelRef.current) {
+        active--;
+        if (active === 0) resolveAll();
+        return;
+      }
+      onProcess(items[idx], idx).finally(() => {
+        active--;
+        // As soon as a slot opens, start next item immediately (no stagger)
+        if (!cancelRef.current && nextIndex < items.length) {
+          const ni = nextIndex++;
+          active++;
+          launch(ni, 0);
+        }
+        if (active === 0 && (nextIndex >= items.length || cancelRef.current)) resolveAll();
+      });
+    }, delay);
+  };
+
+  // Initial staggered ramp-up
+  const initialCount = Math.min(maxConcurrency, items.length);
+  for (let i = 0; i < initialCount; i++) {
+    nextIndex++;
+    active++;
+    launch(i, i * staggerMs);
+  }
+
+  if (items.length === 0) return;
+
+  await allDone;
+}

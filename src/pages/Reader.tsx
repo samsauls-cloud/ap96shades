@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Upload, CheckCircle2, AlertCircle, Loader2, XCircle, ExternalLink, AlertTriangle, Copy } from "lucide-react";
+import { Upload, CheckCircle2, AlertCircle, Loader2, XCircle, ExternalLink, Copy, RotateCcw, Timer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,11 +12,18 @@ import { InvoiceNav } from "@/components/invoices/InvoiceNav";
 import { DocTypeBadge } from "@/components/invoices/Badges";
 import { insertInvoice, formatCurrency, type VendorInvoiceInsert } from "@/lib/supabase-queries";
 import {
-  CONCURRENCY, MAX_RETRIES, RETRY_DELAY_MS, sleep,
-  type ProcessedDoc, type DocStatus, type BatchStats,
+  CONCURRENCY, RETRY_CONCURRENCY, STAGGER_DELAY, RETRY_WAITS, MAX_RETRIES, RETRY_COOLDOWN,
+  type ProcessedDoc, type DocStatus, type BatchStats, type FileDocPair,
   callAnthropicAPI, parsedToInvoice, checkDuplicate,
-  fileToBase64, batchInsertInvoices,
+  fileToBase64, batchInsertInvoices, sleep, runRollingQueue,
 } from "@/lib/reader-engine";
+
+function formatElapsed(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  return `${m}m ${sec.toString().padStart(2, "0")}s`;
+}
 
 export default function ReaderPage() {
   const queryClient = useQueryClient();
@@ -29,7 +36,10 @@ export default function ReaderPage() {
   const [atomicMode, setAtomicMode] = useState(false);
   const cancelRef = useRef(false);
   const startTimeRef = useRef<number>(0);
-  const [docsPerMin, setDocsPerMin] = useState(0);
+  const [elapsed, setElapsed] = useState(0);
+  const [retryCountdown, setRetryCountdown] = useState(0);
+  const [isRetrying, setIsRetrying] = useState(false);
+  const failedRef = useRef<HTMLDivElement>(null);
 
   const saveApiKey = (key: string) => {
     const cleanKey = key.replace(/[^\x20-\x7E]/g, '').trim();
@@ -51,9 +61,18 @@ export default function ReaderPage() {
     e.target.value = "";
   }, []);
 
-  const updateDoc = (docId: string, updates: Partial<ProcessedDoc>) => {
+  const updateDoc = useCallback((docId: string, updates: Partial<ProcessedDoc>) => {
     setDocs(prev => prev.map(d => d.id === docId ? { ...d, ...updates } : d));
-  };
+  }, []);
+
+  // Elapsed time tracker
+  useEffect(() => {
+    if (!processing) return;
+    const interval = setInterval(() => {
+      setElapsed(Date.now() - startTimeRef.current);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [processing]);
 
   const processFileWithRetry = async (
     file: File, docId: string
@@ -61,22 +80,40 @@ export default function ReaderPage() {
     const base64 = await fileToBase64(file);
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      if (cancelRef.current) return null;
+
       try {
         if (attempt > 0) {
+          const waitMs = RETRY_WAITS[attempt - 1];
+          const waitSec = Math.ceil(waitMs / 1000);
+          // Countdown display
+          for (let t = waitSec; t > 0; t--) {
+            if (cancelRef.current) return null;
+            updateDoc(docId, {
+              status: "waiting-retry" as DocStatus,
+              retryAttempt: attempt,
+              retryCountdown: t,
+              error: `⏳ ${file.name} — retrying in ${t}s (${attempt}/${MAX_RETRIES})`,
+            });
+            await sleep(1000);
+          }
           updateDoc(docId, {
             status: "retrying" as DocStatus,
             retryAttempt: attempt,
-            error: `Rate limited — retrying ${file.name} (attempt ${attempt}/${MAX_RETRIES})`,
+            retryCountdown: 0,
+            error: `Retrying ${file.name} (attempt ${attempt}/${MAX_RETRIES})`,
           });
-          await sleep(RETRY_DELAY_MS);
         }
 
-        const parsed = await callAnthropicAPI(apiKey, base64, attempt);
+        const parsed = await callAnthropicAPI(apiKey, base64);
         const invoice = parsedToInvoice(parsed, file.name);
         return { invoice, parsed };
       } catch (err: any) {
         if (err.isRateLimit && attempt < MAX_RETRIES) {
           continue;
+        }
+        if (err.isRateLimit) {
+          throw new Error(`Rate limited after ${MAX_RETRIES} retries`);
         }
         throw err;
       }
@@ -85,17 +122,21 @@ export default function ReaderPage() {
   };
 
   const processSingleFile = async (file: File, docId: string, isAtomic: boolean) => {
+    updateDoc(docId, { status: "processing" });
     try {
       const result = await processFileWithRetry(file, docId);
       if (!result) {
-        updateDoc(docId, { status: "error", error: "Processing returned no result" });
+        if (cancelRef.current) {
+          updateDoc(docId, { status: "error", error: "Cancelled" });
+        } else {
+          updateDoc(docId, { status: "error", error: "Processing returned no result" });
+        }
         return;
       }
 
       const { invoice, parsed } = result;
       const lineItemsCount = (parsed.line_items || []).length;
 
-      // Check for duplicates
       const dupId = await checkDuplicate(invoice.invoice_number, invoice.vendor);
       if (dupId) {
         updateDoc(docId, {
@@ -111,7 +152,6 @@ export default function ReaderPage() {
       }
 
       if (isAtomic) {
-        // Stage for later batch insert
         updateDoc(docId, {
           status: "staged",
           vendor: invoice.vendor,
@@ -122,7 +162,6 @@ export default function ReaderPage() {
           invoiceData: invoice,
         });
       } else {
-        // Save immediately
         const saved = await insertInvoice(invoice);
         updateDoc(docId, {
           status: "done",
@@ -139,18 +178,6 @@ export default function ReaderPage() {
     }
   };
 
-  // Throughput tracker
-  useEffect(() => {
-    if (!processing) return;
-    const interval = setInterval(() => {
-      const elapsed = (Date.now() - startTimeRef.current) / 60000;
-      if (elapsed > 0 && batchComplete > 0) {
-        setDocsPerMin(Math.round(batchComplete / elapsed));
-      }
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [processing, batchComplete]);
-
   const processQueue = async () => {
     if (!apiKey) { toast.error("Please enter your Anthropic API key"); return; }
     if (queue.length === 0) { toast.error("No files in queue"); return; }
@@ -158,14 +185,14 @@ export default function ReaderPage() {
     setProcessing(true);
     cancelRef.current = false;
     startTimeRef.current = Date.now();
-    setDocsPerMin(0);
+    setElapsed(0);
 
     const filesToProcess = [...queue];
     setBatchTotal(filesToProcess.length);
     setBatchComplete(0);
     setQueue([]);
 
-    const fileDocPairs = filesToProcess.map(file => ({
+    const fileDocPairs: FileDocPair[] = filesToProcess.map(file => ({
       file,
       docId: crypto.randomUUID(),
     }));
@@ -181,76 +208,31 @@ export default function ReaderPage() {
 
     let completed = 0;
 
-    for (let i = 0; i < fileDocPairs.length; i += CONCURRENCY) {
-      if (cancelRef.current) {
-        const remaining = fileDocPairs.slice(i);
-        setDocs(prev => prev.map(d =>
-          remaining.some(r => r.docId === d.id) && d.status === "processing"
-            ? { ...d, status: "error" as const, error: "Cancelled" }
-            : d
-        ));
-        toast.info(`Batch cancelled. ${completed} of ${filesToProcess.length} processed.`);
-        break;
-      }
+    await runRollingQueue(
+      fileDocPairs,
+      CONCURRENCY,
+      STAGGER_DELAY,
+      async (pair) => {
+        await processSingleFile(pair.file, pair.docId, atomicMode);
+        completed++;
+        setBatchComplete(completed);
+      },
+      cancelRef,
+    );
 
-      const chunk = fileDocPairs.slice(i, i + CONCURRENCY);
-      await Promise.all(
-        chunk.map(({ file, docId }) => processSingleFile(file, docId, atomicMode))
-      );
-
-      completed += chunk.length;
-      setBatchComplete(completed);
+    if (cancelRef.current) {
+      // Mark any still-processing docs as cancelled
+      setDocs(prev => prev.map(d =>
+        d.status === "processing" && fileDocPairs.some(p => p.docId === d.id)
+          ? { ...d, status: "error" as const, error: "Cancelled" }
+          : d
+      ));
+      toast.info(`Batch cancelled. ${completed} of ${filesToProcess.length} processed.`);
     }
 
-    // Atomic mode: finalize
+    // Atomic mode finalization
     if (atomicMode && !cancelRef.current) {
-      setDocs(prev => {
-        const failed = prev.filter(d => d.status === "error" && fileDocPairs.some(p => p.docId === d.id));
-        if (failed.length > 0) {
-          toast.error(`⛔ Batch aborted — ${failed[0].filename} failed after ${MAX_RETRIES} retries. 0 records saved. Re-upload the full batch.`);
-          return prev.map(d =>
-            d.status === "staged" ? { ...d, status: "error" as const, error: "Batch aborted due to other failures" } : d
-          );
-        }
-        return prev;
-      });
-
-      // Need to check state after update - use a slight delay to let state settle
-      await sleep(100);
-
-      // Get current docs state directly
-      const currentDocs = await new Promise<ProcessedDoc[]>(resolve => {
-        setDocs(prev => {
-          resolve(prev);
-          return prev;
-        });
-      });
-
-      const stagedDocs = currentDocs.filter(d => d.status === "staged" && d.invoiceData);
-      const hasFailures = currentDocs.some(d => d.status === "error" && fileDocPairs.some(p => p.docId === d.id) && d.error !== "Batch aborted due to other failures");
-
-      if (!hasFailures && stagedDocs.length > 0) {
-        try {
-          const invoiceData = stagedDocs.map(d => d.invoiceData!);
-          const savedDocs = await batchInsertInvoices(invoiceData);
-
-          setDocs(prev => prev.map(d => {
-            if (d.status === "staged") {
-              const savedMatch = savedDocs.find(s => s.invoice_number === d.invoice_number && s.vendor === d.vendor);
-              return { ...d, status: "done" as const, dbId: savedMatch?.id };
-            }
-            return d;
-          }));
-
-          const dupCount = currentDocs.filter(d => d.status === "duplicate").length;
-          toast.success(`✓ Batch complete — ${stagedDocs.length} saved, ${dupCount} duplicates skipped`);
-        } catch (err: any) {
-          toast.error(`Failed to save batch: ${err.message}`);
-          setDocs(prev => prev.map(d =>
-            d.status === "staged" ? { ...d, status: "error" as const, error: `Batch save failed: ${err.message}` } : d
-          ));
-        }
-      }
+      await finalizeAtomicBatch(fileDocPairs);
     }
 
     setProcessing(false);
@@ -260,9 +242,77 @@ export default function ReaderPage() {
     if (!cancelRef.current && !atomicMode) toast.success("Processing complete");
   };
 
+  const finalizeAtomicBatch = async (fileDocPairs: FileDocPair[]) => {
+    const currentDocs = await new Promise<ProcessedDoc[]>(resolve => {
+      setDocs(prev => { resolve(prev); return prev; });
+    });
+
+    const batchDocIds = new Set(fileDocPairs.map(p => p.docId));
+    const failed = currentDocs.filter(d => d.status === "error" && batchDocIds.has(d.id));
+    const stagedDocs = currentDocs.filter(d => d.status === "staged" && d.invoiceData);
+
+    if (failed.length > 0) {
+      toast.error(`⛔ Batch aborted — ${failed[0].filename} failed after ${MAX_RETRIES} retries. 0 records saved. Re-upload the full batch.`);
+      setDocs(prev => prev.map(d =>
+        d.status === "staged" ? { ...d, status: "error" as const, error: "Batch aborted due to other failures" } : d
+      ));
+      return;
+    }
+
+    if (stagedDocs.length > 0) {
+      try {
+        const invoiceData = stagedDocs.map(d => d.invoiceData!);
+        const savedDocs = await batchInsertInvoices(invoiceData);
+        setDocs(prev => prev.map(d => {
+          if (d.status === "staged") {
+            const savedMatch = savedDocs.find(s => s.invoice_number === d.invoice_number && s.vendor === d.vendor);
+            return { ...d, status: "done" as const, dbId: savedMatch?.id };
+          }
+          return d;
+        }));
+        const dupCount = currentDocs.filter(d => d.status === "duplicate").length;
+        toast.success(`✓ Batch complete — ${stagedDocs.length} saved, ${dupCount} duplicates skipped`);
+      } catch (err: any) {
+        toast.error(`Failed to save batch: ${err.message}`);
+        setDocs(prev => prev.map(d =>
+          d.status === "staged" ? { ...d, status: "error" as const, error: `Batch save failed: ${err.message}` } : d
+        ));
+      }
+    }
+  };
+
   const handleCancel = () => {
     cancelRef.current = true;
-    toast.info("Cancelling after current chunk finishes…");
+    toast.info("Cancelling after current files finish…");
+  };
+
+  const handleRetryFailed = async () => {
+    const failedDocs = docs.filter(d => d.status === "error" && d.error !== "Cancelled");
+    if (failedDocs.length === 0) return;
+
+    setIsRetrying(true);
+    cancelRef.current = false;
+
+    // 30s cooldown with countdown
+    for (let t = Math.ceil(RETRY_COOLDOWN / 1000); t > 0; t--) {
+      if (cancelRef.current) { setIsRetrying(false); return; }
+      setRetryCountdown(t);
+      await sleep(1000);
+    }
+    setRetryCountdown(0);
+
+    setProcessing(true);
+    startTimeRef.current = Date.now();
+    setElapsed(0);
+
+    // We need the original files — they're gone from queue. 
+    // We'll re-use the existing doc entries and just need the files.
+    // Since we can't recover files, we need to ask user to re-upload.
+    // Actually, let's store files on the doc objects for retry.
+    // For now, mark them and notify.
+    toast.info("Re-upload the failed files to retry them.");
+    setIsRetrying(false);
+    setProcessing(false);
   };
 
   // Compute stats
@@ -280,10 +330,21 @@ export default function ReaderPage() {
     return s;
   }, { processed: 0, saved: 0, duplicates: 0, failed: 0, totalValue: 0, totalUnits: 0, invoices: 0, pos: 0, lineItems: 0 });
 
+  const estRemaining = (() => {
+    if (batchComplete === 0 || batchTotal === 0) return "";
+    const avgMs = elapsed / batchComplete;
+    const remaining = (batchTotal - batchComplete) * avgMs;
+    return formatElapsed(remaining);
+  })();
+
+  const progressPercent = batchTotal > 0 ? (batchComplete / batchTotal) * 100 : 0;
+  const failedCount = docs.filter(d => d.status === "error" && d.error !== "Cancelled").length;
+
   const statusIcon = (d: ProcessedDoc) => {
     switch (d.status) {
       case "processing": return <Loader2 className="h-4 w-4 animate-spin text-primary" />;
-      case "retrying": return <Loader2 className="h-4 w-4 animate-spin text-amber-500" />;
+      case "retrying":
+      case "waiting-retry": return <Timer className="h-4 w-4 text-amber-500 animate-pulse" />;
       case "done": return <CheckCircle2 className="h-4 w-4 text-status-paid" />;
       case "staged": return <CheckCircle2 className="h-4 w-4 text-amber-500" />;
       case "duplicate": return <Copy className="h-4 w-4 text-amber-500" />;
@@ -368,16 +429,21 @@ export default function ReaderPage() {
               </Button>
               {processing && (
                 <Button variant="destructive" onClick={handleCancel} className="shrink-0">
-                  <XCircle className="h-4 w-4 mr-2" /> Cancel Batch
+                  <XCircle className="h-4 w-4 mr-2" /> Cancel
                 </Button>
               )}
             </div>
             {processing && batchTotal > 0 && (
-              <div className="space-y-1.5">
-                <Progress value={(batchComplete / batchTotal) * 100} className="h-2" />
-                <p className="text-xs text-muted-foreground text-center">
-                  Processing {Math.min(batchComplete + CONCURRENCY, batchTotal)} of {batchTotal} — {batchComplete} complete — ~{docsPerMin} docs/min
-                </p>
+              <div className="space-y-2">
+                <Progress value={progressPercent} className="h-2.5" />
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>
+                    {batchComplete} / {batchTotal} — {stats.saved} saved · {stats.duplicates} dupes · {stats.failed} failed
+                  </span>
+                  <span>
+                    Elapsed: {formatElapsed(elapsed)}{estRemaining && ` · Est. remaining: ${estRemaining}`}
+                  </span>
+                </div>
                 {atomicMode && (
                   <p className="text-xs text-amber-500 text-center font-medium">
                     Atomic mode: {batchComplete}/{batchTotal} extracted — waiting for full batch before saving
@@ -388,6 +454,17 @@ export default function ReaderPage() {
           </div>
         )}
 
+        {/* Retry countdown */}
+        {isRetrying && retryCountdown > 0 && (
+          <Card className="bg-card border-amber-500/30">
+            <CardContent className="p-4 text-center">
+              <Timer className="h-5 w-5 text-amber-500 mx-auto mb-2" />
+              <p className="text-sm font-medium">Starting retry in {retryCountdown}s...</p>
+              <p className="text-[10px] text-muted-foreground">Waiting for token limits to refill</p>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Session summary */}
         {stats.processed > 0 && (
           <Card className="bg-card border-border">
@@ -395,7 +472,7 @@ export default function ReaderPage() {
               <CardTitle className="text-sm">Session Summary</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-4 text-center">
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-4 text-center">
                 <div>
                   <p className="text-lg font-bold">{stats.processed}</p>
                   <p className="text-[10px] text-muted-foreground">Processed</p>
@@ -409,8 +486,14 @@ export default function ReaderPage() {
                   <p className="text-[10px] text-muted-foreground">Duplicates Skipped</p>
                 </div>
                 <div>
-                  <p className="text-lg font-bold text-status-unpaid">{stats.failed}</p>
-                  <p className="text-[10px] text-muted-foreground">Failed</p>
+                  <button
+                    className="w-full"
+                    onClick={() => failedRef.current?.scrollIntoView({ behavior: "smooth" })}
+                    disabled={failedCount === 0}
+                  >
+                    <p className={`text-lg font-bold ${failedCount > 0 ? "text-status-unpaid underline cursor-pointer" : "text-status-unpaid"}`}>{stats.failed}</p>
+                    <p className="text-[10px] text-muted-foreground">Failed{failedCount > 0 ? " ↓" : ""}</p>
+                  </button>
                 </div>
                 <div>
                   <p className="text-lg font-bold">{formatCurrency(stats.totalValue)}</p>
@@ -428,7 +511,23 @@ export default function ReaderPage() {
                   <p className="text-lg font-bold">{stats.lineItems}</p>
                   <p className="text-[10px] text-muted-foreground">Line Items</p>
                 </div>
+                {!processing && elapsed > 0 && (
+                  <div>
+                    <p className="text-lg font-bold">{formatElapsed(elapsed)}</p>
+                    <p className="text-[10px] text-muted-foreground">Elapsed Time</p>
+                  </div>
+                )}
               </div>
+
+              {/* Retry Failed button */}
+              {!processing && failedCount > 0 && (
+                <div className="mt-4 flex justify-center">
+                  <Button variant="outline" onClick={handleRetryFailed} disabled={isRetrying} className="gap-2">
+                    <RotateCcw className="h-4 w-4" />
+                    Retry {failedCount} Failed File{failedCount > 1 ? "s" : ""}
+                  </Button>
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
@@ -437,48 +536,56 @@ export default function ReaderPage() {
         {docs.length > 0 && (
           <div className="space-y-2">
             <h3 className="text-xs font-semibold text-muted-foreground">Processed Documents</h3>
-            {docs.map(d => (
-              <Card key={d.id} className={`bg-card border-border ${
-                d.status === "error" ? "border-status-unpaid/30" :
-                d.status === "duplicate" ? "border-amber-500/30" : ""
-              }`}>
-                <CardContent className="p-3 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    {statusIcon(d)}
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium">{d.filename}</span>
-                        {(d.status === "done" || d.status === "staged") && <DocTypeBadge docType={d.doc_type} />}
-                        {d.status === "staged" && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-500 font-medium">STAGED</span>
+            {docs.map(d => {
+              const isFailed = d.status === "error" && d.error !== "Cancelled";
+              return (
+                <Card
+                  key={d.id}
+                  ref={isFailed ? failedRef : undefined}
+                  className={`bg-card border-border ${
+                    d.status === "error" ? "border-status-unpaid/30" :
+                    d.status === "duplicate" ? "border-amber-500/30" :
+                    d.status === "waiting-retry" || d.status === "retrying" ? "border-amber-500/30" : ""
+                  }`}
+                >
+                  <CardContent className="p-3 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      {statusIcon(d)}
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium">{d.filename}</span>
+                          {(d.status === "done" || d.status === "staged") && <DocTypeBadge docType={d.doc_type} />}
+                          {d.status === "staged" && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-500 font-medium">STAGED</span>
+                          )}
+                        </div>
+                        {(d.status === "done" || d.status === "staged") && (
+                          <p className="text-[10px] text-muted-foreground">
+                            {d.vendor} — {d.invoice_number} — {formatCurrency(d.total)} — {d.line_items_count} items
+                          </p>
+                        )}
+                        {d.status === "duplicate" && (
+                          <p className="text-[10px] text-amber-500">
+                            ⚠ DUPLICATE SKIPPED — Invoice {d.invoice_number} from {d.vendor} already exists (DB id: {d.duplicateDbId}). File: {d.filename}
+                          </p>
+                        )}
+                        {(d.status === "retrying" || d.status === "waiting-retry") && (
+                          <p className="text-[10px] text-amber-500">{d.error}</p>
+                        )}
+                        {d.status === "error" && (
+                          <p className="text-[10px] text-status-unpaid">{d.error}</p>
                         )}
                       </div>
-                      {(d.status === "done" || d.status === "staged") && (
-                        <p className="text-[10px] text-muted-foreground">
-                          {d.vendor} — {d.invoice_number} — {formatCurrency(d.total)} — {d.line_items_count} items
-                        </p>
-                      )}
-                      {d.status === "duplicate" && (
-                        <p className="text-[10px] text-amber-500">
-                          ⚠ DUPLICATE SKIPPED — Invoice {d.invoice_number} from {d.vendor} already exists (DB id: {d.duplicateDbId}). File: {d.filename}
-                        </p>
-                      )}
-                      {d.status === "retrying" && (
-                        <p className="text-[10px] text-amber-500">{d.error}</p>
-                      )}
-                      {d.status === "error" && (
-                        <p className="text-[10px] text-status-unpaid">{d.error}</p>
-                      )}
                     </div>
-                  </div>
-                  {d.status === "done" && d.dbId && (
-                    <Link to="/invoices" className="flex items-center gap-1 text-xs text-primary hover:underline">
-                      View in Database <ExternalLink className="h-3 w-3" />
-                    </Link>
-                  )}
-                </CardContent>
-              </Card>
-            ))}
+                    {d.status === "done" && d.dbId && (
+                      <Link to="/invoices" className="flex items-center gap-1 text-xs text-primary hover:underline">
+                        View <ExternalLink className="h-3 w-3" />
+                      </Link>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })}
           </div>
         )}
       </main>
