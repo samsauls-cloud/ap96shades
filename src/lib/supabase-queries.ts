@@ -1,57 +1,120 @@
 import { supabase } from "@/integrations/supabase/client";
-import type { Database } from "@/integrations/supabase/types";
+import type { Database, Json } from "@/integrations/supabase/types";
 
 export type VendorInvoice = Database["public"]["Tables"]["vendor_invoices"]["Row"];
-export type InvoiceStatus = Database["public"]["Enums"]["invoice_status"];
+export type VendorInvoiceInsert = Database["public"]["Tables"]["vendor_invoices"]["Insert"];
+export type InvoiceStatus = "unpaid" | "paid" | "partial" | "disputed";
+export type DocType = "INVOICE" | "PO";
+
+export interface LineItem {
+  upc?: string;
+  item_number?: string;
+  sku?: string;
+  description?: string;
+  brand?: string;
+  model?: string;
+  color_code?: string;
+  color_desc?: string;
+  size?: string;
+  temple?: string;
+  qty_ordered?: number;
+  qty_shipped?: number;
+  qty?: number;
+  unit_price?: number;
+  line_total?: number;
+}
 
 export interface InvoiceFilters {
+  search?: string;
   vendor?: string;
-  status?: InvoiceStatus | "all";
+  docType?: string;
+  status?: string;
   dateFrom?: string;
   dateTo?: string;
+  minTotal?: number;
+  maxTotal?: number;
+  sortField?: string;
+  sortDir?: "asc" | "desc";
+  page?: number;
+  perPage?: number;
+}
+
+export function getLineItems(inv: VendorInvoice): LineItem[] {
+  if (!inv.line_items) return [];
+  if (Array.isArray(inv.line_items)) return inv.line_items as unknown as LineItem[];
+  return [];
+}
+
+export function getTotalUnits(inv: VendorInvoice): number {
+  const items = getLineItems(inv);
+  return items.reduce((sum, li) => sum + (li.qty_shipped ?? li.qty_ordered ?? li.qty ?? 0), 0);
 }
 
 export async function fetchInvoices(filters: InvoiceFilters) {
+  const page = filters.page ?? 1;
+  const perPage = filters.perPage ?? 25;
+  const from = (page - 1) * perPage;
+  const to = from + perPage - 1;
+
   let query = supabase
     .from("vendor_invoices")
-    .select("*")
-    .order("invoice_date", { ascending: false });
+    .select("*", { count: "exact" });
 
-  if (filters.vendor) {
-    query = query.ilike("vendor", `%${filters.vendor}%`);
+  if (filters.search) {
+    const s = `%${filters.search}%`;
+    query = query.or(
+      `invoice_number.ilike.${s},po_number.ilike.${s},account_number.ilike.${s},vendor.ilike.${s},notes.ilike.${s},filename.ilike.${s}`
+    );
   }
-  if (filters.status && filters.status !== "all") {
-    query = query.eq("status", filters.status);
-  }
-  if (filters.dateFrom) {
-    query = query.gte("invoice_date", filters.dateFrom);
-  }
-  if (filters.dateTo) {
-    query = query.lte("invoice_date", filters.dateTo);
-  }
+  if (filters.vendor) query = query.eq("vendor", filters.vendor);
+  if (filters.docType) query = query.eq("doc_type", filters.docType);
+  if (filters.status) query = query.eq("status", filters.status);
+  if (filters.dateFrom) query = query.gte("invoice_date", filters.dateFrom);
+  if (filters.dateTo) query = query.lte("invoice_date", filters.dateTo);
+  if (filters.minTotal !== undefined) query = query.gte("total", filters.minTotal);
+  if (filters.maxTotal !== undefined) query = query.lte("total", filters.maxTotal);
 
-  const { data, error } = await query;
+  const sortField = filters.sortField || "invoice_date";
+  const sortDir = filters.sortDir === "asc" ? true : false;
+  query = query.order(sortField, { ascending: sortDir }).range(from, to);
+
+  const { data, error, count } = await query;
   if (error) throw error;
-  return data;
+  return { data: data ?? [], count: count ?? 0 };
 }
 
-export async function updateInvoiceStatus(
-  id: string,
-  status: InvoiceStatus,
-  paidDate?: string | null
-) {
-  const update: Record<string, unknown> = { status };
-  if (status === "paid") {
-    update.paid_date = paidDate || new Date().toISOString().split("T")[0];
-  } else {
-    update.paid_date = null;
-  }
-
+export async function updateInvoiceStatus(id: string, status: InvoiceStatus) {
   const { error } = await supabase
     .from("vendor_invoices")
-    .update(update)
+    .update({ status })
     .eq("id", id);
   if (error) throw error;
+}
+
+export async function updateInvoiceNotes(id: string, notes: string) {
+  const { error } = await supabase
+    .from("vendor_invoices")
+    .update({ notes })
+    .eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteInvoice(id: string) {
+  const { error } = await supabase
+    .from("vendor_invoices")
+    .delete()
+    .eq("id", id);
+  if (error) throw error;
+}
+
+export async function insertInvoice(invoice: VendorInvoiceInsert) {
+  const { data, error } = await supabase
+    .from("vendor_invoices")
+    .insert(invoice)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
 }
 
 export async function fetchDistinctVendors(): Promise<string[]> {
@@ -60,6 +123,35 @@ export async function fetchDistinctVendors(): Promise<string[]> {
     .select("vendor")
     .order("vendor");
   if (error) throw error;
-  const unique = [...new Set(data.map((d) => d.vendor))];
-  return unique;
+  return [...new Set(data.map((d) => d.vendor))];
+}
+
+export function formatCurrency(n: number | null | undefined) {
+  if (n == null) return "—";
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
+}
+
+export function formatDate(d: string | null | undefined) {
+  if (!d) return "—";
+  return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+export function invoiceToCSVRow(inv: VendorInvoice): string {
+  return [
+    inv.doc_type, inv.vendor, inv.invoice_number, inv.po_number ?? "",
+    inv.account_number ?? "", inv.invoice_date, getTotalUnits(inv),
+    inv.total, inv.payment_terms ?? "", inv.status
+  ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(",");
+}
+
+export function lineItemsToCSV(inv: VendorInvoice): string {
+  const items = getLineItems(inv);
+  const header = "Invoice #,Vendor,UPC,Item #,Brand,Model,Color Code,Color Desc,Size,Temple,Qty Ordered,Qty Shipped,Unit Price,Line Total";
+  const rows = items.map(li =>
+    [inv.invoice_number, inv.vendor, li.upc ?? "", li.item_number ?? "", li.brand ?? "", li.model ?? "",
+     li.color_code ?? "", li.color_desc ?? "", li.size ?? "", li.temple ?? "",
+     li.qty_ordered ?? "", li.qty_shipped ?? "", li.unit_price ?? "", li.line_total ?? ""]
+      .map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")
+  );
+  return [header, ...rows].join("\n");
 }
