@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Upload, CheckCircle2, AlertCircle, Loader2, XCircle, ExternalLink, Copy, RotateCcw, Timer } from "lucide-react";
+import { Upload, CheckCircle2, AlertCircle, Loader2, XCircle, ExternalLink, Copy, RotateCcw, Timer, Zap, Package } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,9 +16,12 @@ import {
   RETRY_WAITS_429, RETRY_WAITS_OTHER, MAX_RETRIES_429, MAX_RETRIES_OTHER,
   RETRY_COOLDOWN,
   type ProcessedDoc, type DocStatus, type BatchStats, type FileDocPair,
-  callAnthropicAPI, parsedToInvoice, checkDuplicate,
+  callAnthropicAPI, parsedToInvoice,
   fileToBase64, batchInsertInvoices, sleep, runRollingQueue, getRetryConfig,
 } from "@/lib/reader-engine";
+import {
+  checkInvoiceDuplicate, mergeExtendedInvoice, updatePOTotalInvoiced, normalizeVendor,
+} from "@/lib/invoice-dedup";
 
 function formatElapsed(ms: number): string {
   const s = Math.floor(ms / 1000);
@@ -42,7 +45,6 @@ export default function ReaderPage() {
   const [retryCountdown, setRetryCountdown] = useState(0);
   const [isRetrying, setIsRetrying] = useState(false);
   const failedRef = useRef<HTMLDivElement>(null);
-  // Store file references for retry
   const fileMapRef = useRef<Map<string, File>>(new Map());
 
   const saveApiKey = (key: string) => {
@@ -69,7 +71,6 @@ export default function ReaderPage() {
     setDocs(prev => prev.map(d => d.id === docId ? { ...d, ...updates } : d));
   }, []);
 
-  // Elapsed time tracker
   useEffect(() => {
     if (!processing) return;
     const interval = setInterval(() => {
@@ -99,7 +100,6 @@ export default function ReaderPage() {
 
       try {
         if (attempt > 0) {
-          // Determine wait based on error type
           const config = getRetryConfig(lastError);
           const waitIdx = Math.min(attempt - 1, config.waits.length - 1);
           const waitMs = config.waits[waitIdx];
@@ -137,7 +137,6 @@ export default function ReaderPage() {
 
         const config = getRetryConfig(err);
         if (attempt > config.maxRetries) {
-          // For parse errors, we get one extra auto-retry
           if (err.isParseError && attempt <= config.maxRetries + 1) {
             updateDoc(docId, {
               status: "retrying" as DocStatus,
@@ -170,9 +169,17 @@ export default function ReaderPage() {
 
       const { invoice, parsed } = result;
       const lineItemsCount = (parsed.line_items || []).length;
+      const lineItems = parsed.line_items || [];
 
-      const dupId = await checkDuplicate(invoice.invoice_number, invoice.vendor);
-      if (dupId) {
+      // Run dedup check
+      const dedupResult = await checkInvoiceDuplicate(
+        invoice.invoice_number,
+        invoice.vendor,
+        lineItems,
+        invoice.total || 0
+      );
+
+      if (dedupResult.type === "true_duplicate") {
         updateDoc(docId, {
           status: "duplicate",
           vendor: invoice.vendor,
@@ -180,11 +187,45 @@ export default function ReaderPage() {
           invoice_number: invoice.invoice_number,
           total: invoice.total || 0,
           line_items_count: lineItemsCount,
-          duplicateDbId: dupId,
+          duplicateDbId: dedupResult.existingId,
         });
         return;
       }
 
+      if (dedupResult.type === "extended") {
+        if (!isAtomic) {
+          await mergeExtendedInvoice(
+            dedupResult.existingId,
+            dedupResult.newItems,
+            dedupResult.combinedTotal,
+            invoice.invoice_date,
+            file.name
+          );
+        }
+        updateDoc(docId, {
+          status: "extended",
+          vendor: invoice.vendor,
+          doc_type: invoice.doc_type,
+          invoice_number: invoice.invoice_number,
+          total: invoice.total || 0,
+          line_items_count: dedupResult.newItems.length,
+          dbId: dedupResult.existingId,
+          extendedInfo: `⚡ EXTENDED INVOICE — ${dedupResult.newItems.length} new line items appended to Invoice ${invoice.invoice_number} (was ${dedupResult.oldCount} items, now ${dedupResult.newCount} items)`,
+        });
+
+        // Update PO linkage if applicable
+        if (invoice.po_number) {
+          const poResult = await updatePOTotalInvoiced(invoice.po_number, invoice.vendor);
+          if (poResult.count > 1) {
+            updateDoc(docId, {
+              poLinkInfo: `Linked to PO ${invoice.po_number} (${poResult.count} invoices, total ${formatCurrency(poResult.total)})`,
+            });
+          }
+        }
+        return;
+      }
+
+      // New record
       if (isAtomic) {
         updateDoc(docId, {
           status: "staged",
@@ -206,6 +247,16 @@ export default function ReaderPage() {
           line_items_count: lineItemsCount,
           dbId: saved.id,
         });
+
+        // PO linkage
+        if (invoice.po_number) {
+          const poResult = await updatePOTotalInvoiced(invoice.po_number, invoice.vendor);
+          if (poResult.count > 1) {
+            updateDoc(docId, {
+              poLinkInfo: `✓ Linked to PO ${invoice.po_number} (${poResult.count} invoices against this PO total ${formatCurrency(poResult.total)})`,
+            });
+          }
+        }
       }
     } catch (err: any) {
       updateDoc(docId, { status: "error", error: err.message });
@@ -231,7 +282,6 @@ export default function ReaderPage() {
       docId: crypto.randomUUID(),
     }));
 
-    // Store file references for retry
     fileDocPairs.forEach(({ file, docId }) => {
       fileMapRef.current.set(docId, file);
     });
@@ -269,7 +319,6 @@ export default function ReaderPage() {
       toast.info(`Batch cancelled. ${completed} of ${filesToProcess.length} processed.`);
     }
 
-    // Atomic mode finalization
     if (atomicMode && !cancelRef.current) {
       await finalizeAtomicBatch(fileDocPairs);
     }
@@ -291,7 +340,7 @@ export default function ReaderPage() {
     const stagedDocs = currentDocs.filter(d => d.status === "staged" && d.invoiceData);
 
     if (failed.length > 0) {
-      toast.error(`⛔ Batch aborted — ${failed[0].filename} failed. 0 records saved. Re-upload the full batch.`);
+      toast.error(`⛔ Batch aborted — ${failed[0].filename} failed. 0 records saved.`);
       setDocs(prev => prev.map(d =>
         d.status === "staged" ? { ...d, status: "error" as const, error: "Batch aborted due to other failures" } : d
       ));
@@ -310,7 +359,8 @@ export default function ReaderPage() {
           return d;
         }));
         const dupCount = currentDocs.filter(d => d.status === "duplicate").length;
-        toast.success(`✓ Batch complete — ${stagedDocs.length} saved, ${dupCount} duplicates skipped`);
+        const extCount = currentDocs.filter(d => d.status === "extended").length;
+        toast.success(`✓ Batch complete — ${stagedDocs.length} saved, ${dupCount} duplicates skipped, ${extCount} extended`);
       } catch (err: any) {
         toast.error(`Failed to save batch: ${err.message}`);
         setDocs(prev => prev.map(d =>
@@ -329,7 +379,6 @@ export default function ReaderPage() {
     const failedDocs = docs.filter(d => d.status === "error" && d.error !== "Cancelled");
     if (failedDocs.length === 0) return;
 
-    // Check we have file references
     const retryPairs: FileDocPair[] = [];
     for (const d of failedDocs) {
       const file = fileMapRef.current.get(d.id) || d.file;
@@ -343,7 +392,6 @@ export default function ReaderPage() {
     setIsRetrying(true);
     cancelRef.current = false;
 
-    // 30s cooldown with countdown
     for (let t = Math.ceil(RETRY_COOLDOWN / 1000); t > 0; t--) {
       if (cancelRef.current) { setIsRetrying(false); return; }
       setRetryCountdown(t);
@@ -357,7 +405,6 @@ export default function ReaderPage() {
     setBatchTotal(retryPairs.length);
     setBatchComplete(0);
 
-    // Reset failed docs to processing
     retryPairs.forEach(p => {
       updateDoc(p.docId, { status: "processing", error: undefined, retryAttempt: undefined, retryCountdown: undefined });
     });
@@ -393,11 +440,16 @@ export default function ReaderPage() {
       if (d.doc_type === "INVOICE") s.invoices++;
       if (d.doc_type === "PO") s.pos++;
     }
-    if (d.status === "duplicate") s.duplicates++;
+    if (d.status === "extended") {
+      s.extended++;
+      s.lineItems += d.line_items_count;
+    }
+    if (d.status === "duplicate") s.trueDuplicates++;
     if (d.status === "error") s.failed++;
-    if (d.status === "done" || d.status === "duplicate" || d.status === "error") s.processed++;
+    if (d.status === "done" || d.status === "duplicate" || d.status === "error" || d.status === "extended") s.processed++;
+    if (d.poLinkInfo) s.poLinks++;
     return s;
-  }, { processed: 0, saved: 0, duplicates: 0, failed: 0, totalValue: 0, totalUnits: 0, invoices: 0, pos: 0, lineItems: 0 });
+  }, { processed: 0, saved: 0, trueDuplicates: 0, extended: 0, failed: 0, totalValue: 0, totalUnits: 0, invoices: 0, pos: 0, lineItems: 0, poLinks: 0 });
 
   const estRemaining = (() => {
     if (batchComplete === 0 || batchTotal === 0) return "";
@@ -420,7 +472,8 @@ export default function ReaderPage() {
       case "waiting-retry": return <Timer className="h-4 w-4 text-amber-500 animate-pulse" />;
       case "done": return <CheckCircle2 className="h-4 w-4 text-status-paid" />;
       case "staged": return <CheckCircle2 className="h-4 w-4 text-amber-500" />;
-      case "duplicate": return <Copy className="h-4 w-4 text-amber-500" />;
+      case "duplicate": return <Copy className="h-4 w-4 text-muted-foreground" />;
+      case "extended": return <Zap className="h-4 w-4 text-blue-500" />;
       case "error": return <AlertCircle className="h-4 w-4 text-status-unpaid" />;
       default: return null;
     }
@@ -511,7 +564,7 @@ export default function ReaderPage() {
                 <Progress value={progressPercent} className="h-2.5" />
                 <div className="flex justify-between text-xs text-muted-foreground">
                   <span>
-                    {batchComplete} / {batchTotal} — {stats.saved} saved · {stats.duplicates} dupes · {stats.failed} failed
+                    {batchComplete} / {batchTotal} — {stats.saved} saved · {stats.extended} merged · {stats.trueDuplicates} dupes · {stats.failed} failed
                   </span>
                   <span>
                     Elapsed: {formatElapsed(elapsed)}{estRemaining && ` · Est. remaining: ${estRemaining}`}
@@ -555,8 +608,12 @@ export default function ReaderPage() {
                   <p className="text-[10px] text-muted-foreground">Saved</p>
                 </div>
                 <div>
-                  <p className="text-lg font-bold text-amber-500">{stats.duplicates}</p>
-                  <p className="text-[10px] text-muted-foreground">Duplicates Skipped</p>
+                  <p className="text-lg font-bold text-blue-500">{stats.extended}</p>
+                  <p className="text-[10px] text-muted-foreground">Extended/Merged</p>
+                </div>
+                <div>
+                  <p className="text-lg font-bold text-muted-foreground">{stats.trueDuplicates}</p>
+                  <p className="text-[10px] text-muted-foreground">True Duplicates</p>
                 </div>
                 <div>
                   <button
@@ -584,6 +641,12 @@ export default function ReaderPage() {
                   <p className="text-lg font-bold">{stats.lineItems}</p>
                   <p className="text-[10px] text-muted-foreground">Line Items</p>
                 </div>
+                {stats.poLinks > 0 && (
+                  <div>
+                    <p className="text-lg font-bold text-primary">{stats.poLinks}</p>
+                    <p className="text-[10px] text-muted-foreground">PO Links</p>
+                  </div>
+                )}
                 {!processing && elapsed > 0 && (
                   <div>
                     <p className="text-lg font-bold">{formatElapsed(elapsed)}</p>
@@ -623,44 +686,58 @@ export default function ReaderPage() {
                   ref={isFailed ? failedRef : undefined}
                   className={`bg-card border-border ${
                     d.status === "error" ? "border-status-unpaid/30" :
-                    d.status === "duplicate" ? "border-amber-500/30" :
+                    d.status === "duplicate" ? "border-muted-foreground/20" :
+                    d.status === "extended" ? "border-blue-500/30" :
                     d.status === "waiting-retry" || d.status === "retrying" ? "border-amber-500/30" : ""
                   }`}
                 >
-                  <CardContent className="p-3 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      {statusIcon(d)}
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium">{d.filename}</span>
-                          {(d.status === "done" || d.status === "staged") && <DocTypeBadge docType={d.doc_type} />}
-                          {d.status === "staged" && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-500 font-medium">STAGED</span>
+                  <CardContent className="p-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        {statusIcon(d)}
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium">{d.filename}</span>
+                            {(d.status === "done" || d.status === "staged" || d.status === "extended") && <DocTypeBadge docType={d.doc_type} />}
+                            {d.status === "staged" && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-500 font-medium">STAGED</span>
+                            )}
+                            {d.status === "extended" && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-500 font-medium">EXTENDED</span>
+                            )}
+                          </div>
+                          {(d.status === "done" || d.status === "staged") && (
+                            <p className="text-[10px] text-muted-foreground">
+                              {d.vendor} — {d.invoice_number} — {formatCurrency(d.total)} — {d.line_items_count} items
+                            </p>
+                          )}
+                          {d.status === "extended" && d.extendedInfo && (
+                            <p className="text-[10px] text-blue-500">{d.extendedInfo}</p>
+                          )}
+                          {d.status === "duplicate" && (
+                            <p className="text-[10px] text-muted-foreground">
+                              ✗ TRUE DUPLICATE SKIPPED — identical line items. Invoice {d.invoice_number} from {d.vendor} (DB id: {d.duplicateDbId}). File: {d.filename}
+                            </p>
+                          )}
+                          {(d.status === "retrying" || d.status === "waiting-retry") && (
+                            <p className="text-[10px] text-amber-500">{d.error}</p>
+                          )}
+                          {d.status === "error" && (
+                            <p className="text-[10px] text-status-unpaid">{d.error}</p>
+                          )}
+                          {d.poLinkInfo && (
+                            <p className="text-[10px] text-primary flex items-center gap-1 mt-0.5">
+                              <Package className="h-3 w-3" /> {d.poLinkInfo}
+                            </p>
                           )}
                         </div>
-                        {(d.status === "done" || d.status === "staged") && (
-                          <p className="text-[10px] text-muted-foreground">
-                            {d.vendor} — {d.invoice_number} — {formatCurrency(d.total)} — {d.line_items_count} items
-                          </p>
-                        )}
-                        {d.status === "duplicate" && (
-                          <p className="text-[10px] text-amber-500">
-                            ⚠ DUPLICATE SKIPPED — Invoice {d.invoice_number} from {d.vendor} already exists (DB id: {d.duplicateDbId}). File: {d.filename}
-                          </p>
-                        )}
-                        {(d.status === "retrying" || d.status === "waiting-retry") && (
-                          <p className="text-[10px] text-amber-500">{d.error}</p>
-                        )}
-                        {d.status === "error" && (
-                          <p className="text-[10px] text-status-unpaid">{d.error}</p>
-                        )}
                       </div>
+                      {(d.status === "done" || d.status === "extended") && d.dbId && (
+                        <Link to="/invoices" className="flex items-center gap-1 text-xs text-primary hover:underline">
+                          View <ExternalLink className="h-3 w-3" />
+                        </Link>
+                      )}
                     </div>
-                    {d.status === "done" && d.dbId && (
-                      <Link to="/invoices" className="flex items-center gap-1 text-xs text-primary hover:underline">
-                        View <ExternalLink className="h-3 w-3" />
-                      </Link>
-                    )}
                   </CardContent>
                 </Card>
               );
