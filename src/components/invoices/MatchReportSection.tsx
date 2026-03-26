@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -7,14 +6,14 @@ import { Download, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import type { VendorInvoice } from "@/lib/supabase-queries";
 import { formatCurrency } from "@/lib/supabase-queries";
-import { runMatchReport, matchResultsToCSV, matchStatusConfig, type MatchResult } from "@/lib/match-utils";
+import { runMatchReport, matchResultsToCSV, matchStatusConfig, type MatchStatus } from "@/lib/match-utils";
 
 interface Props {
   invoice: VendorInvoice;
 }
 
 function MatchBadge({ status }: { status: string }) {
-  const c = matchStatusConfig[status as keyof typeof matchStatusConfig] ?? { label: status, color: "bg-muted text-muted-foreground border-border" };
+  const c = matchStatusConfig[status as MatchStatus] ?? { label: status, color: "bg-muted text-muted-foreground border-border" };
   return <Badge variant="outline" className={`text-[9px] font-medium whitespace-nowrap ${c.color}`}>{c.label}</Badge>;
 }
 
@@ -52,8 +51,8 @@ export function MatchReportSection({ invoice }: Props) {
 
   const summary = {
     matched: results.filter(r => r.status === "MATCHED").length,
-    disco: results.filter(r => r.status === "MATCHED_DISCO").length,
-    masterOnly: results.filter(r => r.status === "IN_MASTER_ONLY").length,
+    disco: results.filter(r => r.status === "DISCO").length,
+    inN1: results.filter(r => r.status === "IN_N1").length,
     newSku: results.filter(r => r.status === "NEW_SKU").length,
     noUpc: results.filter(r => r.status === "NO_UPC").length,
     priceFlags: results.filter(r => r.priceFlag).length,
@@ -73,11 +72,10 @@ export function MatchReportSection({ invoice }: Props) {
         </div>
       </div>
 
-      {/* Summary badges */}
       <div className="flex flex-wrap gap-2 mb-3">
         <span className="text-[10px] text-status-paid font-medium">{summary.matched} Matched</span>
         <span className="text-[10px] text-status-unpaid font-medium">{summary.disco} Disco</span>
-        <span className="text-[10px] text-yellow-500 font-medium">{summary.masterOnly} Master Only</span>
+        <span className="text-[10px] text-status-partial font-medium">{summary.inN1} In N1</span>
         <span className="text-[10px] text-status-disputed font-medium">{summary.newSku} New SKU</span>
         <span className="text-[10px] text-muted-foreground font-medium">{summary.noUpc} No UPC</span>
         {summary.priceFlags > 0 && (
@@ -93,6 +91,7 @@ export function MatchReportSection({ invoice }: Props) {
               <TableHead className="text-[9px] font-semibold">UPC</TableHead>
               <TableHead className="text-[9px] font-semibold">Model</TableHead>
               <TableHead className="text-[9px] font-semibold">Brand</TableHead>
+              <TableHead className="text-[9px] font-semibold">Assortment</TableHead>
               <TableHead className="text-[9px] font-semibold">Location</TableHead>
               <TableHead className="text-[9px] font-semibold text-right">Wholesale</TableHead>
               <TableHead className="text-[9px] font-semibold text-right">Invoice</TableHead>
@@ -105,11 +104,11 @@ export function MatchReportSection({ invoice }: Props) {
                 <TableCell className="text-[10px] font-mono">{r.lineItem.upc ?? "—"}</TableCell>
                 <TableCell className="text-[10px] font-mono">{r.lineItem.model ?? r.lineItem.item_number ?? "—"}</TableCell>
                 <TableCell className="text-[10px]">{r.lineItem.brand ?? "—"}</TableCell>
-                <TableCell className="text-[10px]">{r.planogram?.go_out_location ?? "—"}</TableCell>
-                <TableCell className="text-[10px] text-right tabular-nums">{formatCurrency(r.masterItem?.wholesale_price)}</TableCell>
+                <TableCell className="text-[10px]">{r.assortmentRecord?.assortment ?? "—"}</TableCell>
+                <TableCell className="text-[10px]">{r.assortmentRecord?.go_out_location ?? "—"}</TableCell>
+                <TableCell className="text-[10px] text-right tabular-nums">{formatCurrency(r.assortmentRecord?.wholesale)}</TableCell>
                 <TableCell className={`text-[10px] text-right tabular-nums ${r.priceFlag ? "text-status-unpaid font-bold" : ""}`}>
-                  {formatCurrency(r.lineItem.unit_price)}
-                  {r.priceFlag && " ⚠"}
+                  {formatCurrency(r.lineItem.unit_price)}{r.priceFlag && " ⚠"}
                 </TableCell>
               </TableRow>
             ))}

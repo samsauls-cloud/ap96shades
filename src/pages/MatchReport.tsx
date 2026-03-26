@@ -8,18 +8,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { InvoiceNav } from "@/components/invoices/InvoiceNav";
-import { fetchInvoices, formatCurrency, type VendorInvoice } from "@/lib/supabase-queries";
-import { runMatchReport, matchResultsToCSV, matchStatusConfig, type MatchResult } from "@/lib/match-utils";
+import { fetchInvoices, formatCurrency } from "@/lib/supabase-queries";
+import { runMatchReport, matchResultsToCSV, matchStatusConfig, type MatchStatus } from "@/lib/match-utils";
 
 function MatchBadge({ status }: { status: string }) {
-  const c = matchStatusConfig[status as keyof typeof matchStatusConfig] ?? { label: status, color: "bg-muted text-muted-foreground border-border" };
+  const c = matchStatusConfig[status as MatchStatus] ?? { label: status, color: "bg-muted text-muted-foreground border-border" };
   return <Badge variant="outline" className={`text-[10px] font-medium whitespace-nowrap ${c.color}`}>{c.label}</Badge>;
 }
 
 export default function MatchReportPage() {
   const [selectedId, setSelectedId] = useState<string>("");
 
-  // Fetch all invoices for dropdown (no pagination limit for selector)
   const { data: invoiceData } = useQuery({
     queryKey: ["vendor_invoices_all_for_match"],
     queryFn: () => fetchInvoices({ perPage: 500, sortField: "invoice_date", sortDir: "desc" }),
@@ -28,7 +27,7 @@ export default function MatchReportPage() {
   const invoices = invoiceData?.data ?? [];
   const selectedInvoice = invoices.find(i => i.id === selectedId);
 
-  const { data: results, isLoading, refetch } = useQuery({
+  const { data: results, isLoading } = useQuery({
     queryKey: ["match_report_full", selectedId],
     queryFn: () => runMatchReport(selectedInvoice!),
     enabled: !!selectedInvoice,
@@ -51,8 +50,8 @@ export default function MatchReportPage() {
   const summary = results ? {
     total: results.length,
     matched: results.filter(r => r.status === "MATCHED").length,
-    disco: results.filter(r => r.status === "MATCHED_DISCO").length,
-    masterOnly: results.filter(r => r.status === "IN_MASTER_ONLY").length,
+    disco: results.filter(r => r.status === "DISCO").length,
+    inN1: results.filter(r => r.status === "IN_N1").length,
     newSku: results.filter(r => r.status === "NEW_SKU").length,
     noUpc: results.filter(r => r.status === "NO_UPC").length,
     priceFlags: results.filter(r => r.priceFlag).length,
@@ -101,13 +100,12 @@ export default function MatchReportPage() {
 
         {summary && results && (
           <>
-            {/* Summary cards */}
             <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
               {[
                 { label: "Total Items", value: summary.total, color: "text-foreground" },
                 { label: "Matched", value: summary.matched, color: "text-status-paid" },
                 { label: "Disco", value: summary.disco, color: "text-status-unpaid" },
-                { label: "Master Only", value: summary.masterOnly, color: "text-yellow-500" },
+                { label: "In N1", value: summary.inN1, color: "text-status-partial" },
                 { label: "New SKU", value: summary.newSku, color: "text-status-disputed" },
                 { label: "No UPC", value: summary.noUpc, color: "text-muted-foreground" },
                 { label: "Price Flags", value: summary.priceFlags, color: summary.priceFlags > 0 ? "text-status-unpaid" : "text-muted-foreground" },
@@ -121,7 +119,6 @@ export default function MatchReportPage() {
               ))}
             </div>
 
-            {/* Full match table */}
             <Card className="bg-card border-border">
               <CardContent className="p-0">
                 <div className="overflow-auto">
@@ -132,7 +129,7 @@ export default function MatchReportPage() {
                         <TableHead className="text-[10px] font-semibold">UPC</TableHead>
                         <TableHead className="text-[10px] font-semibold">Model</TableHead>
                         <TableHead className="text-[10px] font-semibold">Brand</TableHead>
-                        <TableHead className="text-[10px] font-semibold">Plano Status</TableHead>
+                        <TableHead className="text-[10px] font-semibold">Assortment</TableHead>
                         <TableHead className="text-[10px] font-semibold">Go Out</TableHead>
                         <TableHead className="text-[10px] font-semibold">Backstock</TableHead>
                         <TableHead className="text-[10px] font-semibold text-right">Wholesale</TableHead>
@@ -142,28 +139,23 @@ export default function MatchReportPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {results.map((r, i) => {
-                        const planoStatus = r.planogram
-                          ? (r.planogram.is_vendor_discontinued || r.planogram.is_discontinued ? "Discontinued" : "Active")
-                          : "—";
-                        return (
-                          <TableRow key={i} className={`border-border ${r.priceFlag ? "bg-status-unpaid/5" : ""}`}>
-                            <TableCell className="py-1.5"><MatchBadge status={r.status} /></TableCell>
-                            <TableCell className="text-[10px] font-mono">{r.lineItem.upc ?? "—"}</TableCell>
-                            <TableCell className="text-[10px] font-mono">{r.lineItem.model ?? r.lineItem.item_number ?? "—"}</TableCell>
-                            <TableCell className="text-[10px]">{r.lineItem.brand ?? "—"}</TableCell>
-                            <TableCell className="text-[10px]">{planoStatus}</TableCell>
-                            <TableCell className="text-[10px]">{r.planogram?.go_out_location ?? "—"}</TableCell>
-                            <TableCell className="text-[10px]">{r.planogram?.backstock_location ?? "—"}</TableCell>
-                            <TableCell className="text-[10px] text-right tabular-nums">{formatCurrency(r.masterItem?.wholesale_price)}</TableCell>
-                            <TableCell className={`text-[10px] text-right tabular-nums ${r.priceFlag ? "text-status-unpaid font-bold" : ""}`}>
-                              {formatCurrency(r.lineItem.unit_price)}{r.priceFlag && " ⚠"}
-                            </TableCell>
-                            <TableCell className="text-[10px] text-right tabular-nums">{r.lineItem.qty_shipped ?? r.lineItem.qty_ordered ?? r.lineItem.qty ?? "—"}</TableCell>
-                            <TableCell className="text-[10px] text-right tabular-nums font-medium">{formatCurrency(r.lineItem.line_total)}</TableCell>
-                          </TableRow>
-                        );
-                      })}
+                      {results.map((r, i) => (
+                        <TableRow key={i} className={`border-border ${r.priceFlag ? "bg-status-unpaid/5" : ""}`}>
+                          <TableCell className="py-1.5"><MatchBadge status={r.status} /></TableCell>
+                          <TableCell className="text-[10px] font-mono">{r.lineItem.upc ?? "—"}</TableCell>
+                          <TableCell className="text-[10px] font-mono">{r.lineItem.model ?? r.lineItem.item_number ?? "—"}</TableCell>
+                          <TableCell className="text-[10px]">{r.lineItem.brand ?? "—"}</TableCell>
+                          <TableCell className="text-[10px]">{r.assortmentRecord?.assortment ?? "—"}</TableCell>
+                          <TableCell className="text-[10px]">{r.assortmentRecord?.go_out_location ?? "—"}</TableCell>
+                          <TableCell className="text-[10px]">{r.assortmentRecord?.backstock_location ?? "—"}</TableCell>
+                          <TableCell className="text-[10px] text-right tabular-nums">{formatCurrency(r.assortmentRecord?.wholesale)}</TableCell>
+                          <TableCell className={`text-[10px] text-right tabular-nums ${r.priceFlag ? "text-status-unpaid font-bold" : ""}`}>
+                            {formatCurrency(r.lineItem.unit_price)}{r.priceFlag && " ⚠"}
+                          </TableCell>
+                          <TableCell className="text-[10px] text-right tabular-nums">{r.lineItem.qty_shipped ?? r.lineItem.qty_ordered ?? r.lineItem.qty ?? "—"}</TableCell>
+                          <TableCell className="text-[10px] text-right tabular-nums font-medium">{formatCurrency(r.lineItem.line_total)}</TableCell>
+                        </TableRow>
+                      ))}
                     </TableBody>
                   </Table>
                 </div>
