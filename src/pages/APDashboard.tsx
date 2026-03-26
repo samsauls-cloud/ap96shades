@@ -367,8 +367,8 @@ export default function APDashboard() {
                                 fourMonthTotal += totalDue;
                                 return (
                                   <>
-                                    <TableCell key={m.label + "-due"} className="text-[10px] text-right tabular-nums">{formatCurrency(totalDue)}</TableCell>
-                                    <TableCell key={m.label + "-rem"} className="text-[10px] text-right tabular-nums font-medium">{formatCurrency(remaining)}</TableCell>
+                                    <TableCell key={m.label + "-due"} className="text-xs text-right tabular-nums">{formatCurrency(totalDue)}</TableCell>
+                                    <TableCell key={m.label + "-rem"} className={`text-xs text-right tabular-nums font-semibold ${remaining > 0 ? "" : "text-green-600 dark:text-green-400"}`}>{formatCurrency(remaining)}</TableCell>
                                   </>
                                 );
                               })}
@@ -433,35 +433,53 @@ function PaymentTable({ payments, onToggle }: { payments: InvoicePayment[]; onTo
     <div className="overflow-auto">
       <Table>
         <TableHeader>
-          <TableRow className="border-border">
-            <TableHead className="text-[10px] font-semibold">Vendor</TableHead>
-            <TableHead className="text-[10px] font-semibold">Invoice #</TableHead>
-            <TableHead className="text-[10px] font-semibold">PO #</TableHead>
-            <TableHead className="text-[10px] font-semibold text-right">Invoice Amt</TableHead>
-            <TableHead className="text-[10px] font-semibold">Terms</TableHead>
-            <TableHead className="text-[10px] font-semibold">Installment</TableHead>
-            <TableHead className="text-[10px] font-semibold">Due Date</TableHead>
-            <TableHead className="text-[10px] font-semibold text-right">Amt Due</TableHead>
-            <TableHead className="text-[10px] font-semibold text-center">Paid?</TableHead>
+          <TableRow className="border-border bg-muted/30">
+            <TableHead className="text-xs font-semibold">Vendor</TableHead>
+            <TableHead className="text-xs font-semibold">Invoice #</TableHead>
+            <TableHead className="text-xs font-semibold">PO #</TableHead>
+            <TableHead className="text-xs font-semibold text-right">Invoice Amt</TableHead>
+            <TableHead className="text-xs font-semibold">Terms</TableHead>
+            <TableHead className="text-xs font-semibold">Installment</TableHead>
+            <TableHead className="text-xs font-semibold">Due Date</TableHead>
+            <TableHead className="text-xs font-semibold text-right">Amt Due</TableHead>
+            <TableHead className="text-xs font-semibold text-center">Status</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {payments.map(p => (
-            <TableRow key={p.id} className={`border-border ${p.is_paid ? "opacity-50" : ""}`}>
-              <TableCell className="text-[10px]">{p.vendor}</TableCell>
-              <TableCell className="text-[10px] font-mono">{p.invoice_number}</TableCell>
-              <TableCell className="text-[10px] font-mono">{p.po_number ?? "—"}</TableCell>
-              <TableCell className="text-[10px] text-right tabular-nums">{formatCurrency(Number(p.invoice_amount))}</TableCell>
-              <TableCell className="text-[10px]">{p.terms ?? "—"}</TableCell>
-              <TableCell className="text-[10px]">{p.installment_label ?? "—"}</TableCell>
-              <TableCell className="text-[10px]">{formatDate(p.due_date)}</TableCell>
-              <TableCell className="text-[10px] text-right tabular-nums font-medium">{formatCurrency(Number(p.amount_due))}</TableCell>
+            <TableRow
+              key={p.id}
+              className={`border-border transition-colors ${
+                p.is_paid
+                  ? "bg-green-500/8 hover:bg-green-500/12"
+                  : "hover:bg-muted/40"
+              }`}
+            >
+              <TableCell className="text-xs">{p.vendor}</TableCell>
+              <TableCell className="text-xs font-mono">{p.invoice_number}</TableCell>
+              <TableCell className="text-xs font-mono text-muted-foreground">{p.po_number ?? "—"}</TableCell>
+              <TableCell className="text-xs text-right tabular-nums">{formatCurrency(Number(p.invoice_amount))}</TableCell>
+              <TableCell className="text-xs text-muted-foreground">{p.terms ?? "—"}</TableCell>
+              <TableCell className="text-xs">{p.installment_label ?? "—"}</TableCell>
+              <TableCell className="text-xs">{formatDate(p.due_date)}</TableCell>
+              <TableCell className={`text-xs text-right tabular-nums font-semibold ${p.is_paid ? "line-through text-muted-foreground" : ""}`}>
+                {formatCurrency(Number(p.amount_due))}
+              </TableCell>
               <TableCell className="text-center">
-                <Switch
-                  checked={p.is_paid}
-                  onCheckedChange={() => onToggle(p)}
-                  className="scale-75"
-                />
+                <button
+                  onClick={() => onToggle(p)}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold transition-all cursor-pointer border ${
+                    p.is_paid
+                      ? "bg-green-500/15 text-green-600 dark:text-green-400 border-green-500/30 hover:bg-green-500/25"
+                      : "bg-muted/50 text-muted-foreground border-border hover:bg-muted hover:text-foreground"
+                  }`}
+                >
+                  {p.is_paid ? (
+                    <><CheckCircle2 className="h-3.5 w-3.5" /> Paid</>
+                  ) : (
+                    <><Clock className="h-3.5 w-3.5" /> Unpaid</>
+                  )}
+                </button>
               </TableCell>
             </TableRow>
           ))}
