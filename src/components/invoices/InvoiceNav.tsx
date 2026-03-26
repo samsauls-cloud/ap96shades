@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router-dom";
-import { FileText, ScanLine, GitCompare } from "lucide-react";
+import { FileText, ScanLine, GitCompare, BarChart3 } from "lucide-react";
 
 export function InvoiceNav() {
   const { pathname } = useLocation();
@@ -8,6 +8,7 @@ export function InvoiceNav() {
     { to: "/invoices", label: "Invoice Database", icon: FileText },
     { to: "/invoices/reader", label: "PDF Reader", icon: ScanLine },
     { to: "/invoices/match", label: "Match Report", icon: GitCompare },
+    { to: "/invoices/dashboard", label: "AP Dashboard", icon: BarChart3 },
   ];
 
   return (
