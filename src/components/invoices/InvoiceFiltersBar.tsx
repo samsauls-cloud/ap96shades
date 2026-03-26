@@ -16,24 +16,24 @@ export function InvoiceFiltersBar({ filters, onChange, vendors, tags = [] }: Pro
 
   return (
     <div className="space-y-3">
-      <div className="flex gap-3">
+      <div className="flex gap-2 sm:gap-3">
         <div className="flex-1 relative">
           <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search invoices, POs, vendors, notes…"
+            placeholder="Search invoices, POs, vendors…"
             value={filters.search || ""}
             onChange={e => update({ search: e.target.value })}
             className="pl-9 bg-secondary border-border"
           />
         </div>
         <Button variant="ghost" size="sm" onClick={() => onChange({ page: 1, perPage: 25 })} className="text-muted-foreground shrink-0">
-          <X className="h-4 w-4 mr-1" /> Clear
+          <X className="h-4 w-4 mr-1" /> <span className="hidden sm:inline">Clear</span>
         </Button>
       </div>
 
-      <div className="flex flex-wrap gap-2">
+      <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2">
         <Select value={filters.vendor || "__all"} onValueChange={v => update({ vendor: v === "__all" ? undefined : v })}>
-          <SelectTrigger className="w-[160px] bg-secondary border-border text-xs h-8">
+          <SelectTrigger className="w-full sm:w-[160px] bg-secondary border-border text-xs h-8">
             <SelectValue placeholder="Vendor" />
           </SelectTrigger>
           <SelectContent>
@@ -43,7 +43,7 @@ export function InvoiceFiltersBar({ filters, onChange, vendors, tags = [] }: Pro
         </Select>
 
         <Select value={filters.docType || "__all"} onValueChange={v => update({ docType: v === "__all" ? undefined : v })}>
-          <SelectTrigger className="w-[120px] bg-secondary border-border text-xs h-8">
+          <SelectTrigger className="w-full sm:w-[120px] bg-secondary border-border text-xs h-8">
             <SelectValue placeholder="Doc Type" />
           </SelectTrigger>
           <SelectContent>
@@ -54,7 +54,7 @@ export function InvoiceFiltersBar({ filters, onChange, vendors, tags = [] }: Pro
         </Select>
 
         <Select value={filters.status || "__all"} onValueChange={v => update({ status: v === "__all" ? undefined : v })}>
-          <SelectTrigger className="w-[120px] bg-secondary border-border text-xs h-8">
+          <SelectTrigger className="w-full sm:w-[120px] bg-secondary border-border text-xs h-8">
             <SelectValue placeholder="Status" />
           </SelectTrigger>
           <SelectContent>
@@ -68,7 +68,7 @@ export function InvoiceFiltersBar({ filters, onChange, vendors, tags = [] }: Pro
 
         {tags.length > 0 && (
           <Select value={filters.tag || "__all"} onValueChange={v => update({ tag: v === "__all" ? undefined : v })}>
-            <SelectTrigger className="w-[140px] bg-secondary border-border text-xs h-8">
+            <SelectTrigger className="w-full sm:w-[140px] bg-secondary border-border text-xs h-8">
               <SelectValue placeholder="Tag" />
             </SelectTrigger>
             <SelectContent>
@@ -82,28 +82,28 @@ export function InvoiceFiltersBar({ filters, onChange, vendors, tags = [] }: Pro
           type="date"
           value={filters.dateFrom || ""}
           onChange={e => update({ dateFrom: e.target.value || undefined })}
-          className="w-[140px] bg-secondary border-border text-xs h-8"
+          className="w-full sm:w-[140px] bg-secondary border-border text-xs h-8"
           placeholder="From"
         />
         <Input
           type="date"
           value={filters.dateTo || ""}
           onChange={e => update({ dateTo: e.target.value || undefined })}
-          className="w-[140px] bg-secondary border-border text-xs h-8"
+          className="w-full sm:w-[140px] bg-secondary border-border text-xs h-8"
           placeholder="To"
         />
         <Input
           type="number"
           value={filters.minTotal ?? ""}
           onChange={e => update({ minTotal: e.target.value ? Number(e.target.value) : undefined })}
-          className="w-[100px] bg-secondary border-border text-xs h-8"
+          className="w-full sm:w-[100px] bg-secondary border-border text-xs h-8"
           placeholder="Min $"
         />
         <Input
           type="number"
           value={filters.maxTotal ?? ""}
           onChange={e => update({ maxTotal: e.target.value ? Number(e.target.value) : undefined })}
-          className="w-[100px] bg-secondary border-border text-xs h-8"
+          className="w-full sm:w-[100px] bg-secondary border-border text-xs h-8"
           placeholder="Max $"
         />
       </div>

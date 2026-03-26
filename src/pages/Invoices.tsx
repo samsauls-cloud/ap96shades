@@ -87,7 +87,7 @@ export default function InvoicesPage() {
         <StatsBar invoices={invoices} totalCount={totalCount} />
         <InvoiceFiltersBar filters={filters} onChange={setFilters} vendors={vendors} tags={allTags} />
 
-        <div className="flex gap-2 items-center">
+        <div className="flex flex-wrap gap-2 items-center">
           <div className="flex rounded-lg border border-border overflow-hidden">
             <Button
               variant={viewMode === "list" ? "default" : "ghost"}
@@ -108,10 +108,10 @@ export default function InvoicesPage() {
           </div>
           <div className="flex-1" />
           <Button variant="outline" size="sm" className="text-xs h-7" onClick={exportFilteredCSV}>
-            <Download className="h-3 w-3 mr-1" /> Export Filtered CSV
+            <Download className="h-3 w-3 mr-1" /> <span className="hidden sm:inline">Export Filtered</span> CSV
           </Button>
           <Button variant="outline" size="sm" className="text-xs h-7" onClick={exportAllLineItemsCSV}>
-            <Download className="h-3 w-3 mr-1" /> Export All Line Items CSV
+            <Download className="h-3 w-3 mr-1" /> <span className="hidden sm:inline">Export All</span> Line Items
           </Button>
         </div>
 
