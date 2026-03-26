@@ -87,6 +87,31 @@ export default function APDashboard() {
 
   const { data: audit } = useAuditData();
 
+  // Realtime subscriptions
+  const refreshAll = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["invoice_payments"] });
+    queryClient.invalidateQueries({ queryKey: ["ap_audit"] });
+  }, [queryClient]);
+
+  useEffect(() => {
+    const channel = supabase
+      .channel("ap-dashboard-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "vendor_invoices" }, (payload) => {
+        refreshAll();
+        const vendor = (payload.new as any)?.vendor || "Unknown";
+        const invNum = (payload.new as any)?.invoice_number || "";
+        if (payload.eventType === "INSERT") {
+          toast("📊 Dashboard updated", { description: `${vendor} ${invNum} added`, duration: 3000 });
+        }
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "invoice_payments" }, () => {
+        refreshAll();
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [refreshAll]);
+
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
