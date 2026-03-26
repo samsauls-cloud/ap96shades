@@ -12,10 +12,12 @@ import { InvoiceNav } from "@/components/invoices/InvoiceNav";
 import { DocTypeBadge } from "@/components/invoices/Badges";
 import { insertInvoice, formatCurrency, type VendorInvoiceInsert } from "@/lib/supabase-queries";
 import {
-  CONCURRENCY, RETRY_CONCURRENCY, STAGGER_DELAY, RETRY_WAITS, MAX_RETRIES, RETRY_COOLDOWN,
+  CONCURRENCY, RETRY_CONCURRENCY, STAGGER_DELAY, RETRY_STAGGER_DELAY,
+  RETRY_WAITS_429, RETRY_WAITS_OTHER, MAX_RETRIES_429, MAX_RETRIES_OTHER,
+  RETRY_COOLDOWN,
   type ProcessedDoc, type DocStatus, type BatchStats, type FileDocPair,
   callAnthropicAPI, parsedToInvoice, checkDuplicate,
-  fileToBase64, batchInsertInvoices, sleep, runRollingQueue,
+  fileToBase64, batchInsertInvoices, sleep, runRollingQueue, getRetryConfig,
 } from "@/lib/reader-engine";
 
 function formatElapsed(ms: number): string {
@@ -40,6 +42,8 @@ export default function ReaderPage() {
   const [retryCountdown, setRetryCountdown] = useState(0);
   const [isRetrying, setIsRetrying] = useState(false);
   const failedRef = useRef<HTMLDivElement>(null);
+  // Store file references for retry
+  const fileMapRef = useRef<Map<string, File>>(new Map());
 
   const saveApiKey = (key: string) => {
     const cleanKey = key.replace(/[^\x20-\x7E]/g, '').trim();
@@ -78,22 +82,41 @@ export default function ReaderPage() {
     file: File, docId: string
   ): Promise<{ invoice: VendorInvoiceInsert; parsed: any } | null> => {
     const base64 = await fileToBase64(file);
+    let lastError: any = null;
+    let attempt = 0;
 
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const tryCall = async (): Promise<any> => {
+      try {
+        return await callAnthropicAPI(apiKey, base64);
+      } catch (err: any) {
+        lastError = err;
+        throw err;
+      }
+    };
+
+    while (true) {
       if (cancelRef.current) return null;
 
       try {
         if (attempt > 0) {
-          const waitMs = RETRY_WAITS[attempt - 1];
+          // Determine wait based on error type
+          const config = getRetryConfig(lastError);
+          const waitIdx = Math.min(attempt - 1, config.waits.length - 1);
+          const waitMs = config.waits[waitIdx];
           const waitSec = Math.ceil(waitMs / 1000);
-          // Countdown display
+          const maxRetries = config.maxRetries;
+
+          const errorLabel = lastError?.isRateLimit ? "Rate limited" :
+                           lastError?.isTimeout ? "Timed out" :
+                           lastError?.isParseError ? "Parse error" : "Error";
+
           for (let t = waitSec; t > 0; t--) {
             if (cancelRef.current) return null;
             updateDoc(docId, {
               status: "waiting-retry" as DocStatus,
               retryAttempt: attempt,
               retryCountdown: t,
-              error: `⏳ ${file.name} — retrying in ${t}s (${attempt}/${MAX_RETRIES})`,
+              error: `⏳ ${file.name} ${errorLabel} — retrying in ${t}s (${attempt}/${maxRetries})`,
             });
             await sleep(1000);
           }
@@ -101,24 +124,35 @@ export default function ReaderPage() {
             status: "retrying" as DocStatus,
             retryAttempt: attempt,
             retryCountdown: 0,
-            error: `Retrying ${file.name} (attempt ${attempt}/${MAX_RETRIES})`,
+            error: `Retrying ${file.name} (attempt ${attempt}/${maxRetries})`,
           });
         }
 
-        const parsed = await callAnthropicAPI(apiKey, base64);
+        const parsed = await tryCall();
         const invoice = parsedToInvoice(parsed, file.name);
         return { invoice, parsed };
       } catch (err: any) {
-        if (err.isRateLimit && attempt < MAX_RETRIES) {
-          continue;
+        lastError = err;
+        attempt++;
+
+        const config = getRetryConfig(err);
+        if (attempt > config.maxRetries) {
+          // For parse errors, we get one extra auto-retry
+          if (err.isParseError && attempt <= config.maxRetries + 1) {
+            updateDoc(docId, {
+              status: "retrying" as DocStatus,
+              error: `⚠ Parse error on ${file.name} — retrying...`,
+            });
+            continue;
+          }
+          const label = err.isRateLimit ? `Rate limited after ${config.maxRetries} retries` :
+                       err.isTimeout ? `Timed out after ${config.maxRetries} retries` :
+                       err.message || "Unknown error";
+          throw new Error(label);
         }
-        if (err.isRateLimit) {
-          throw new Error(`Rate limited after ${MAX_RETRIES} retries`);
-        }
-        throw err;
+        continue;
       }
     }
-    return null;
   };
 
   const processSingleFile = async (file: File, docId: string, isAtomic: boolean) => {
@@ -197,12 +231,18 @@ export default function ReaderPage() {
       docId: crypto.randomUUID(),
     }));
 
+    // Store file references for retry
+    fileDocPairs.forEach(({ file, docId }) => {
+      fileMapRef.current.set(docId, file);
+    });
+
     setDocs(prev => [
       ...prev,
       ...fileDocPairs.map(({ file, docId }) => ({
         id: docId, filename: file.name, vendor: "", doc_type: "",
         invoice_number: "", total: 0, line_items_count: 0,
         status: "processing" as const,
+        file,
       })),
     ]);
 
@@ -221,7 +261,6 @@ export default function ReaderPage() {
     );
 
     if (cancelRef.current) {
-      // Mark any still-processing docs as cancelled
       setDocs(prev => prev.map(d =>
         d.status === "processing" && fileDocPairs.some(p => p.docId === d.id)
           ? { ...d, status: "error" as const, error: "Cancelled" }
@@ -252,7 +291,7 @@ export default function ReaderPage() {
     const stagedDocs = currentDocs.filter(d => d.status === "staged" && d.invoiceData);
 
     if (failed.length > 0) {
-      toast.error(`⛔ Batch aborted — ${failed[0].filename} failed after ${MAX_RETRIES} retries. 0 records saved. Re-upload the full batch.`);
+      toast.error(`⛔ Batch aborted — ${failed[0].filename} failed. 0 records saved. Re-upload the full batch.`);
       setDocs(prev => prev.map(d =>
         d.status === "staged" ? { ...d, status: "error" as const, error: "Batch aborted due to other failures" } : d
       ));
@@ -290,6 +329,17 @@ export default function ReaderPage() {
     const failedDocs = docs.filter(d => d.status === "error" && d.error !== "Cancelled");
     if (failedDocs.length === 0) return;
 
+    // Check we have file references
+    const retryPairs: FileDocPair[] = [];
+    for (const d of failedDocs) {
+      const file = fileMapRef.current.get(d.id) || d.file;
+      if (!file) {
+        toast.error(`Cannot retry ${d.filename} — file reference lost. Please re-upload.`);
+        return;
+      }
+      retryPairs.push({ file, docId: d.id });
+    }
+
     setIsRetrying(true);
     cancelRef.current = false;
 
@@ -304,15 +354,34 @@ export default function ReaderPage() {
     setProcessing(true);
     startTimeRef.current = Date.now();
     setElapsed(0);
+    setBatchTotal(retryPairs.length);
+    setBatchComplete(0);
 
-    // We need the original files — they're gone from queue. 
-    // We'll re-use the existing doc entries and just need the files.
-    // Since we can't recover files, we need to ask user to re-upload.
-    // Actually, let's store files on the doc objects for retry.
-    // For now, mark them and notify.
-    toast.info("Re-upload the failed files to retry them.");
-    setIsRetrying(false);
+    // Reset failed docs to processing
+    retryPairs.forEach(p => {
+      updateDoc(p.docId, { status: "processing", error: undefined, retryAttempt: undefined, retryCountdown: undefined });
+    });
+
+    let completed = 0;
+
+    await runRollingQueue(
+      retryPairs,
+      RETRY_CONCURRENCY,
+      RETRY_STAGGER_DELAY,
+      async (pair) => {
+        await processSingleFile(pair.file, pair.docId, false);
+        completed++;
+        setBatchComplete(completed);
+      },
+      cancelRef,
+    );
+
     setProcessing(false);
+    setIsRetrying(false);
+    setBatchTotal(0);
+    queryClient.invalidateQueries({ queryKey: ["vendor_invoices"] });
+    queryClient.invalidateQueries({ queryKey: ["distinct_vendors"] });
+    toast.success(`Retry complete. ${completed} file(s) reprocessed.`);
   };
 
   // Compute stats
@@ -336,6 +405,10 @@ export default function ReaderPage() {
     const remaining = (batchTotal - batchComplete) * avgMs;
     return formatElapsed(remaining);
   })();
+
+  const avgTimePerDoc = stats.processed > 0 && elapsed > 0
+    ? `${Math.round(elapsed / stats.processed / 1000)}s`
+    : "";
 
   const progressPercent = batchTotal > 0 ? (batchComplete / batchTotal) * 100 : 0;
   const failedCount = docs.filter(d => d.status === "error" && d.error !== "Cancelled").length;
@@ -515,6 +588,12 @@ export default function ReaderPage() {
                   <div>
                     <p className="text-lg font-bold">{formatElapsed(elapsed)}</p>
                     <p className="text-[10px] text-muted-foreground">Elapsed Time</p>
+                  </div>
+                )}
+                {!processing && avgTimePerDoc && (
+                  <div>
+                    <p className="text-lg font-bold">{avgTimePerDoc}</p>
+                    <p className="text-[10px] text-muted-foreground">Avg Time/Doc</p>
                   </div>
                 )}
               </div>
