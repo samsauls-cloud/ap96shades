@@ -289,11 +289,11 @@ export default function APDashboard() {
           </Card>
         )}
 
-        <div className="flex gap-2">
-          <Button size="sm" variant={activeTab === "summary" ? "default" : "outline"} className="text-xs h-8" onClick={() => setActiveTab("summary")}>
+        <div className="flex gap-2 flex-wrap">
+          <Button size="sm" variant={activeTab === "summary" ? "default" : "outline"} className="text-xs h-8 flex-1 sm:flex-none" onClick={() => setActiveTab("summary")}>
             <TrendingUp className="h-3.5 w-3.5 mr-1" /> AP Summary
           </Button>
-          <Button size="sm" variant={activeTab === "calendar" ? "default" : "outline"} className="text-xs h-8" onClick={() => setActiveTab("calendar")}>
+          <Button size="sm" variant={activeTab === "calendar" ? "default" : "outline"} className="text-xs h-8 flex-1 sm:flex-none" onClick={() => setActiveTab("calendar")}>
             <Calendar className="h-3.5 w-3.5 mr-1" /> 4-Month View
           </Button>
         </div>
@@ -304,10 +304,12 @@ export default function APDashboard() {
           </div>
         ) : activeTab === "summary" ? (
           <div className="space-y-6">
+            {/* Vendor Summary - Desktop table */}
             <Card className="bg-card border-border">
               <CardHeader className="pb-3"><CardTitle className="text-sm font-semibold">Vendor Summary</CardTitle></CardHeader>
               <CardContent className="p-0">
-                <div className="overflow-auto">
+                {/* Desktop */}
+                <div className="hidden md:block overflow-auto">
                   <Table>
                     <TableHeader>
                       <TableRow className="border-border">
@@ -344,6 +346,37 @@ export default function APDashboard() {
                       </TableRow>
                     </TableBody>
                   </Table>
+                </div>
+                {/* Mobile cards */}
+                <div className="md:hidden space-y-2 p-3">
+                  {[...vendorSummary.entries()].map(([vendor, v]) => (
+                    <div key={vendor} className="rounded-lg border border-border p-3 space-y-2">
+                      <p className="text-sm font-semibold">{vendor}</p>
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                        <span className="text-muted-foreground">Total Invoiced</span>
+                        <span className="text-right tabular-nums">{formatCurrency(v.totalInvoiced)}</span>
+                        <span className="text-muted-foreground">Total Paid</span>
+                        <span className="text-right tabular-nums text-green-500">{formatCurrency(v.totalPaid)}</span>
+                        <span className="text-muted-foreground">Outstanding</span>
+                        <span className="text-right tabular-nums font-medium">{formatCurrency(v.outstanding)}</span>
+                        <span className="text-muted-foreground">Overdue</span>
+                        <span className="text-right tabular-nums text-red-500 font-medium">{formatCurrency(v.overdue)}</span>
+                        <span className="text-muted-foreground">Due ≤30d</span>
+                        <span className="text-right tabular-nums">{formatCurrency(v.due30)}</span>
+                        <span className="text-muted-foreground">Due 31-90d</span>
+                        <span className="text-right tabular-nums">{formatCurrency(v.due31_90)}</span>
+                      </div>
+                    </div>
+                  ))}
+                  <div className="rounded-lg border border-border bg-muted/50 p-3">
+                    <p className="text-sm font-bold mb-1">GRAND TOTAL</p>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs font-semibold">
+                      <span className="text-muted-foreground">Outstanding</span>
+                      <span className="text-right tabular-nums">{formatCurrency([...vendorSummary.values()].reduce((s, v) => s + v.outstanding, 0))}</span>
+                      <span className="text-muted-foreground">Overdue</span>
+                      <span className="text-right tabular-nums text-red-500">{formatCurrency([...vendorSummary.values()].reduce((s, v) => s + v.overdue, 0))}</span>
+                    </div>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -455,10 +488,12 @@ export default function APDashboard() {
               return (
                 <Card key={m.label} className="bg-card border-border">
                   <CardHeader className="pb-3">
-                    <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                      <Calendar className="h-4 w-4" />
-                      {m.label} — month {mi + 1} of 4 ({monthPayments.length} payments)
-                      <span className="ml-auto text-xs font-normal text-muted-foreground">
+                    <CardTitle className="text-sm font-semibold flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+                      <span className="flex items-center gap-2">
+                        <Calendar className="h-4 w-4" />
+                        {m.label} — month {mi + 1} of 4 ({monthPayments.length} payments)
+                      </span>
+                      <span className="sm:ml-auto text-xs font-normal text-muted-foreground">
                         Paid: <span className="text-green-500 font-medium">{formatCurrency(monthPaid)}</span>
                         {" · "}Remaining: <span className={`font-medium ${monthRemaining > 0 ? "text-destructive" : "text-green-500"}`}>{formatCurrency(monthRemaining)}</span>
                       </span>
@@ -486,52 +521,90 @@ export default function APDashboard() {
 
 function PaymentTable({ payments, onRowClick, serverDate }: { payments: InvoicePayment[]; onRowClick: (p: InvoicePayment) => void; serverDate: string }) {
   return (
-    <div className="overflow-auto">
-      <Table>
-        <TableHeader>
-          <TableRow className="border-border bg-muted/30">
-            <TableHead className="text-xs font-semibold">Vendor</TableHead>
-            <TableHead className="text-xs font-semibold">Invoice #</TableHead>
-            <TableHead className="text-xs font-semibold">PO #</TableHead>
-            <TableHead className="text-xs font-semibold text-right">Amount Due</TableHead>
-            <TableHead className="text-xs font-semibold text-right">Paid</TableHead>
-            <TableHead className="text-xs font-semibold text-right">Balance</TableHead>
-            <TableHead className="text-xs font-semibold">Installment</TableHead>
-            <TableHead className="text-xs font-semibold">Due Date</TableHead>
-            <TableHead className="text-xs font-semibold text-center">Status</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {payments.map(p => {
-            const overdue = p.due_date < serverDate && p.balance_remaining > 0 && p.payment_status !== "paid" && p.payment_status !== "void";
-            const rowColor =
-              p.payment_status === "paid" || p.payment_status === "overpaid" ? "bg-green-500/8 hover:bg-green-500/12" :
-              p.payment_status === "partial" ? "bg-blue-500/8 hover:bg-blue-500/12" :
-              p.payment_status === "disputed" ? "bg-orange-500/8 hover:bg-orange-500/12" :
-              p.payment_status === "void" ? "bg-muted/30 opacity-60" :
-              overdue ? "bg-red-500/8 hover:bg-red-500/12" :
-              "hover:bg-muted/40";
+    <>
+      {/* Desktop table */}
+      <div className="hidden md:block overflow-auto">
+        <Table>
+          <TableHeader>
+            <TableRow className="border-border bg-muted/30">
+              <TableHead className="text-xs font-semibold">Vendor</TableHead>
+              <TableHead className="text-xs font-semibold">Invoice #</TableHead>
+              <TableHead className="text-xs font-semibold">PO #</TableHead>
+              <TableHead className="text-xs font-semibold text-right">Amount Due</TableHead>
+              <TableHead className="text-xs font-semibold text-right">Paid</TableHead>
+              <TableHead className="text-xs font-semibold text-right">Balance</TableHead>
+              <TableHead className="text-xs font-semibold">Installment</TableHead>
+              <TableHead className="text-xs font-semibold">Due Date</TableHead>
+              <TableHead className="text-xs font-semibold text-center">Status</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {payments.map(p => {
+              const overdue = p.due_date < serverDate && p.balance_remaining > 0 && p.payment_status !== "paid" && p.payment_status !== "void";
+              const rowColor =
+                p.payment_status === "paid" || p.payment_status === "overpaid" ? "bg-green-500/8 hover:bg-green-500/12" :
+                p.payment_status === "partial" ? "bg-blue-500/8 hover:bg-blue-500/12" :
+                p.payment_status === "disputed" ? "bg-orange-500/8 hover:bg-orange-500/12" :
+                p.payment_status === "void" ? "bg-muted/30 opacity-60" :
+                overdue ? "bg-red-500/8 hover:bg-red-500/12" :
+                "hover:bg-muted/40";
 
-            return (
-              <TableRow key={p.id} className={`border-border transition-colors cursor-pointer ${rowColor}`} onClick={() => onRowClick(p)}>
-                <TableCell className="text-xs">{p.vendor}</TableCell>
-                <TableCell className="text-xs font-mono">{p.invoice_number}</TableCell>
-                <TableCell className="text-xs font-mono text-muted-foreground">{p.po_number ?? "—"}</TableCell>
-                <TableCell className="text-xs text-right tabular-nums">{formatCurrency(p.amount_due)}</TableCell>
-                <TableCell className="text-xs text-right tabular-nums text-green-500">{formatCurrency(p.amount_paid)}</TableCell>
-                <TableCell className={`text-xs text-right tabular-nums font-semibold ${p.balance_remaining > 0 ? "" : "text-green-500"}`}>
-                  {formatCurrency(p.balance_remaining)}
-                </TableCell>
-                <TableCell className="text-xs">{p.installment_label ?? "—"}</TableCell>
-                <TableCell className="text-xs">{formatDate(p.due_date)}</TableCell>
-                <TableCell className="text-center">
+              return (
+                <TableRow key={p.id} className={`border-border transition-colors cursor-pointer ${rowColor}`} onClick={() => onRowClick(p)}>
+                  <TableCell className="text-xs">{p.vendor}</TableCell>
+                  <TableCell className="text-xs font-mono">{p.invoice_number}</TableCell>
+                  <TableCell className="text-xs font-mono text-muted-foreground">{p.po_number ?? "—"}</TableCell>
+                  <TableCell className="text-xs text-right tabular-nums">{formatCurrency(p.amount_due)}</TableCell>
+                  <TableCell className="text-xs text-right tabular-nums text-green-500">{formatCurrency(p.amount_paid)}</TableCell>
+                  <TableCell className={`text-xs text-right tabular-nums font-semibold ${p.balance_remaining > 0 ? "" : "text-green-500"}`}>
+                    {formatCurrency(p.balance_remaining)}
+                  </TableCell>
+                  <TableCell className="text-xs">{p.installment_label ?? "—"}</TableCell>
+                  <TableCell className="text-xs">{formatDate(p.due_date)}</TableCell>
+                  <TableCell className="text-center">
+                    <PaymentStatusBadge payment={p} compact />
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </div>
+      {/* Mobile card layout */}
+      <div className="md:hidden space-y-2 p-3">
+        {payments.map(p => {
+          const overdue = p.due_date < serverDate && p.balance_remaining > 0 && p.payment_status !== "paid" && p.payment_status !== "void";
+          const cardBorder =
+            p.payment_status === "paid" || p.payment_status === "overpaid" ? "border-green-500/30" :
+            p.payment_status === "partial" ? "border-blue-500/30" :
+            p.payment_status === "disputed" ? "border-orange-500/30" :
+            overdue ? "border-red-500/30" : "border-border";
+
+          return (
+            <div
+              key={p.id}
+              className={`rounded-lg border p-3 cursor-pointer active:bg-accent/70 transition-colors ${cardBorder}`}
+              onClick={() => onRowClick(p)}
+            >
+              <div className="flex items-start justify-between gap-2 mb-1.5">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium truncate">{p.vendor}</p>
+                  <p className="text-[10px] font-mono text-muted-foreground truncate">{p.invoice_number}</p>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className={`text-sm font-semibold tabular-nums ${p.balance_remaining > 0 ? "" : "text-green-500"}`}>{formatCurrency(p.balance_remaining)}</p>
                   <PaymentStatusBadge payment={p} compact />
-                </TableCell>
-              </TableRow>
-            );
-          })}
-        </TableBody>
-      </Table>
-    </div>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground">
+                <span>Due: {formatDate(p.due_date)}</span>
+                {p.installment_label && <span>{p.installment_label}</span>}
+                <span>Paid: <span className="text-green-500">{formatCurrency(p.amount_paid)}</span></span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </>
   );
 }

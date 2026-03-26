@@ -103,9 +103,9 @@ function AgingReport({ payments, today }: { payments: InvoicePayment[]; today: D
 
   return (
     <Card className="bg-card border-border">
-      <CardHeader className="pb-3 flex flex-row items-center justify-between">
+      <CardHeader className="pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <CardTitle className="text-sm font-semibold">Aging Report — Outstanding Balances</CardTitle>
-        <Button size="sm" variant="outline" className="text-xs h-7" onClick={handleExport}><Download className="h-3 w-3 mr-1" /> Export CSV</Button>
+        <Button size="sm" variant="outline" className="text-xs h-7 w-full sm:w-auto" onClick={handleExport}><Download className="h-3 w-3 mr-1" /> Export CSV</Button>
       </CardHeader>
       <CardContent className="p-0">
         <div className="overflow-auto">
@@ -178,27 +178,27 @@ function PaymentHistoryReport({ payments, vendors, vendorFilter, setVendorFilter
   return (
     <Card className="bg-card border-border">
       <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <CardTitle className="text-sm font-semibold">Payment History Report</CardTitle>
-          <Button size="sm" variant="outline" className="text-xs h-7" onClick={handleExport}><Download className="h-3 w-3 mr-1" /> Export CSV</Button>
+          <Button size="sm" variant="outline" className="text-xs h-7 w-full sm:w-auto" onClick={handleExport}><Download className="h-3 w-3 mr-1" /> Export CSV</Button>
         </div>
-        <div className="flex gap-2 flex-wrap mt-2">
+        <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2 mt-2">
           <Select value={vendorFilter} onValueChange={setVendorFilter}>
-            <SelectTrigger className="h-8 w-40 text-xs"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="h-8 w-full sm:w-40 text-xs"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Vendors</SelectItem>
               {vendors.map((v: string) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
             </SelectContent>
           </Select>
           <Select value={methodFilter} onValueChange={setMethodFilter}>
-            <SelectTrigger className="h-8 w-32 text-xs"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="h-8 w-full sm:w-32 text-xs"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Methods</SelectItem>
               {["Check", "ACH", "Wire", "Credit Card", "Other"].map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
             </SelectContent>
           </Select>
-          <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="h-8 w-36 text-xs" placeholder="From" />
-          <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="h-8 w-36 text-xs" placeholder="To" />
+          <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="h-8 w-full sm:w-36 text-xs" placeholder="From" />
+          <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="h-8 w-full sm:w-36 text-xs" placeholder="To" />
         </div>
       </CardHeader>
       <CardContent className="p-0">
@@ -254,12 +254,12 @@ function OutstandingReport({ payments, today, vendors, vendorFilter, setVendorFi
   return (
     <Card className="bg-card border-border">
       <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <CardTitle className="text-sm font-semibold">Outstanding Balance Report ({outstanding.length} installments · {formatCurrency(outstanding.reduce((s, p) => s + p.balance_remaining, 0))})</CardTitle>
-          <Button size="sm" variant="outline" className="text-xs h-7" onClick={handleExport}><Download className="h-3 w-3 mr-1" /> Export CSV</Button>
+          <Button size="sm" variant="outline" className="text-xs h-7 w-full sm:w-auto" onClick={handleExport}><Download className="h-3 w-3 mr-1" /> Export CSV</Button>
         </div>
         <Select value={vendorFilter} onValueChange={setVendorFilter}>
-          <SelectTrigger className="h-8 w-40 text-xs mt-2"><SelectValue /></SelectTrigger>
+          <SelectTrigger className="h-8 w-full sm:w-40 text-xs mt-2"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Vendors</SelectItem>
             {vendors.map((v: string) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
@@ -339,9 +339,9 @@ function CashFlowForecast({ payments, today }: { payments: InvoicePayment[]; tod
 
   return (
     <Card className="bg-card border-border">
-      <CardHeader className="pb-3 flex flex-row items-center justify-between">
+      <CardHeader className="pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <CardTitle className="text-sm font-semibold">Cash Flow Forecast — Next 90 Days</CardTitle>
-        <Button size="sm" variant="outline" className="text-xs h-7" onClick={handleExport}><Download className="h-3 w-3 mr-1" /> Export CSV</Button>
+        <Button size="sm" variant="outline" className="text-xs h-7 w-full sm:w-auto" onClick={handleExport}><Download className="h-3 w-3 mr-1" /> Export CSV</Button>
       </CardHeader>
       <CardContent className="p-0">
         <div className="overflow-auto">
