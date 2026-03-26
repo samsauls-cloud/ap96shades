@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import React from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { InvoiceNav } from "@/components/invoices/InvoiceNav";
@@ -8,20 +9,81 @@ import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { AlertCircle, Calendar, TrendingUp, Loader2, RefreshCw } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/supabase-queries";
-import { fetchPayments, type InvoicePayment, isOverdue, getDaysOverdue } from "@/lib/payment-queries";
+import { fetchPayments, type InvoicePayment, getDaysOverdueFromServer } from "@/lib/payment-queries";
 import { PaymentStatusBadge } from "@/components/invoices/PaymentStatusBadge";
 import { RecordPaymentModal } from "@/components/invoices/RecordPaymentModal";
 import { supabase } from "@/integrations/supabase/client";
 import { generateAllMissingPayments } from "@/lib/payment-queries";
-import { format, startOfMonth, endOfMonth, addMonths, isSameMonth } from "date-fns";
 
 type Tab = "summary" | "calendar";
 
+// ── Server date hook ──────────────────────────────────
+function useServerDate() {
+  return useQuery({
+    queryKey: ["server_date"],
+    queryFn: async (): Promise<string> => {
+      const { data, error } = await supabase.rpc("get_server_date");
+      if (error) throw error;
+      return data as string; // "YYYY-MM-DD"
+    },
+    staleTime: 30_000, // 30s cache
+    refetchInterval: 60_000, // refetch every 60s
+  });
+}
+
+// ── Rolling months from server date ───────────────────
+interface RollingMonth {
+  label: string;
+  startDate: Date;
+  endDate: Date;
+}
+
+function getRollingMonths(serverDateStr: string): RollingMonth[] {
+  const base = new Date(serverDateStr + "T00:00:00");
+  return [0, 1, 2, 3].map(offset => {
+    const d = new Date(base.getFullYear(), base.getMonth() + offset, 1);
+    return {
+      label: d.toLocaleString("default", { month: "long", year: "numeric" }),
+      startDate: new Date(d.getFullYear(), d.getMonth(), 1),
+      endDate: new Date(d.getFullYear(), d.getMonth() + 1, 0), // last day
+    };
+  });
+}
+
+// ── Overdue derived at render time (Fix 4) ────────────
+function isOverdueFromServer(p: InvoicePayment, serverDate: string): boolean {
+  if (p.payment_status === "paid" || p.payment_status === "overpaid" || p.payment_status === "void") return false;
+  if (p.balance_remaining <= 0) return false;
+  return p.due_date < serverDate;
+}
+
+function getUrgencyBucket(dueDate: string, serverDate: string) {
+  const due = new Date(dueDate + "T00:00:00");
+  const server = new Date(serverDate + "T00:00:00");
+  const diffDays = Math.ceil((due.getTime() - server.getTime()) / (1000 * 60 * 60 * 24));
+  if (diffDays < 0) return "overdue";
+  if (diffDays <= 7) return "urgent";
+  if (diffDays <= 30) return "plan";
+  if (diffDays <= 60) return "forecast";
+  if (diffDays <= 90) return "radar";
+  return "future";
+}
+
+function daysOverdue(dueDate: string, serverDate: string): number {
+  const due = new Date(dueDate + "T00:00:00");
+  const server = new Date(serverDate + "T00:00:00");
+  return Math.max(0, Math.ceil((server.getTime() - due.getTime()) / (1000 * 60 * 60 * 24)));
+}
+
+function isInMonth(dueDate: string, month: RollingMonth): boolean {
+  const d = new Date(dueDate + "T00:00:00");
+  return d >= month.startDate && d <= month.endDate;
+}
+
+// ── Audit data ────────────────────────────────────────
 interface AuditData {
   total_invoices: number;
   total_invoiced: number;
-  lux_invoices: number;
-  lux_total: number;
   has_payments: number;
   missing_payments: number;
   non_lux_vendors: string[];
@@ -36,29 +98,15 @@ function useAuditData() {
       const allInv = invoices ?? [];
       const paymentInvoiceIds = new Set((payments ?? []).map((p: any) => p.invoice_id));
       const vendors = [...new Set(allInv.map(i => i.vendor))];
-      const nonLux = vendors.filter(v => v !== "Luxottica");
       return {
         total_invoices: allInv.length,
         total_invoiced: allInv.reduce((s, i) => s + (i.total || 0), 0),
-        lux_invoices: allInv.filter(i => i.vendor === "Luxottica").length,
-        lux_total: allInv.filter(i => i.vendor === "Luxottica").reduce((s, i) => s + (i.total || 0), 0),
         has_payments: allInv.filter(i => paymentInvoiceIds.has(i.id)).length,
         missing_payments: allInv.filter(i => !paymentInvoiceIds.has(i.id)).length,
-        non_lux_vendors: nonLux,
+        non_lux_vendors: vendors.filter(v => v !== "Luxottica"),
       };
     },
   });
-}
-
-function getUrgencyBucket(dueDate: string, today: Date) {
-  const due = new Date(dueDate + "T00:00:00");
-  const diffDays = Math.ceil((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-  if (diffDays < 0) return "overdue";
-  if (diffDays <= 7) return "urgent";
-  if (diffDays <= 30) return "plan";
-  if (diffDays <= 60) return "forecast";
-  if (diffDays <= 90) return "radar";
-  return "future";
 }
 
 const BUCKET_CONFIG = {
@@ -77,6 +125,12 @@ export default function APDashboard() {
   const [generating, setGenerating] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState<InvoicePayment | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const midnightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const midnightIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const minuteIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const { data: serverDate } = useServerDate();
+  const effectiveDate = serverDate || new Date().toISOString().split("T")[0];
 
   const { data: payments = [], isLoading } = useQuery({
     queryKey: ["invoice_payments"],
@@ -85,10 +139,11 @@ export default function APDashboard() {
 
   const { data: audit } = useAuditData();
 
-  // Realtime subscriptions
+  // ── Realtime subscriptions ──────────────────────────
   const refreshAll = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["invoice_payments"] });
     queryClient.invalidateQueries({ queryKey: ["ap_audit"] });
+    queryClient.invalidateQueries({ queryKey: ["server_date"] });
   }, [queryClient]);
 
   useEffect(() => {
@@ -109,15 +164,45 @@ export default function APDashboard() {
     return () => { supabase.removeChannel(channel); };
   }, [refreshAll]);
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  // ── Fix 2: Midnight refresh + 60s overdue refresh ──
+  useEffect(() => {
+    // 60-second interval for overdue/urgency recalc
+    minuteIntervalRef.current = setInterval(() => {
+      queryClient.invalidateQueries({ queryKey: ["server_date"] });
+    }, 60_000);
 
-  // Filter out void from active calculations
+    // Midnight refresh
+    function msUntilMidnight() {
+      const now = new Date();
+      const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0);
+      return midnight.getTime() - now.getTime();
+    }
+
+    midnightTimerRef.current = setTimeout(() => {
+      refreshAll();
+      midnightIntervalRef.current = setInterval(() => {
+        refreshAll();
+      }, 24 * 60 * 60 * 1000);
+    }, msUntilMidnight());
+
+    return () => {
+      if (midnightTimerRef.current) clearTimeout(midnightTimerRef.current);
+      if (midnightIntervalRef.current) clearInterval(midnightIntervalRef.current);
+      if (minuteIntervalRef.current) clearInterval(minuteIntervalRef.current);
+    };
+  }, [refreshAll, queryClient]);
+
+  // ── Fix 3: Rolling months from server date ─────────
+  const calendarMonths = getRollingMonths(effectiveDate);
+
+  // ── Derived data using server date ──────────────────
   const activePayments = payments.filter(p => p.payment_status !== "void");
   const outstanding = activePayments.filter(p => p.balance_remaining > 0);
   const totalOutstanding = outstanding.reduce((s, p) => s + p.balance_remaining, 0);
 
-  // Vendor summary with partial tracking
+  const overduePayments = activePayments.filter(p => isOverdueFromServer(p, effectiveDate));
+
+  // Vendor summary
   const vendorSummary = (() => {
     const map = new Map<string, { totalInvoiced: number; totalPaid: number; outstanding: number; overdue: number; partial: number; due30: number; due31_90: number }>();
     for (const p of activePayments) {
@@ -128,7 +213,7 @@ export default function APDashboard() {
       if (p.balance_remaining > 0) {
         v.outstanding += p.balance_remaining;
         if (p.payment_status === "partial") v.partial += p.balance_remaining;
-        const bucket = getUrgencyBucket(p.due_date, today);
+        const bucket = getUrgencyBucket(p.due_date, effectiveDate);
         if (bucket === "overdue") v.overdue += p.balance_remaining;
         else if (bucket === "urgent" || bucket === "plan") v.due30 += p.balance_remaining;
         else v.due31_90 += p.balance_remaining;
@@ -142,7 +227,7 @@ export default function APDashboard() {
     const result: Record<string, { amount: number; count: number }> = {};
     for (const key of Object.keys(BUCKET_CONFIG)) result[key] = { amount: 0, count: 0 };
     for (const p of outstanding) {
-      const bucket = getUrgencyBucket(p.due_date, today);
+      const bucket = getUrgencyBucket(p.due_date, effectiveDate);
       if (result[bucket]) {
         result[bucket].amount += p.balance_remaining;
         result[bucket].count++;
@@ -151,22 +236,9 @@ export default function APDashboard() {
     return result;
   })();
 
-  // 4-month calendar
-  const calendarMonths = [0, 1, 2, 3].map(offset => {
-    const monthStart = startOfMonth(addMonths(today, offset));
-    const monthEnd = endOfMonth(monthStart);
-    return { start: monthStart, end: monthEnd, label: format(monthStart, "MMMM yyyy") };
-  });
-
-  const overduePayments = activePayments.filter(p => isOverdue(p.due_date, p.payment_status));
-
   const handlePaymentClick = (payment: InvoicePayment) => {
     setSelectedPayment(payment);
     setModalOpen(true);
-  };
-
-  const handlePaymentComplete = () => {
-    refreshAll();
   };
 
   const handleGenerateAll = async () => {
@@ -205,6 +277,7 @@ export default function APDashboard() {
                 📊 <span className="font-medium text-foreground">Data Audit:</span>{" "}
                 {audit.total_invoices} invoices · {formatCurrency(audit.total_invoiced)} total
                 · {audit.has_payments} have schedules · {audit.missing_payments} missing
+                {serverDate && <> · Server date: <span className="font-mono text-foreground">{serverDate}</span></>}
               </p>
               {audit.missing_payments > 0 && (
                 <Button size="sm" variant="outline" className="mt-2 text-xs h-7" onClick={handleGenerateAll} disabled={generating}>
@@ -231,11 +304,8 @@ export default function APDashboard() {
           </div>
         ) : activeTab === "summary" ? (
           <div className="space-y-6">
-            {/* Vendor Summary */}
             <Card className="bg-card border-border">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold">Vendor Summary</CardTitle>
-              </CardHeader>
+              <CardHeader className="pb-3"><CardTitle className="text-sm font-semibold">Vendor Summary</CardTitle></CardHeader>
               <CardContent className="p-0">
                 <div className="overflow-auto">
                   <Table>
@@ -278,7 +348,6 @@ export default function APDashboard() {
               </CardContent>
             </Card>
 
-            {/* Urgency Buckets */}
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
               {(Object.entries(BUCKET_CONFIG) as [string, typeof BUCKET_CONFIG["overdue"]][]).map(([key, cfg]) => {
                 const b = buckets[key];
@@ -299,12 +368,10 @@ export default function APDashboard() {
             </div>
           </div>
         ) : (
-          /* 4-Month Calendar View */
           <div className="space-y-6">
+            {/* 4-Month Summary Grid */}
             <Card className="bg-card border-border">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold">4-Month Rolling Summary</CardTitle>
-              </CardHeader>
+              <CardHeader className="pb-3"><CardTitle className="text-sm font-semibold">4-Month Rolling Summary</CardTitle></CardHeader>
               <CardContent className="p-0">
                 <div className="overflow-auto">
                   <Table>
@@ -333,13 +400,13 @@ export default function APDashboard() {
                         const vendors = [...new Set(activePayments.map(p => p.vendor))];
                         return [...vendors, "ALL VENDORS"].map(vendor => {
                           const isTotal = vendor === "ALL VENDORS";
-                          const vPayments = isTotal ? activePayments : activePayments.filter(p => p.vendor === vendor);
+                          const vp = isTotal ? activePayments : activePayments.filter(p => p.vendor === vendor);
                           let fourMonthTotal = 0;
                           return (
                             <TableRow key={vendor} className={`border-border ${isTotal ? "bg-muted/50 font-semibold" : ""}`}>
                               <TableCell className="text-xs">{vendor}</TableCell>
                               {calendarMonths.map(m => {
-                                const mp = vPayments.filter(p => isSameMonth(new Date(p.due_date + "T00:00:00"), m.start));
+                                const mp = vp.filter(p => isInMonth(p.due_date, m));
                                 const totalDue = mp.reduce((s, p) => s + p.amount_due, 0);
                                 const totalPaid = mp.reduce((s, p) => s + p.amount_paid, 0);
                                 const remaining = mp.reduce((s, p) => s + p.balance_remaining, 0);
@@ -373,14 +440,14 @@ export default function APDashboard() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="p-0">
-                  <PaymentTable payments={overduePayments} onRowClick={handlePaymentClick} />
+                  <PaymentTable payments={overduePayments} onRowClick={handlePaymentClick} serverDate={effectiveDate} />
                 </CardContent>
               </Card>
             )}
 
             {/* Monthly sections */}
             {calendarMonths.map((m, mi) => {
-              const monthPayments = activePayments.filter(p => isSameMonth(new Date(p.due_date + "T00:00:00"), m.start))
+              const monthPayments = activePayments.filter(p => isInMonth(p.due_date, m))
                 .sort((a, b) => a.due_date.localeCompare(b.due_date));
               if (monthPayments.length === 0) return null;
               const monthPaid = monthPayments.reduce((s, p) => s + p.amount_paid, 0);
@@ -398,7 +465,7 @@ export default function APDashboard() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="p-0">
-                    <PaymentTable payments={monthPayments} onRowClick={handlePaymentClick} />
+                    <PaymentTable payments={monthPayments} onRowClick={handlePaymentClick} serverDate={effectiveDate} />
                   </CardContent>
                 </Card>
               );
@@ -411,15 +478,13 @@ export default function APDashboard() {
         payment={selectedPayment}
         open={modalOpen}
         onOpenChange={setModalOpen}
-        onComplete={handlePaymentComplete}
+        onComplete={() => refreshAll()}
       />
     </div>
   );
 }
 
-import React from "react";
-
-function PaymentTable({ payments, onRowClick }: { payments: InvoicePayment[]; onRowClick: (p: InvoicePayment) => void }) {
+function PaymentTable({ payments, onRowClick, serverDate }: { payments: InvoicePayment[]; onRowClick: (p: InvoicePayment) => void; serverDate: string }) {
   return (
     <div className="overflow-auto">
       <Table>
@@ -438,7 +503,7 @@ function PaymentTable({ payments, onRowClick }: { payments: InvoicePayment[]; on
         </TableHeader>
         <TableBody>
           {payments.map(p => {
-            const overdue = isOverdue(p.due_date, p.payment_status);
+            const overdue = p.due_date < serverDate && p.balance_remaining > 0 && p.payment_status !== "paid" && p.payment_status !== "void";
             const rowColor =
               p.payment_status === "paid" || p.payment_status === "overpaid" ? "bg-green-500/8 hover:bg-green-500/12" :
               p.payment_status === "partial" ? "bg-blue-500/8 hover:bg-blue-500/12" :
@@ -448,11 +513,7 @@ function PaymentTable({ payments, onRowClick }: { payments: InvoicePayment[]; on
               "hover:bg-muted/40";
 
             return (
-              <TableRow
-                key={p.id}
-                className={`border-border transition-colors cursor-pointer ${rowColor}`}
-                onClick={() => onRowClick(p)}
-              >
+              <TableRow key={p.id} className={`border-border transition-colors cursor-pointer ${rowColor}`} onClick={() => onRowClick(p)}>
                 <TableCell className="text-xs">{p.vendor}</TableCell>
                 <TableCell className="text-xs font-mono">{p.invoice_number}</TableCell>
                 <TableCell className="text-xs font-mono text-muted-foreground">{p.po_number ?? "—"}</TableCell>
