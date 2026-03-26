@@ -31,6 +31,16 @@ export default function InvoicesPage() {
   const invoices = data?.data ?? [];
   const totalCount = data?.count ?? 0;
 
+  // Keep selected invoice in sync with refreshed data
+  useEffect(() => {
+    if (selectedInvoice && invoices.length > 0) {
+      const updated = invoices.find(i => i.id === selectedInvoice.id);
+      if (updated && JSON.stringify(updated) !== JSON.stringify(selectedInvoice)) {
+        setSelectedInvoice(updated);
+      }
+    }
+  }, [invoices, selectedInvoice]);
+
   const handleSort = useCallback((field: string) => {
     setFilters(prev => ({
       ...prev,
