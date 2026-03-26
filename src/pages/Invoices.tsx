@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { Download, Package, List } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
-  fetchInvoices, fetchDistinctVendors, invoiceToCSVRow, lineItemsToCSV,
+  fetchInvoices, fetchDistinctVendors, fetchDistinctTags, invoiceToCSVRow, lineItemsToCSV,
   type InvoiceFilters, type VendorInvoice,
 } from "@/lib/supabase-queries";
 import { StatsBar } from "@/components/invoices/StatsBar";
@@ -28,6 +28,11 @@ export default function InvoicesPage() {
   const { data: vendors = [] } = useQuery({
     queryKey: ["distinct_vendors"],
     queryFn: fetchDistinctVendors,
+  });
+
+  const { data: allTags = [] } = useQuery({
+    queryKey: ["distinct_tags"],
+    queryFn: fetchDistinctTags,
   });
 
   const invoices = data?.data ?? [];
@@ -57,6 +62,7 @@ export default function InvoicesPage() {
   const handleRefresh = () => {
     queryClient.invalidateQueries({ queryKey: ["vendor_invoices"] });
     queryClient.invalidateQueries({ queryKey: ["distinct_vendors"] });
+    queryClient.invalidateQueries({ queryKey: ["distinct_tags"] });
     queryClient.invalidateQueries({ queryKey: ["vendor_invoices_po_view"] });
   };
 
@@ -79,7 +85,7 @@ export default function InvoicesPage() {
       <InvoiceNav />
       <main className="max-w-[1600px] mx-auto px-4 sm:px-6 py-6 space-y-5">
         <StatsBar invoices={invoices} totalCount={totalCount} />
-        <InvoiceFiltersBar filters={filters} onChange={setFilters} vendors={vendors} />
+        <InvoiceFiltersBar filters={filters} onChange={setFilters} vendors={vendors} tags={allTags} />
 
         <div className="flex gap-2 items-center">
           <div className="flex rounded-lg border border-border overflow-hidden">
