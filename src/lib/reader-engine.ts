@@ -1,5 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { VendorInvoiceInsert } from "@/lib/supabase-queries";
+import { normalizeVendor } from "@/lib/invoice-dedup";
 
 const SYSTEM_PROMPT = `You are a document data extractor for an optical retail business (NinetySix Shades). Extract data from vendor invoices AND purchase orders from: Maui Jim, Kering (Gucci, Saint Laurent, Balenciaga, Bottega Veneta, Alexander McQueen), Safilo (Carrera, Fossil, Hugo Boss, Jimmy Choo), Marcolin (Tom Ford, Guess, Swarovski, Montblanc), Luxottica (Ray-Ban, Oakley, Prada, Versace, Persol, Coach, DKNY, Dolce & Gabbana, Emporio Armani, Giorgio Armani, Burberry, Michael Kors, Tiffany, Vogue). Luxottica POs use fields: Order Number, Account Number, Carrier, Terms, Item Number, Color Code, Temple, Quantity Ordered, Quantity Shipped, Unit Cost, Extended Cost. Detect INVOICE vs PO. Return ONLY valid JSON: { doc_type, vendor, vendor_brands[], invoice_number, invoice_date (YYYY-MM-DD), po_number, account_number, ship_to, carrier, payment_terms, subtotal, tax, freight, total, currency, line_items[{upc, item_number, sku, description, brand, model, color_code, color_desc, size, temple, qty_ordered, qty_shipped, qty, unit_price, line_total}], notes }. CRITICAL: Return ONLY raw JSON. No markdown, no code fences, no backticks, no preamble, no explanation. Your response must start with { and end with }. Nothing before {. Nothing after }.`;
 
@@ -14,7 +15,7 @@ export const MAX_RETRIES_OTHER = 3;
 export const RETRY_COOLDOWN = 30_000;
 export const FETCH_TIMEOUT = 60_000;
 
-export type DocStatus = "processing" | "done" | "error" | "duplicate" | "retrying" | "staged" | "waiting-retry";
+export type DocStatus = "processing" | "done" | "error" | "duplicate" | "retrying" | "staged" | "waiting-retry" | "extended";
 
 export interface ProcessedDoc {
   id: string;
@@ -32,18 +33,24 @@ export interface ProcessedDoc {
   duplicateDbId?: string;
   invoiceData?: VendorInvoiceInsert;
   file?: File;
+  // Extended invoice info
+  extendedInfo?: string;
+  // PO link info
+  poLinkInfo?: string;
 }
 
 export interface BatchStats {
   processed: number;
   saved: number;
-  duplicates: number;
+  trueDuplicates: number;
+  extended: number;
   failed: number;
   totalValue: number;
   totalUnits: number;
   invoices: number;
   pos: number;
   lineItems: number;
+  poLinks: number;
 }
 
 export function sleep(ms: number) {
@@ -76,7 +83,6 @@ function extractJSON(raw: string): any {
     .replace(/```\s*$/im, '')
     .trim();
 
-  // Nuclear option — find outermost { }
   if (cleaned.includes('`') || !cleaned.startsWith('{')) {
     const start = cleaned.indexOf('{');
     const end = cleaned.lastIndexOf('}');
@@ -141,7 +147,7 @@ export async function callAnthropicAPI(
 
 export function parsedToInvoice(parsed: any, filename: string): VendorInvoiceInsert {
   return {
-    vendor: parsed.vendor || "Unknown",
+    vendor: normalizeVendor(parsed.vendor),
     doc_type: parsed.doc_type || "INVOICE",
     invoice_number: parsed.invoice_number || filename,
     invoice_date: parsed.invoice_date || new Date().toISOString().split("T")[0],
@@ -160,16 +166,6 @@ export function parsedToInvoice(parsed: any, filename: string): VendorInvoiceIns
     filename,
     line_items: parsed.line_items || [],
   };
-}
-
-export async function checkDuplicate(invoiceNumber: string, vendor: string): Promise<string | null> {
-  const { data } = await supabase
-    .from("vendor_invoices")
-    .select("id")
-    .eq("invoice_number", invoiceNumber)
-    .eq("vendor", vendor)
-    .limit(1);
-  return data && data.length > 0 ? data[0].id : null;
 }
 
 export async function fileToBase64(file: File): Promise<string> {
@@ -202,10 +198,6 @@ export function getRetryConfig(err: any): { maxRetries: number; waits: number[] 
   return { maxRetries: MAX_RETRIES_OTHER, waits: RETRY_WAITS_OTHER };
 }
 
-/**
- * Staggered rolling queue processor.
- * Starts tasks with staggerMs between each, never exceeding maxConcurrency active.
- */
 export async function runRollingQueue<T>(
   items: T[],
   maxConcurrency: number,
