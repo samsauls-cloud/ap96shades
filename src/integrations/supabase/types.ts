@@ -56,6 +56,68 @@ export type Database = {
         }
         Relationships: []
       }
+      invoice_payments: {
+        Row: {
+          amount_due: number
+          created_at: string
+          due_date: string
+          id: string
+          installment_label: string | null
+          invoice_amount: number
+          invoice_date: string
+          invoice_id: string | null
+          invoice_number: string
+          is_paid: boolean
+          notes: string | null
+          paid_date: string | null
+          po_number: string | null
+          terms: string | null
+          vendor: string
+        }
+        Insert: {
+          amount_due: number
+          created_at?: string
+          due_date: string
+          id?: string
+          installment_label?: string | null
+          invoice_amount: number
+          invoice_date: string
+          invoice_id?: string | null
+          invoice_number: string
+          is_paid?: boolean
+          notes?: string | null
+          paid_date?: string | null
+          po_number?: string | null
+          terms?: string | null
+          vendor: string
+        }
+        Update: {
+          amount_due?: number
+          created_at?: string
+          due_date?: string
+          id?: string
+          installment_label?: string | null
+          invoice_amount?: number
+          invoice_date?: string
+          invoice_id?: string | null
+          invoice_number?: string
+          is_paid?: boolean
+          notes?: string | null
+          paid_date?: string | null
+          po_number?: string | null
+          terms?: string | null
+          vendor?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invoice_payments_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "vendor_invoices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       item_master: {
         Row: {
           article_name: string | null
