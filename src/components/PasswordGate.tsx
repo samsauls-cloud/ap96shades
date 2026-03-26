@@ -59,7 +59,7 @@ export function PasswordGate({ children }: { children: ReactNode }) {
         {/* 96 Logo Animation */}
         <div className="flex items-center justify-center select-none" aria-hidden>
           <span
-            className="text-8xl font-black text-primary transition-all ease-[cubic-bezier(0.34,1.56,0.64,1)]"
+            className={`text-8xl font-black text-primary transition-all ease-[cubic-bezier(0.34,1.56,0.64,1)] ${!unlocking ? "animate-[breathe_3s_ease-in-out_infinite]" : ""}`}
             style={{
               transform: unlocking
                 ? "translateX(-40px) rotate(-15deg) scale(1.1)"
@@ -71,7 +71,7 @@ export function PasswordGate({ children }: { children: ReactNode }) {
             9
           </span>
           <span
-            className="text-8xl font-black text-primary transition-all ease-[cubic-bezier(0.34,1.56,0.64,1)]"
+            className={`text-8xl font-black text-primary transition-all ease-[cubic-bezier(0.34,1.56,0.64,1)] ${!unlocking ? "animate-[breathe_3s_ease-in-out_infinite_150ms]" : ""}`}
             style={{
               transform: unlocking
                 ? "translateX(40px) rotate(15deg) scale(1.1)"
