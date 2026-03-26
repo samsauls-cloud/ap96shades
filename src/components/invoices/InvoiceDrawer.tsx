@@ -129,6 +129,32 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
 
         <Separator className="mb-4" />
 
+        {/* Multi-shipment banner */}
+        {(inv as any).is_multi_shipment && (
+          <div className="mb-4 p-3 rounded-lg bg-blue-500/10 border border-blue-500/20">
+            <p className="text-sm font-medium text-blue-500 flex items-center gap-2">
+              📦 Multi-Shipment Invoice — {(inv as any).shipment_count || 2} shipments
+              {(inv as any).last_shipment_date && (
+                <span className="text-[10px] text-muted-foreground font-normal">
+                  · Last received: {formatDate((inv as any).last_shipment_date)}
+                  {(inv as any).last_shipment_file && ` from ${(inv as any).last_shipment_file}`}
+                </span>
+              )}
+            </p>
+          </div>
+        )}
+
+        {/* PO total invoiced */}
+        {(inv as any).po_total_invoiced && inv.po_number && (
+          <div className="mb-4 p-3 rounded-lg bg-primary/5 border border-primary/20">
+            <p className="text-[10px] text-primary font-medium">
+              PO {inv.po_number} — Total invoiced: {formatCurrency((inv as any).po_total_invoiced)}
+            </p>
+          </div>
+        )}
+
+        <Separator className="mb-4" />
+
         {/* Notes */}
         <div className="mb-4">
           <label className="text-xs font-semibold text-muted-foreground mb-1 block">Notes</label>

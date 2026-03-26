@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Download } from "lucide-react";
+import { Download, Package, List } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   fetchInvoices, fetchDistinctVendors, invoiceToCSVRow, lineItemsToCSV,
@@ -12,11 +12,13 @@ import { InvoiceFiltersBar } from "@/components/invoices/InvoiceFiltersBar";
 import { InvoiceTable } from "@/components/invoices/InvoiceTable";
 import { InvoiceDrawer } from "@/components/invoices/InvoiceDrawer";
 import { InvoiceNav } from "@/components/invoices/InvoiceNav";
+import { POView } from "@/components/invoices/POView";
 
 export default function InvoicesPage() {
   const queryClient = useQueryClient();
   const [filters, setFilters] = useState<InvoiceFilters>({ page: 1, perPage: 25, sortField: "invoice_date", sortDir: "desc" });
   const [selectedInvoice, setSelectedInvoice] = useState<VendorInvoice | null>(null);
+  const [viewMode, setViewMode] = useState<"list" | "po">("list");
 
   const { data, isLoading } = useQuery({
     queryKey: ["vendor_invoices", filters],
@@ -31,7 +33,6 @@ export default function InvoicesPage() {
   const invoices = data?.data ?? [];
   const totalCount = data?.count ?? 0;
 
-  // Keep selected invoice in sync with refreshed data
   useEffect(() => {
     if (selectedInvoice && invoices.length > 0) {
       const updated = invoices.find(i => i.id === selectedInvoice.id);
@@ -56,6 +57,7 @@ export default function InvoicesPage() {
   const handleRefresh = () => {
     queryClient.invalidateQueries({ queryKey: ["vendor_invoices"] });
     queryClient.invalidateQueries({ queryKey: ["distinct_vendors"] });
+    queryClient.invalidateQueries({ queryKey: ["vendor_invoices_po_view"] });
   };
 
   const exportFilteredCSV = () => {
@@ -79,7 +81,26 @@ export default function InvoicesPage() {
         <StatsBar invoices={invoices} totalCount={totalCount} />
         <InvoiceFiltersBar filters={filters} onChange={setFilters} vendors={vendors} />
 
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
+          <div className="flex rounded-lg border border-border overflow-hidden">
+            <Button
+              variant={viewMode === "list" ? "default" : "ghost"}
+              size="sm"
+              className="text-xs h-7 rounded-none gap-1"
+              onClick={() => setViewMode("list")}
+            >
+              <List className="h-3 w-3" /> List
+            </Button>
+            <Button
+              variant={viewMode === "po" ? "default" : "ghost"}
+              size="sm"
+              className="text-xs h-7 rounded-none gap-1"
+              onClick={() => setViewMode("po")}
+            >
+              <Package className="h-3 w-3" /> PO View
+            </Button>
+          </div>
+          <div className="flex-1" />
           <Button variant="outline" size="sm" className="text-xs h-7" onClick={exportFilteredCSV}>
             <Download className="h-3 w-3 mr-1" /> Export Filtered CSV
           </Button>
@@ -92,6 +113,8 @@ export default function InvoicesPage() {
           <div className="flex justify-center py-20">
             <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
           </div>
+        ) : viewMode === "po" ? (
+          <POView onRowClick={setSelectedInvoice} />
         ) : (
           <InvoiceTable
             invoices={invoices}
