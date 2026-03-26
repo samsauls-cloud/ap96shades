@@ -196,11 +196,16 @@ export type Database = {
           imported_by: string | null
           invoice_date: string
           invoice_number: string
+          is_multi_shipment: boolean
+          last_shipment_date: string | null
+          last_shipment_file: string | null
           line_items: Json
           notes: string | null
           payment_terms: string | null
           po_number: string | null
+          po_total_invoiced: number | null
           ship_to: string | null
+          shipment_count: number
           status: string
           subtotal: number | null
           tax: number | null
@@ -221,11 +226,16 @@ export type Database = {
           imported_by?: string | null
           invoice_date: string
           invoice_number: string
+          is_multi_shipment?: boolean
+          last_shipment_date?: string | null
+          last_shipment_file?: string | null
           line_items?: Json
           notes?: string | null
           payment_terms?: string | null
           po_number?: string | null
+          po_total_invoiced?: number | null
           ship_to?: string | null
+          shipment_count?: number
           status?: string
           subtotal?: number | null
           tax?: number | null
@@ -246,11 +256,16 @@ export type Database = {
           imported_by?: string | null
           invoice_date?: string
           invoice_number?: string
+          is_multi_shipment?: boolean
+          last_shipment_date?: string | null
+          last_shipment_file?: string | null
           line_items?: Json
           notes?: string | null
           payment_terms?: string | null
           po_number?: string | null
+          po_total_invoiced?: number | null
           ship_to?: string | null
+          shipment_count?: number
           status?: string
           subtotal?: number | null
           tax?: number | null
