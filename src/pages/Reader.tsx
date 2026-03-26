@@ -1,32 +1,22 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Upload, FileText, ExternalLink, CheckCircle2, AlertCircle, Loader2, XCircle } from "lucide-react";
+import { Upload, CheckCircle2, AlertCircle, Loader2, XCircle, ExternalLink, AlertTriangle, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
+import { Switch } from "@/components/ui/switch";
 import { Link } from "react-router-dom";
 import { InvoiceNav } from "@/components/invoices/InvoiceNav";
-import { DocTypeBadge, StatusBadge } from "@/components/invoices/Badges";
+import { DocTypeBadge } from "@/components/invoices/Badges";
 import { insertInvoice, formatCurrency, type VendorInvoiceInsert } from "@/lib/supabase-queries";
-
-const CONCURRENCY = 5;
-
-interface ProcessedDoc {
-  id: string;
-  filename: string;
-  vendor: string;
-  doc_type: string;
-  invoice_number: string;
-  total: number;
-  line_items_count: number;
-  status: "processing" | "done" | "error";
-  error?: string;
-  dbId?: string;
-}
-
-const SYSTEM_PROMPT = `You are a document data extractor for an optical retail business (NinetySix Shades). Extract data from vendor invoices AND purchase orders from: Maui Jim, Kering (Gucci, Saint Laurent, Balenciaga, Bottega Veneta, Alexander McQueen), Safilo (Carrera, Fossil, Hugo Boss, Jimmy Choo), Marcolin (Tom Ford, Guess, Swarovski, Montblanc), Luxottica (Ray-Ban, Oakley, Prada, Versace, Persol, Coach, DKNY, Dolce & Gabbana, Emporio Armani, Giorgio Armani, Burberry, Michael Kors, Tiffany, Vogue). Luxottica POs use fields: Order Number, Account Number, Carrier, Terms, Item Number, Color Code, Temple, Quantity Ordered, Quantity Shipped, Unit Cost, Extended Cost. Detect INVOICE vs PO. Return ONLY valid JSON: { doc_type, vendor, vendor_brands[], invoice_number, invoice_date (YYYY-MM-DD), po_number, account_number, ship_to, carrier, payment_terms, subtotal, tax, freight, total, currency, line_items[{upc, item_number, sku, description, brand, model, color_code, color_desc, size, temple, qty_ordered, qty_shipped, qty, unit_price, line_total}], notes }`;
+import {
+  CONCURRENCY, MAX_RETRIES, RETRY_DELAY_MS, sleep,
+  type ProcessedDoc, type DocStatus, type BatchStats,
+  callAnthropicAPI, parsedToInvoice, checkDuplicate,
+  fileToBase64, batchInsertInvoices,
+} from "@/lib/reader-engine";
 
 export default function ReaderPage() {
   const queryClient = useQueryClient();
@@ -36,7 +26,10 @@ export default function ReaderPage() {
   const [docs, setDocs] = useState<ProcessedDoc[]>([]);
   const [batchTotal, setBatchTotal] = useState(0);
   const [batchComplete, setBatchComplete] = useState(0);
+  const [atomicMode, setAtomicMode] = useState(false);
   const cancelRef = useRef(false);
+  const startTimeRef = useRef<number>(0);
+  const [docsPerMin, setDocsPerMin] = useState(0);
 
   const saveApiKey = (key: string) => {
     const cleanKey = key.replace(/[^\x20-\x7E]/g, '').trim();
@@ -58,79 +51,105 @@ export default function ReaderPage() {
     e.target.value = "";
   }, []);
 
-  const processFile = async (file: File, docId: string) => {
-    const buffer = await file.arrayBuffer();
-    const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
-
-    const cleanKey = apiKey.replace(/[^\x20-\x7E]/g, '').trim();
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": cleanKey,
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true",
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 4000,
-        system: SYSTEM_PROMPT,
-        messages: [{
-          role: "user",
-          content: [{
-            type: "document",
-            source: { type: "base64", media_type: "application/pdf", data: base64 },
-          }, {
-            type: "text",
-            text: "Extract all invoice/PO data from this document. Return only valid JSON.",
-          }],
-        }],
-      }),
-    });
-
-    if (!response.ok) {
-      const err = await response.text();
-      throw new Error(`API error ${response.status}: ${err}`);
-    }
-
-    const result = await response.json();
-    const textContent = result.content?.find((c: any) => c.type === "text")?.text;
-    if (!textContent) throw new Error("No text content in response");
-
-    let jsonStr = textContent;
-    const match = textContent.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (match) jsonStr = match[1];
-    const parsed = JSON.parse(jsonStr.trim());
-
-    const invoice: VendorInvoiceInsert = {
-      vendor: parsed.vendor || "Unknown",
-      doc_type: parsed.doc_type || "INVOICE",
-      invoice_number: parsed.invoice_number || file.name,
-      invoice_date: parsed.invoice_date || new Date().toISOString().split("T")[0],
-      po_number: parsed.po_number,
-      account_number: parsed.account_number,
-      ship_to: parsed.ship_to,
-      carrier: parsed.carrier,
-      payment_terms: parsed.payment_terms,
-      subtotal: parsed.subtotal,
-      tax: parsed.tax,
-      freight: parsed.freight,
-      total: parsed.total || 0,
-      currency: parsed.currency || "USD",
-      vendor_brands: parsed.vendor_brands,
-      notes: parsed.notes,
-      filename: file.name,
-      line_items: parsed.line_items || [],
-    };
-
-    const saved = await insertInvoice(invoice);
-
-    setDocs(prev => prev.map(d => d.id === docId ? {
-      ...d, status: "done" as const, vendor: invoice.vendor, doc_type: invoice.doc_type,
-      invoice_number: invoice.invoice_number, total: invoice.total,
-      line_items_count: (parsed.line_items || []).length, dbId: saved.id,
-    } : d));
+  const updateDoc = (docId: string, updates: Partial<ProcessedDoc>) => {
+    setDocs(prev => prev.map(d => d.id === docId ? { ...d, ...updates } : d));
   };
+
+  const processFileWithRetry = async (
+    file: File, docId: string
+  ): Promise<{ invoice: VendorInvoiceInsert; parsed: any } | null> => {
+    const base64 = await fileToBase64(file);
+
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        if (attempt > 0) {
+          updateDoc(docId, {
+            status: "retrying" as DocStatus,
+            retryAttempt: attempt,
+            error: `Rate limited — retrying ${file.name} (attempt ${attempt}/${MAX_RETRIES})`,
+          });
+          await sleep(RETRY_DELAY_MS);
+        }
+
+        const parsed = await callAnthropicAPI(apiKey, base64, attempt);
+        const invoice = parsedToInvoice(parsed, file.name);
+        return { invoice, parsed };
+      } catch (err: any) {
+        if (err.isRateLimit && attempt < MAX_RETRIES) {
+          continue;
+        }
+        throw err;
+      }
+    }
+    return null;
+  };
+
+  const processSingleFile = async (file: File, docId: string, isAtomic: boolean) => {
+    try {
+      const result = await processFileWithRetry(file, docId);
+      if (!result) {
+        updateDoc(docId, { status: "error", error: "Processing returned no result" });
+        return;
+      }
+
+      const { invoice, parsed } = result;
+      const lineItemsCount = (parsed.line_items || []).length;
+
+      // Check for duplicates
+      const dupId = await checkDuplicate(invoice.invoice_number, invoice.vendor);
+      if (dupId) {
+        updateDoc(docId, {
+          status: "duplicate",
+          vendor: invoice.vendor,
+          doc_type: invoice.doc_type,
+          invoice_number: invoice.invoice_number,
+          total: invoice.total || 0,
+          line_items_count: lineItemsCount,
+          duplicateDbId: dupId,
+        });
+        return;
+      }
+
+      if (isAtomic) {
+        // Stage for later batch insert
+        updateDoc(docId, {
+          status: "staged",
+          vendor: invoice.vendor,
+          doc_type: invoice.doc_type,
+          invoice_number: invoice.invoice_number,
+          total: invoice.total || 0,
+          line_items_count: lineItemsCount,
+          invoiceData: invoice,
+        });
+      } else {
+        // Save immediately
+        const saved = await insertInvoice(invoice);
+        updateDoc(docId, {
+          status: "done",
+          vendor: invoice.vendor,
+          doc_type: invoice.doc_type,
+          invoice_number: invoice.invoice_number,
+          total: invoice.total || 0,
+          line_items_count: lineItemsCount,
+          dbId: saved.id,
+        });
+      }
+    } catch (err: any) {
+      updateDoc(docId, { status: "error", error: err.message });
+    }
+  };
+
+  // Throughput tracker
+  useEffect(() => {
+    if (!processing) return;
+    const interval = setInterval(() => {
+      const elapsed = (Date.now() - startTimeRef.current) / 60000;
+      if (elapsed > 0 && batchComplete > 0) {
+        setDocsPerMin(Math.round(batchComplete / elapsed));
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [processing, batchComplete]);
 
   const processQueue = async () => {
     if (!apiKey) { toast.error("Please enter your Anthropic API key"); return; }
@@ -138,12 +157,14 @@ export default function ReaderPage() {
 
     setProcessing(true);
     cancelRef.current = false;
+    startTimeRef.current = Date.now();
+    setDocsPerMin(0);
+
     const filesToProcess = [...queue];
     setBatchTotal(filesToProcess.length);
     setBatchComplete(0);
     setQueue([]);
 
-    // Pre-create all doc entries as "processing"
     const fileDocPairs = filesToProcess.map(file => ({
       file,
       docId: crypto.randomUUID(),
@@ -152,13 +173,8 @@ export default function ReaderPage() {
     setDocs(prev => [
       ...prev,
       ...fileDocPairs.map(({ file, docId }) => ({
-        id: docId,
-        filename: file.name,
-        vendor: "",
-        doc_type: "",
-        invoice_number: "",
-        total: 0,
-        line_items_count: 0,
+        id: docId, filename: file.name, vendor: "", doc_type: "",
+        invoice_number: "", total: 0, line_items_count: 0,
         status: "processing" as const,
       })),
     ]);
@@ -167,7 +183,6 @@ export default function ReaderPage() {
 
     for (let i = 0; i < fileDocPairs.length; i += CONCURRENCY) {
       if (cancelRef.current) {
-        // Mark remaining as error
         const remaining = fileDocPairs.slice(i);
         setDocs(prev => prev.map(d =>
           remaining.some(r => r.docId === d.id) && d.status === "processing"
@@ -179,29 +194,70 @@ export default function ReaderPage() {
       }
 
       const chunk = fileDocPairs.slice(i, i + CONCURRENCY);
-
       await Promise.all(
-        chunk.map(async ({ file, docId }) => {
-          try {
-            await processFile(file, docId);
-          } catch (err: any) {
-            setDocs(prev => prev.map(d => d.id === docId
-              ? { ...d, status: "error" as const, error: err.message }
-              : d
-            ));
-          }
-        })
+        chunk.map(({ file, docId }) => processSingleFile(file, docId, atomicMode))
       );
 
       completed += chunk.length;
       setBatchComplete(completed);
     }
 
+    // Atomic mode: finalize
+    if (atomicMode && !cancelRef.current) {
+      setDocs(prev => {
+        const failed = prev.filter(d => d.status === "error" && fileDocPairs.some(p => p.docId === d.id));
+        if (failed.length > 0) {
+          toast.error(`⛔ Batch aborted — ${failed[0].filename} failed after ${MAX_RETRIES} retries. 0 records saved. Re-upload the full batch.`);
+          return prev.map(d =>
+            d.status === "staged" ? { ...d, status: "error" as const, error: "Batch aborted due to other failures" } : d
+          );
+        }
+        return prev;
+      });
+
+      // Need to check state after update - use a slight delay to let state settle
+      await sleep(100);
+
+      // Get current docs state directly
+      const currentDocs = await new Promise<ProcessedDoc[]>(resolve => {
+        setDocs(prev => {
+          resolve(prev);
+          return prev;
+        });
+      });
+
+      const stagedDocs = currentDocs.filter(d => d.status === "staged" && d.invoiceData);
+      const hasFailures = currentDocs.some(d => d.status === "error" && fileDocPairs.some(p => p.docId === d.id) && d.error !== "Batch aborted due to other failures");
+
+      if (!hasFailures && stagedDocs.length > 0) {
+        try {
+          const invoiceData = stagedDocs.map(d => d.invoiceData!);
+          const savedDocs = await batchInsertInvoices(invoiceData);
+
+          setDocs(prev => prev.map(d => {
+            if (d.status === "staged") {
+              const savedMatch = savedDocs.find(s => s.invoice_number === d.invoice_number && s.vendor === d.vendor);
+              return { ...d, status: "done" as const, dbId: savedMatch?.id };
+            }
+            return d;
+          }));
+
+          const dupCount = currentDocs.filter(d => d.status === "duplicate").length;
+          toast.success(`✓ Batch complete — ${stagedDocs.length} saved, ${dupCount} duplicates skipped`);
+        } catch (err: any) {
+          toast.error(`Failed to save batch: ${err.message}`);
+          setDocs(prev => prev.map(d =>
+            d.status === "staged" ? { ...d, status: "error" as const, error: `Batch save failed: ${err.message}` } : d
+          ));
+        }
+      }
+    }
+
     setProcessing(false);
     setBatchTotal(0);
     queryClient.invalidateQueries({ queryKey: ["vendor_invoices"] });
     queryClient.invalidateQueries({ queryKey: ["distinct_vendors"] });
-    if (!cancelRef.current) toast.success("Processing complete");
+    if (!cancelRef.current && !atomicMode) toast.success("Processing complete");
   };
 
   const handleCancel = () => {
@@ -209,12 +265,32 @@ export default function ReaderPage() {
     toast.info("Cancelling after current chunk finishes…");
   };
 
-  // Session summary
-  const doneDocs = docs.filter(d => d.status === "done");
-  const totalValue = doneDocs.reduce((s, d) => s + d.total, 0);
-  const totalLineItems = doneDocs.reduce((s, d) => s + d.line_items_count, 0);
-  const invoiceCount = doneDocs.filter(d => d.doc_type === "INVOICE").length;
-  const poCount = doneDocs.filter(d => d.doc_type === "PO").length;
+  // Compute stats
+  const stats = docs.reduce<BatchStats>((s, d) => {
+    if (d.status === "done") {
+      s.saved++;
+      s.totalValue += d.total;
+      s.lineItems += d.line_items_count;
+      if (d.doc_type === "INVOICE") s.invoices++;
+      if (d.doc_type === "PO") s.pos++;
+    }
+    if (d.status === "duplicate") s.duplicates++;
+    if (d.status === "error") s.failed++;
+    if (d.status === "done" || d.status === "duplicate" || d.status === "error") s.processed++;
+    return s;
+  }, { processed: 0, saved: 0, duplicates: 0, failed: 0, totalValue: 0, totalUnits: 0, invoices: 0, pos: 0, lineItems: 0 });
+
+  const statusIcon = (d: ProcessedDoc) => {
+    switch (d.status) {
+      case "processing": return <Loader2 className="h-4 w-4 animate-spin text-primary" />;
+      case "retrying": return <Loader2 className="h-4 w-4 animate-spin text-amber-500" />;
+      case "done": return <CheckCircle2 className="h-4 w-4 text-status-paid" />;
+      case "staged": return <CheckCircle2 className="h-4 w-4 text-amber-500" />;
+      case "duplicate": return <Copy className="h-4 w-4 text-amber-500" />;
+      case "error": return <AlertCircle className="h-4 w-4 text-status-unpaid" />;
+      default: return null;
+    }
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -235,6 +311,21 @@ export default function ReaderPage() {
               className="bg-secondary border-border font-mono text-xs max-w-md"
             />
             <p className="text-[10px] text-muted-foreground mt-1">Stored locally in your browser. Never sent to our servers.</p>
+          </CardContent>
+        </Card>
+
+        {/* Atomic Batch Mode Toggle */}
+        <Card className="bg-card border-border">
+          <CardContent className="p-4 flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium">Atomic Batch Mode</p>
+              <p className="text-[10px] text-muted-foreground">
+                {atomicMode
+                  ? "All files must succeed before any are saved. Failures abort the entire batch."
+                  : "Each invoice is saved immediately after extraction. Failures don't affect other files."}
+              </p>
+            </div>
+            <Switch checked={atomicMode} onCheckedChange={setAtomicMode} disabled={processing} />
           </CardContent>
         </Card>
 
@@ -285,39 +376,56 @@ export default function ReaderPage() {
               <div className="space-y-1.5">
                 <Progress value={(batchComplete / batchTotal) * 100} className="h-2" />
                 <p className="text-xs text-muted-foreground text-center">
-                  Processing {Math.min(batchComplete + CONCURRENCY, batchTotal)} of {batchTotal} documents ({batchComplete} complete)
+                  Processing {Math.min(batchComplete + CONCURRENCY, batchTotal)} of {batchTotal} — {batchComplete} complete — ~{docsPerMin} docs/min
                 </p>
+                {atomicMode && (
+                  <p className="text-xs text-amber-500 text-center font-medium">
+                    Atomic mode: {batchComplete}/{batchTotal} extracted — waiting for full batch before saving
+                  </p>
+                )}
               </div>
             )}
           </div>
         )}
 
         {/* Session summary */}
-        {doneDocs.length > 0 && (
+        {stats.processed > 0 && (
           <Card className="bg-card border-border">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm">Session Summary</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 text-center">
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-4 text-center">
                 <div>
-                  <p className="text-lg font-bold">{doneDocs.length}</p>
-                  <p className="text-[10px] text-muted-foreground">Docs Processed</p>
+                  <p className="text-lg font-bold">{stats.processed}</p>
+                  <p className="text-[10px] text-muted-foreground">Processed</p>
                 </div>
                 <div>
-                  <p className="text-lg font-bold">{formatCurrency(totalValue)}</p>
+                  <p className="text-lg font-bold text-status-paid">{stats.saved}</p>
+                  <p className="text-[10px] text-muted-foreground">Saved</p>
+                </div>
+                <div>
+                  <p className="text-lg font-bold text-amber-500">{stats.duplicates}</p>
+                  <p className="text-[10px] text-muted-foreground">Duplicates Skipped</p>
+                </div>
+                <div>
+                  <p className="text-lg font-bold text-status-unpaid">{stats.failed}</p>
+                  <p className="text-[10px] text-muted-foreground">Failed</p>
+                </div>
+                <div>
+                  <p className="text-lg font-bold">{formatCurrency(stats.totalValue)}</p>
                   <p className="text-[10px] text-muted-foreground">Total Value</p>
                 </div>
                 <div>
-                  <p className="text-lg font-bold">{invoiceCount}</p>
+                  <p className="text-lg font-bold">{stats.invoices}</p>
                   <p className="text-[10px] text-muted-foreground">Invoices</p>
                 </div>
                 <div>
-                  <p className="text-lg font-bold">{poCount}</p>
+                  <p className="text-lg font-bold">{stats.pos}</p>
                   <p className="text-[10px] text-muted-foreground">POs</p>
                 </div>
                 <div>
-                  <p className="text-lg font-bold">{totalLineItems}</p>
+                  <p className="text-lg font-bold">{stats.lineItems}</p>
                   <p className="text-[10px] text-muted-foreground">Line Items</p>
                 </div>
               </div>
@@ -330,21 +438,33 @@ export default function ReaderPage() {
           <div className="space-y-2">
             <h3 className="text-xs font-semibold text-muted-foreground">Processed Documents</h3>
             {docs.map(d => (
-              <Card key={d.id} className={`bg-card border-border ${d.status === "error" ? "border-status-unpaid/30" : ""}`}>
+              <Card key={d.id} className={`bg-card border-border ${
+                d.status === "error" ? "border-status-unpaid/30" :
+                d.status === "duplicate" ? "border-amber-500/30" : ""
+              }`}>
                 <CardContent className="p-3 flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    {d.status === "processing" && <Loader2 className="h-4 w-4 animate-spin text-primary" />}
-                    {d.status === "done" && <CheckCircle2 className="h-4 w-4 text-status-paid" />}
-                    {d.status === "error" && <AlertCircle className="h-4 w-4 text-status-unpaid" />}
+                    {statusIcon(d)}
                     <div>
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-medium">{d.filename}</span>
-                        {d.status === "done" && <DocTypeBadge docType={d.doc_type} />}
+                        {(d.status === "done" || d.status === "staged") && <DocTypeBadge docType={d.doc_type} />}
+                        {d.status === "staged" && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-500 font-medium">STAGED</span>
+                        )}
                       </div>
-                      {d.status === "done" && (
+                      {(d.status === "done" || d.status === "staged") && (
                         <p className="text-[10px] text-muted-foreground">
                           {d.vendor} — {d.invoice_number} — {formatCurrency(d.total)} — {d.line_items_count} items
                         </p>
+                      )}
+                      {d.status === "duplicate" && (
+                        <p className="text-[10px] text-amber-500">
+                          ⚠ DUPLICATE SKIPPED — Invoice {d.invoice_number} from {d.vendor} already exists (DB id: {d.duplicateDbId}). File: {d.filename}
+                        </p>
+                      )}
+                      {d.status === "retrying" && (
+                        <p className="text-[10px] text-amber-500">{d.error}</p>
                       )}
                       {d.status === "error" && (
                         <p className="text-[10px] text-status-unpaid">{d.error}</p>
