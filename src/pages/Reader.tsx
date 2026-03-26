@@ -11,6 +11,7 @@ import { Link } from "react-router-dom";
 import { InvoiceNav } from "@/components/invoices/InvoiceNav";
 import { DocTypeBadge } from "@/components/invoices/Badges";
 import { insertInvoice, formatCurrency, type VendorInvoiceInsert } from "@/lib/supabase-queries";
+import { generatePaymentsForInvoice } from "@/lib/payment-queries";
 import {
   CONCURRENCY, RETRY_CONCURRENCY, STAGGER_DELAY, RETRY_STAGGER_DELAY,
   RETRY_WAITS_429, RETRY_WAITS_OTHER, MAX_RETRIES_429, MAX_RETRIES_OTHER,
@@ -247,6 +248,13 @@ export default function ReaderPage() {
           line_items_count: lineItemsCount,
           dbId: saved.id,
         });
+
+        // Auto-generate payment installments
+        try {
+          await generatePaymentsForInvoice(
+            saved.id, invoice.invoice_date, invoice.total || 0, invoice.vendor, invoice.invoice_number, invoice.po_number ?? null
+          );
+        } catch { /* silent — payments are secondary */ }
 
         // PO linkage
         if (invoice.po_number) {
