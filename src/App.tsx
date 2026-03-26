@@ -3,6 +3,7 @@ import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { PasswordGate } from "@/components/PasswordGate";
 import Index from "./pages/Index.tsx";
 import InvoicesPage from "./pages/Invoices.tsx";
 import ReaderPage from "./pages/Reader.tsx";
@@ -17,16 +18,18 @@ const App = () => (
     <TooltipProvider>
       <Toaster />
       <Sonner />
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Index />} />
-          <Route path="/invoices" element={<InvoicesPage />} />
-          <Route path="/invoices/reader" element={<ReaderPage />} />
-          <Route path="/invoices/match" element={<MatchReportPage />} />
-          <Route path="/invoices/dashboard" element={<APDashboardPage />} />
-          <Route path="*" element={<NotFound />} />
-        </Routes>
-      </BrowserRouter>
+      <PasswordGate>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/" element={<Index />} />
+            <Route path="/invoices" element={<InvoicesPage />} />
+            <Route path="/invoices/reader" element={<ReaderPage />} />
+            <Route path="/invoices/match" element={<MatchReportPage />} />
+            <Route path="/invoices/dashboard" element={<APDashboardPage />} />
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </BrowserRouter>
+      </PasswordGate>
     </TooltipProvider>
   </QueryClientProvider>
 );
