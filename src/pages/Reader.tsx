@@ -34,8 +34,9 @@ export default function ReaderPage() {
   const [docs, setDocs] = useState<ProcessedDoc[]>([]);
 
   const saveApiKey = (key: string) => {
-    setApiKey(key);
-    localStorage.setItem("anthropic_api_key", key);
+    const cleanKey = key.replace(/[^\x20-\x7E]/g, '').trim();
+    setApiKey(cleanKey);
+    localStorage.setItem("anthropic_api_key", cleanKey);
   };
 
   const handleDrop = useCallback((e: React.DragEvent) => {
@@ -71,11 +72,12 @@ export default function ReaderPage() {
         const buffer = await file.arrayBuffer();
         const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
 
+        const cleanKey = apiKey.replace(/[^\x20-\x7E]/g, '').trim();
         const response = await fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "x-api-key": apiKey,
+            "x-api-key": cleanKey,
             "anthropic-version": "2023-06-01",
             "anthropic-dangerous-direct-browser-access": "true",
           },
