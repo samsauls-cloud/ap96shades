@@ -29,6 +29,7 @@ export interface InvoiceFilters {
   vendor?: string;
   docType?: string;
   status?: string;
+  tag?: string;
   dateFrom?: string;
   dateTo?: string;
   minTotal?: number;
@@ -69,6 +70,7 @@ export async function fetchInvoices(filters: InvoiceFilters) {
   if (filters.vendor) query = query.eq("vendor", filters.vendor);
   if (filters.docType) query = query.eq("doc_type", filters.docType);
   if (filters.status) query = query.eq("status", filters.status);
+  if (filters.tag) query = query.contains("tags" as any, [filters.tag]);
   if (filters.dateFrom) query = query.gte("invoice_date", filters.dateFrom);
   if (filters.dateTo) query = query.lte("invoice_date", filters.dateTo);
   if (filters.minTotal !== undefined) query = query.gte("total", filters.minTotal);
