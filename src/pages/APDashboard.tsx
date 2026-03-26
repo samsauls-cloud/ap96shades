@@ -367,8 +367,8 @@ export default function APDashboard() {
                                 fourMonthTotal += totalDue;
                                 return (
                                   <>
-                                    <TableCell key={m.label + "-due"} className="text-[10px] text-right tabular-nums">{formatCurrency(totalDue)}</TableCell>
-                                    <TableCell key={m.label + "-rem"} className="text-[10px] text-right tabular-nums font-medium">{formatCurrency(remaining)}</TableCell>
+                                    <TableCell key={m.label + "-due"} className="text-xs text-right tabular-nums">{formatCurrency(totalDue)}</TableCell>
+                                    <TableCell key={m.label + "-rem"} className={`text-xs text-right tabular-nums font-semibold ${remaining > 0 ? "" : "text-green-600 dark:text-green-400"}`}>{formatCurrency(remaining)}</TableCell>
                                   </>
                                 );
                               })}
