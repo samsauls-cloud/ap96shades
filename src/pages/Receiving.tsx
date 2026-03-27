@@ -373,7 +373,18 @@ export default function ReceivingPage() {
       const invoice = vendorInvoices.find(v => v.id === selectedInvoiceId);
       if (!invoice) return;
       const invoiceLines = getLineItems(invoice);
+
+      // Pre-reconciliation: check for duplicate UPCs in receiving lines
+      const dupCheck = checkReceivingLineDuplicates(sessionLines);
+      if (dupCheck.hasDuplicates) {
+        console.warn(`⚠ Receiving lines contain ${dupCheck.duplicateUPCs.length} duplicate UPC(s) — matching will consume invoice lines in order`);
+      }
+
       const results = matchReceivingToInvoice(sessionLines, invoiceLines);
+
+      // Post-match: check invoice line coverage
+      const coverage = checkInvoiceLineCoverage(results, invoiceLines);
+      setInvoiceCoverage(coverage);
 
       const skipPriceCheck = selectedSession?.vendor === 'EOL';
       let hasDiscrepancy = false;
