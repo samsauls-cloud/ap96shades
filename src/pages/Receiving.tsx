@@ -778,6 +778,29 @@ export default function ReceivingPage() {
                       }}>Mark as Reviewed</Button>
                     )}
                   </div>
+
+                  {/* Reconciliation Totals */}
+                  {reconTotals && selectedSession.reconciliation_status !== 'unreconciled' && (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                      <div className="border rounded-lg p-3 text-center">
+                        <p className="text-xs text-muted-foreground">Credit Due (Overbilled)</p>
+                        <p className={`text-sm font-bold ${reconTotals.totalCreditDue > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                          {reconTotals.totalCreditDue > 0 ? `-${formatCurrency(reconTotals.totalCreditDue)}` : '$0.00'}
+                        </p>
+                      </div>
+                      <div className="border rounded-lg p-3 text-center">
+                        <p className="text-xs text-muted-foreground">Final Bill</p>
+                        <p className="text-sm font-bold">{formatCurrency(reconTotals.finalBillAmount)}</p>
+                      </div>
+                      <div className="border rounded-lg p-3 text-center">
+                        <p className="text-xs text-muted-foreground">Discrepancy Lines</p>
+                        <p className="text-sm font-bold">{reconTotals.discrepancyLineCount}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Math Verification */}
+                  {mathChecks && <MathVerificationBlock checks={mathChecks} />}
                 </div>
               )}
 
