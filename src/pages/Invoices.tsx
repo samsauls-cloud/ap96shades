@@ -69,6 +69,7 @@ export default function InvoicesPage() {
 
   const handleRefresh = () => {
     queryClient.invalidateQueries({ queryKey: ["vendor_invoices"] });
+    queryClient.invalidateQueries({ queryKey: ["invoice_stats"] });
     queryClient.invalidateQueries({ queryKey: ["distinct_vendors"] });
     queryClient.invalidateQueries({ queryKey: ["distinct_tags"] });
     queryClient.invalidateQueries({ queryKey: ["vendor_invoices_po_view"] });

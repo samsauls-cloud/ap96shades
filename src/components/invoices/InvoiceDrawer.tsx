@@ -282,6 +282,7 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
                       toast.success(`Generated ${count} payment installments`);
                       queryClient.invalidateQueries({ queryKey: ["invoice_payments_detail", inv.id] });
                       queryClient.invalidateQueries({ queryKey: ["invoice_payments"] });
+                      queryClient.invalidateQueries({ queryKey: ["invoice_stats"] });
                       queryClient.invalidateQueries({ queryKey: ["ap_audit"] });
                     } catch { toast.error("Failed to generate payments"); }
                     finally { setGeneratingPayments(false); }
