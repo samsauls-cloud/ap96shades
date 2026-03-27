@@ -289,16 +289,106 @@ export default function ReaderPage() {
     }
   };
 
+  const processCSVFile = async (file: File) => {
+    const csvDocId = crypto.randomUUID();
+    setDocs(prev => [...prev, {
+      id: csvDocId, filename: file.name, vendor: "", doc_type: "PO",
+      invoice_number: "", total: 0, line_items_count: 0,
+      status: "processing" as const, file,
+    }]);
+
+    try {
+      const text = await fileToText(file);
+      const result = parseCSVToPOs(text, file.name);
+
+      if (result.invoices.length === 0) {
+        updateDoc(csvDocId, { status: "error", error: "No valid PO lines found in CSV" });
+        return;
+      }
+
+      // Save each vendor PO
+      const savedIds: string[] = [];
+      for (const invoice of result.invoices) {
+        // Dedup check
+        const dedupResult = await checkInvoiceDuplicate(
+          invoice.invoice_number!, invoice.vendor, invoice.line_items as any, invoice.total || 0
+        );
+
+        if (dedupResult.type === "true_duplicate") {
+          continue; // skip dupes silently within CSV
+        }
+
+        const saved = await insertInvoice(invoice);
+        savedIds.push(saved.id);
+
+        // Auto-generate payments
+        try {
+          await generatePaymentsForInvoice(
+            saved.id, invoice.invoice_date, invoice.total || 0,
+            invoice.vendor, invoice.invoice_number!, invoice.po_number ?? null
+          );
+        } catch { /* silent */ }
+      }
+
+      const vendorList = Object.entries(result.vendorSummary)
+        .map(([v, c]) => `${v} (${c})`)
+        .join(", ");
+      const discountNote = result.discountApplied ? " · 10% vendor discount applied" : "";
+
+      updateDoc(csvDocId, {
+        status: "done",
+        vendor: Object.keys(result.vendorSummary).join(", "),
+        doc_type: "PO",
+        invoice_number: result.invoices.map(i => i.invoice_number).join(", "),
+        total: result.invoices.reduce((s, i) => s + (i.total || 0), 0),
+        line_items_count: result.totalLines,
+        dbId: savedIds[0],
+        extendedInfo: `📋 CSV PO — ${result.totalLines} lines across ${result.invoices.length} vendor(s): ${vendorList}${discountNote}`,
+      });
+
+      toast.success(`CSV imported: ${result.totalLines} PO lines, ${result.invoices.length} vendor PO(s) created`);
+    } catch (err: any) {
+      updateDoc(csvDocId, { status: "error", error: err.message });
+      toast.error(`CSV error: ${err.message}`);
+    }
+  };
+
   const processQueue = async () => {
-    if (!apiKey) { toast.error("Please enter your Anthropic API key"); return; }
     if (queue.length === 0) { toast.error("No files in queue"); return; }
+
+    // Separate CSVs from PDFs
+    const csvFiles = queue.filter(f => f.name.toLowerCase().endsWith(".csv") || f.type === "text/csv");
+    const pdfFiles = queue.filter(f => f.type === "application/pdf");
+
+    // Process CSVs first (no API key needed)
+    if (csvFiles.length > 0) {
+      setQueue(prev => prev.filter(f => !csvFiles.includes(f)));
+      for (const csv of csvFiles) {
+        await processCSVFile(csv);
+      }
+      queryClient.invalidateQueries({ queryKey: ["vendor_invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["invoice_stats"] });
+      queryClient.invalidateQueries({ queryKey: ["distinct_vendors"] });
+    }
+
+    // Process PDFs (needs API key)
+    if (pdfFiles.length === 0) {
+      if (csvFiles.length > 0) {
+        setQueue([]);
+        return; // CSVs already processed
+      }
+      toast.error("No files in queue");
+      return;
+    }
+
+    if (!apiKey) { toast.error("Please enter your Anthropic API key for PDF processing"); return; }
 
     setProcessing(true);
     cancelRef.current = false;
     startTimeRef.current = Date.now();
     setElapsed(0);
 
-    const filesToProcess = [...queue];
+    const filesToProcess = [...pdfFiles];
     setBatchTotal(filesToProcess.length);
     setBatchComplete(0);
     setQueue([]);
