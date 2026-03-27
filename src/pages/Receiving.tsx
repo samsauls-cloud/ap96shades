@@ -123,8 +123,23 @@ export default function ReceivingPage() {
   });
 
   // ── Invoice filtering by vendor mapping ──
+  // For EOL sessions, resolve real vendors from session lines instead of using static map
   const reconSession = reconciling ? sessions.find(s => s.id === reconciling) : null;
-  const allowedVendors = reconSession ? RECEIVING_TO_INVOICE_VENDOR[reconSession.vendor] : null;
+  const isEOLSession = reconSession?.vendor === 'EOL';
+  const eolSessionResolution = useMemo(() => {
+    if (!isEOLSession || sessionLines.length === 0) return null;
+    return resolveEOLVendor(sessionLines as any[]);
+  }, [isEOLSession, sessionLines]);
+
+  const allowedVendors = useMemo(() => {
+    if (!reconSession) return null;
+    if (isEOLSession && eolSessionResolution) {
+      // Use only the resolved real vendors for EOL
+      return eolSessionResolution.realVendors.length > 0 ? eolSessionResolution.realVendors : ['Luxottica'];
+    }
+    return RECEIVING_TO_INVOICE_VENDOR[reconSession.vendor] ?? null;
+  }, [reconSession, isEOLSession, eolSessionResolution]);
+
   const vendorFilteredInvoices = useMemo(() => {
     return allowedVendors
       ? vendorInvoices.filter(inv => allowedVendors.some(v => inv.vendor?.toLowerCase() === v.toLowerCase()))
