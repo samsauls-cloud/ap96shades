@@ -671,7 +671,7 @@ export default function ReaderPage() {
                 {processing ? (
                   <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Processing…</>
                 ) : (
-                  <>Process {queue.length} File(s)</>
+                  <>Process {queue.length} File(s) ({queue.filter(f => f.type === "application/pdf").length} PDF, {queue.filter(f => f.name.toLowerCase().endsWith(".csv") || f.type === "text/csv").length} CSV)</>
                 )}
               </Button>
               {processing && (
