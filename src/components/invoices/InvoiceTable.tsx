@@ -1,3 +1,4 @@
+import { useNavigate } from "react-router-dom";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -40,6 +41,7 @@ function SortableHead({ field, label, filters, onSort, className }: {
 }
 
 export function InvoiceTable({ invoices, filters, onSort, onRowClick, totalCount, onPageChange }: Props) {
+  const navigate = useNavigate();
   const perPage = filters.perPage ?? 25;
   const page = filters.page ?? 1;
   const totalPages = Math.ceil(totalCount / perPage);
@@ -100,7 +102,20 @@ export function InvoiceTable({ invoices, filters, onSort, onRowClick, totalCount
                   </div>
                 </TableCell>
                 <TableCell><StatusBadge status={inv.status} /></TableCell>
-                <TableCell><ReconStatusBadge status={(inv as any).reconciliation_status || 'unreconciled'} /></TableCell>
+                <TableCell>
+                  <span
+                    className="cursor-pointer"
+                    onClick={e => {
+                      e.stopPropagation();
+                      const reconStatus = (inv as any).recon_status || (inv as any).reconciliation_status || 'pending';
+                      if (reconStatus === 'discrepancy') {
+                        navigate(`/reconciliation?invoice=${inv.invoice_number}`);
+                      }
+                    }}
+                  >
+                    <ReconStatusBadge status={(inv as any).recon_status || (inv as any).reconciliation_status || 'pending'} />
+                  </span>
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>
