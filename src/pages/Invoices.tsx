@@ -36,6 +36,13 @@ export default function InvoicesPage() {
     queryFn: fetchDistinctTags,
   });
 
+  // Stats query — filters only, no pagination
+  const statsFilters = { ...filters, page: undefined, perPage: undefined };
+  const { data: stats } = useQuery({
+    queryKey: ["invoice_stats", statsFilters],
+    queryFn: () => fetchInvoiceStats(filters),
+  });
+
   const invoices = data?.data ?? [];
   const totalCount = data?.count ?? 0;
 
