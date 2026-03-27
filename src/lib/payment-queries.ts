@@ -84,12 +84,11 @@ function normalizePayment(row: any): InvoicePayment {
 }
 
 export async function fetchPayments(): Promise<InvoicePayment[]> {
-  const { data, error } = await supabase
-    .from("invoice_payments")
-    .select("*")
-    .order("due_date", { ascending: true });
-  if (error) throw error;
-  return (data ?? []).map(normalizePayment);
+  const data = await fetchAllRows("invoice_payments", {
+    orderBy: "due_date",
+    ascending: true,
+  });
+  return data.map(normalizePayment);
 }
 
 export async function fetchPaymentsForInvoice(invoiceId: string): Promise<InvoicePayment[]> {

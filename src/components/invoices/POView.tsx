@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { StatusBadge, DocTypeBadge } from "./Badges";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchAllRows } from "@/lib/supabase-fetch-all";
 import { formatCurrency, formatDate, getTotalUnits, type VendorInvoice } from "@/lib/supabase-queries";
 
 interface POGroup {
