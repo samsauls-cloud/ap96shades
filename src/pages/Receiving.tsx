@@ -1588,8 +1588,34 @@ export default function ReceivingPage() {
         <Card>
           <CardHeader className="pb-3">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-              <CardTitle className="text-base">Receiving History</CardTitle>
               <div className="flex items-center gap-2">
+                <CardTitle className="text-base">Receiving History</CardTitle>
+                {reconAllEligible.length > 0 && (
+                  <Badge className="bg-primary/10 text-primary text-[10px]">{reconAllEligible.length} unreconciled</Badge>
+                )}
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                {reconAllEligible.length > 0 && (
+                  <Button
+                    size="sm"
+                    variant="default"
+                    className="h-8 text-xs gap-1"
+                    disabled={reconAllRunning}
+                    onClick={runReconcileAll}
+                  >
+                    {reconAllRunning ? (
+                      <>
+                        <div className="h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                        Reconciling {reconAllProgress?.done ?? 0}/{reconAllProgress?.total ?? 0}…
+                      </>
+                    ) : (
+                      <>
+                        <Layers className="h-3 w-3" />
+                        Reconcile All ({reconAllEligible.length})
+                      </>
+                    )}
+                  </Button>
+                )}
                 <Select value={historyVendor} onValueChange={setHistoryVendor}>
                   <SelectTrigger className="w-[140px] h-8 text-xs"><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -1616,7 +1642,21 @@ export default function ReceivingPage() {
                 </Select>
               </div>
             </div>
-          </CardHeader>
+            {/* Reconcile All Progress Bar */}
+            {reconAllProgress && (
+              <div className="mt-2 space-y-1">
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>{reconAllProgress.current}</span>
+                  <span>{reconAllProgress.done}/{reconAllProgress.total}</span>
+                </div>
+                <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-primary rounded-full transition-all duration-300"
+                    style={{ width: `${reconAllProgress.total > 0 ? (reconAllProgress.done / reconAllProgress.total) * 100 : 0}%` }}
+                  />
+                </div>
+              </div>
+            )}
           <CardContent>
             {sessionsLoading ? (
               <p className="text-sm text-muted-foreground text-center py-4">Loading…</p>
