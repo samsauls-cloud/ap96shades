@@ -81,32 +81,12 @@ function isInMonth(dueDate: string, month: RollingMonth): boolean {
   return d >= month.startDate && d <= month.endDate;
 }
 
-// ── Audit data ────────────────────────────────────────
-interface AuditData {
-  total_invoices: number;
-  total_invoiced: number;
-  has_payments: number;
-  missing_payments: number;
-  non_lux_vendors: string[];
-}
-
+// ── Audit hook ────────────────────────────────────────
 function useAuditData() {
   return useQuery({
-    queryKey: ["ap_audit"],
-    queryFn: async (): Promise<AuditData> => {
-      const { data: invoices } = await supabase.from("vendor_invoices").select("id, vendor, total");
-      const { data: payments } = await supabase.from("invoice_payments").select("invoice_id");
-      const allInv = invoices ?? [];
-      const paymentInvoiceIds = new Set((payments ?? []).map((p: any) => p.invoice_id));
-      const vendors = [...new Set(allInv.map(i => i.vendor))];
-      return {
-        total_invoices: allInv.length,
-        total_invoiced: allInv.reduce((s, i) => s + (i.total || 0), 0),
-        has_payments: allInv.filter(i => paymentInvoiceIds.has(i.id)).length,
-        missing_payments: allInv.filter(i => !paymentInvoiceIds.has(i.id)).length,
-        non_lux_vendors: vendors.filter(v => v !== "Luxottica"),
-      };
-    },
+    queryKey: ["ap_full_audit"],
+    queryFn: runFullAudit,
+    staleTime: 30_000,
   });
 }
 
