@@ -140,11 +140,7 @@ export async function runTargetedReconciliation(
 
   // 3. Fetch PO receiving lines
   report("Loading receiving data…", "Cross-referencing procurement");
-  const { data: allRecLines, error: rlErr } = await supabase
-    .from("po_receiving_lines")
-    .select("*");
-  if (rlErr) throw rlErr;
-  const recLines = allRecLines ?? [];
+  const recLines = await fetchAllRows("po_receiving_lines");
 
   // 4. Item master + assortment UPCs
   const { data: itemMasterData } = await supabase.from("item_master").select("upc");
