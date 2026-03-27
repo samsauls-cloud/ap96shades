@@ -11,8 +11,9 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import {
   Upload, FileText, CheckCircle2, AlertTriangle, XCircle, Minus, Package,
-  ArrowRight, Download, Eye, Filter, ChevronDown, ChevronUp
+  ArrowRight, Download, Eye, Filter, ChevronDown, ChevronUp, Info
 } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   detectFormat, formatLabel, parseCSV, parseLines, computeSessionStats,
   vendorFromLightspeed, createSession, insertReceivingLines, fetchSessions,
@@ -22,6 +23,22 @@ import {
   type ExportFormat, type ParsedLine, type ReceivingStatus, type ReceivingDedupAction
 } from "@/lib/receiving-engine";
 import { getLineItems, formatCurrency } from "@/lib/supabase-queries";
+
+// ── Receiving-to-Invoice Vendor Mapping ──
+const RECEIVING_TO_INVOICE_VENDOR: Record<string, string[]> = {
+  'EOL':       ['Luxottica', 'Maui Jim'],
+  'Luxottica': ['Luxottica'],
+  'Kering':    ['Kering'],
+  'Marcolin':  ['Marcolin'],
+  'Marchon':   ['Safilo', 'Marcolin'],
+  'Safilo':    ['Safilo'],
+  'Maui Jim':  ['Maui Jim'],
+};
+
+const VENDOR_TOOLTIPS: Record<string, string> = {
+  'EOL': 'Costa / EOL frames are distributed by Luxottica — search Luxottica or Maui Jim invoices when reconciling.',
+  'Marchon': 'Marchon frames may appear on Safilo or Marcolin invoices.',
+};
 
 // ── Status Badge ──
 function ReceivingStatusBadge({ status, ordered, received }: { status: ReceivingStatus; ordered?: number; received?: number | null }) {
