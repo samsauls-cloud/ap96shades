@@ -19,15 +19,15 @@ import {
   vendorFromLightspeed, createSession, insertReceivingLines, fetchSessions,
   fetchSessionLines, matchReceivingToInvoice, calcDiscrepancy,
   updateSessionReconciliation, updateLineReconciliation, exportReconciliationCSV,
-  checkReceivingDuplicate, mergeReceivingUpdate,
-  type ExportFormat, type ParsedLine, type ReceivingStatus, type ReceivingDedupAction
+  checkReceivingDuplicate, mergeReceivingUpdate, resolveEOLVendor,
+  type ExportFormat, type ParsedLine, type ReceivingStatus, type ReceivingDedupAction, type EOLResolution
 } from "@/lib/receiving-engine";
 import { getLineItems, formatCurrency } from "@/lib/supabase-queries";
 import { suggestMatchingInvoices, matchStrengthBadge, type InvoiceSuggestion } from "@/lib/invoice-suggestions";
 
 // ── Receiving-to-Invoice Vendor Mapping ──
 const RECEIVING_TO_INVOICE_VENDOR: Record<string, string[]> = {
-  'EOL':       ['Luxottica', 'Maui Jim'],
+  'EOL':       ['Luxottica', 'Kering', 'Maui Jim', 'Safilo', 'Marcolin'], // EOL can be any real vendor
   'Luxottica': ['Luxottica'],
   'Kering':    ['Kering'],
   'Marcolin':  ['Marcolin'],
@@ -37,7 +37,7 @@ const RECEIVING_TO_INVOICE_VENDOR: Record<string, string[]> = {
 };
 
 const VENDOR_TOOLTIPS: Record<string, string> = {
-  'EOL': 'Costa / EOL frames are distributed by Luxottica — search Luxottica or Maui Jim invoices when reconciling.',
+  'EOL': 'EOL is a discount classification — these frames belong to real vendors (Luxottica, Kering, etc.). The system auto-resolves the real vendor from item descriptions.',
   'Marchon': 'Marchon frames may appear on Safilo or Marcolin invoices.',
 };
 
