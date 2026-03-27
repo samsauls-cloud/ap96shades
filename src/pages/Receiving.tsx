@@ -165,6 +165,10 @@ export default function ReceivingPage() {
   const [poGroups, setPOGroups] = useState<POGroup[] | null>(null);
   const [splitting, setSplitting] = useState(false);
 
+  // Reconcile All state
+  const [reconAllRunning, setReconAllRunning] = useState(false);
+  const [reconAllProgress, setReconAllProgress] = useState<{ done: number; total: number; current: string } | null>(null);
+
   // ── Queries ──
   const { data: sessions = [], isLoading: sessionsLoading } = useQuery({
     queryKey: ['receiving-sessions'],
@@ -618,7 +622,144 @@ export default function ReceivingPage() {
     }
   };
 
-  // ── Filtered Lines ──
+  // ── Reconcile All Unreconciled Sessions ──
+  const reconAllEligible = useMemo(() => {
+    return sessions.filter(s =>
+      s.reconciliation_status === 'unreconciled' &&
+      !((s as any).child_session_ids?.length > 0) // exclude parent split sessions
+    );
+  }, [sessions]);
+
+  const runReconcileAll = async () => {
+    if (reconAllEligible.length === 0) {
+      toast.info('No unreconciled sessions to process.');
+      return;
+    }
+    setReconAllRunning(true);
+    let succeeded = 0;
+    let failed = 0;
+    let skipped = 0;
+
+    try {
+      setReconAllProgress({ done: 0, total: reconAllEligible.length, current: '' });
+
+      for (let i = 0; i < reconAllEligible.length; i++) {
+        const session = reconAllEligible[i];
+        setReconAllProgress({ done: i, total: reconAllEligible.length, current: session.session_name });
+
+        try {
+          // Fetch session lines
+          const lines = await fetchSessionLines(session.id);
+          if (lines.length === 0) { skipped++; continue; }
+
+          // Determine allowed vendors
+          const isEOL = session.vendor === 'EOL';
+          let allowedV: string[];
+          if (isEOL) {
+            const eolRes = resolveEOLVendor(lines as any[]);
+            allowedV = eolRes.realVendors.length > 0 ? eolRes.realVendors : ['Luxottica'];
+          } else {
+            allowedV = RECEIVING_TO_INVOICE_VENDOR[session.vendor] ?? [session.vendor];
+          }
+
+          // Filter invoices to this vendor
+          const candidateInvs = vendorInvoices.filter(inv =>
+            allowedV.some(v => inv.vendor?.toLowerCase() === v.toLowerCase())
+          );
+          if (candidateInvs.length === 0) { skipped++; continue; }
+
+          // Get best suggestion
+          const suggestions = suggestMatchingInvoices(
+            lines as any[],
+            Number(session.total_ordered_cost || 0),
+            session.raw_filename || '',
+            session.session_name || '',
+            candidateInvs
+          );
+
+          if (suggestions.length === 0 || suggestions[0].score < 3) {
+            skipped++;
+            continue;
+          }
+
+          const bestInvoice = suggestions[0].invoice;
+          const invoiceLines = getLineItems(bestInvoice);
+          const results = matchReceivingToInvoice(lines, invoiceLines);
+
+          // Check coverage — skip if < 20% UPC match (likely wrong invoice)
+          const coverage = checkInvoiceLineCoverage(results, invoiceLines);
+          const matchedReceivingCount = results.filter(r => r.match_status === 'MATCHED' || r.match_status === 'SKU_ONLY').length;
+          if (matchedReceivingCount === 0) { skipped++; continue; }
+
+          const skipPriceCheck = isEOL;
+          let hasDiscrepancy = false;
+          for (const r of results) {
+            const disc = calcDiscrepancy(r.line, r.matched_invoice_line, skipPriceCheck);
+            const matchStatusVal = r.match_status === 'NO_MATCH' && isEOL
+              ? 'INVOICE_NOT_UPLOADED' : r.match_status;
+            await updateLineReconciliation(r.line.id, {
+              matched_invoice_line: r.matched_invoice_line as any,
+              match_status: matchStatusVal,
+              billing_discrepancy: !!disc && matchStatusVal !== 'INVOICE_NOT_UPLOADED',
+              discrepancy_type: matchStatusVal === 'INVOICE_NOT_UPLOADED' ? null : (disc?.type ?? null),
+              discrepancy_amount: matchStatusVal === 'INVOICE_NOT_UPLOADED' ? 0 : (disc?.amount ?? 0),
+            });
+            if (disc && matchStatusVal !== 'INVOICE_NOT_UPLOADED') hasDiscrepancy = true;
+          }
+
+          const status = hasDiscrepancy ? 'discrepancy' : 'reconciled';
+          await updateSessionReconciliation(session.id, bestInvoice.id, status);
+
+          // Compute totals on matched lines only
+          const { data: freshLines } = await supabase
+            .from('po_receiving_lines')
+            .select('*')
+            .eq('session_id', session.id);
+          const matchedLines = (freshLines ?? []).filter((l: any) => l.match_status !== 'INVOICE_NOT_UPLOADED');
+          const totals = computeReconciliationTotals(matchedLines, bestInvoice.total);
+
+          const reconStatus = totals.totalCreditDue > 0 ? 'credit_pending' : 'reconciled';
+          await updateInvoiceReconciliation(bestInvoice.id, session.id, totals.totalCreditDue, totals.finalBillAmount, reconStatus);
+
+          await upsertFinalBillEntry(
+            bestInvoice.id, session.id, bestInvoice,
+            {
+              total_ordered_qty: matchedLines.reduce((s: number, l: any) => s + Number(l.order_qty || 0), 0),
+              total_received_qty: matchedLines.reduce((s: number, l: any) => s + Number(l.received_qty ?? 0), 0),
+            },
+            totals
+          );
+
+          if (totals.totalCreditDue > 0) {
+            await applyCreditToPayments(bestInvoice.id, totals.totalCreditDue);
+          }
+
+          succeeded++;
+        } catch (err: any) {
+          console.error(`Reconcile All: failed on ${session.session_name}:`, err);
+          failed++;
+        }
+      }
+
+      setReconAllProgress({ done: reconAllEligible.length, total: reconAllEligible.length, current: 'Complete' });
+
+      let msg = `Reconcile All complete: ${succeeded} reconciled`;
+      if (skipped > 0) msg += `, ${skipped} skipped (no match)`;
+      if (failed > 0) msg += `, ${failed} failed`;
+      toast.success(msg);
+
+      qc.invalidateQueries({ queryKey: ['receiving-sessions'] });
+      qc.invalidateQueries({ queryKey: ['final-bill-ledger'] });
+      qc.invalidateQueries({ queryKey: ['vendor-invoices-for-recon'] });
+      qc.invalidateQueries({ queryKey: ['invoice_payments'] });
+    } catch (err: any) {
+      toast.error(`Reconcile All failed: ${err.message}`);
+    } finally {
+      setReconAllRunning(false);
+      setTimeout(() => setReconAllProgress(null), 3000);
+    }
+  };
+
   const filteredLines = useMemo(() => {
     let lines = sessionLines;
     if (statusFilter !== 'all') lines = lines.filter((l: any) => l.receiving_status === statusFilter);
@@ -1447,8 +1588,34 @@ export default function ReceivingPage() {
         <Card>
           <CardHeader className="pb-3">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-              <CardTitle className="text-base">Receiving History</CardTitle>
               <div className="flex items-center gap-2">
+                <CardTitle className="text-base">Receiving History</CardTitle>
+                {reconAllEligible.length > 0 && (
+                  <Badge className="bg-primary/10 text-primary text-[10px]">{reconAllEligible.length} unreconciled</Badge>
+                )}
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                {reconAllEligible.length > 0 && (
+                  <Button
+                    size="sm"
+                    variant="default"
+                    className="h-8 text-xs gap-1"
+                    disabled={reconAllRunning}
+                    onClick={runReconcileAll}
+                  >
+                    {reconAllRunning ? (
+                      <>
+                        <div className="h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                        Reconciling {reconAllProgress?.done ?? 0}/{reconAllProgress?.total ?? 0}…
+                      </>
+                    ) : (
+                      <>
+                        <Layers className="h-3 w-3" />
+                        Reconcile All ({reconAllEligible.length})
+                      </>
+                    )}
+                  </Button>
+                )}
                 <Select value={historyVendor} onValueChange={setHistoryVendor}>
                   <SelectTrigger className="w-[140px] h-8 text-xs"><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -1475,6 +1642,21 @@ export default function ReceivingPage() {
                 </Select>
               </div>
             </div>
+            {/* Reconcile All Progress Bar */}
+            {reconAllProgress && (
+              <div className="mt-2 space-y-1">
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>{reconAllProgress.current}</span>
+                  <span>{reconAllProgress.done}/{reconAllProgress.total}</span>
+                </div>
+                <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-primary rounded-full transition-all duration-300"
+                    style={{ width: `${reconAllProgress.total > 0 ? (reconAllProgress.done / reconAllProgress.total) * 100 : 0}%` }}
+                  />
+                </div>
+              </div>
+            )}
           </CardHeader>
           <CardContent>
             {sessionsLoading ? (
