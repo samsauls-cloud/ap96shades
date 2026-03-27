@@ -172,9 +172,21 @@ export default function ReceivingPage() {
       const firstVendorId = lines.find(l => l.vendor_id)?.vendor_id ?? '';
       const firstDesc = lines[0]?.item_description ?? '';
       const vendor = vendorFromLightspeed(firstVendorId, firstDesc);
-      const autoName = `${vendor} ${new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' })} Batch`;
-      if (!sessionName) setSessionName(autoName);
-      setPreview({ format, headers, rows, lines, vendor, filename: file.name });
+
+      // EOL resolution: determine real vendor(s) from item descriptions
+      let eolResolution: EOLResolution | undefined;
+      if (vendor === 'EOL') {
+        eolResolution = resolveEOLVendor(lines);
+        const displayVendor = eolResolution.isMultiVendor
+          ? `EOL — Multi-vendor (${eolResolution.realVendors.join(', ')})`
+          : `EOL — ${eolResolution.realVendor} End-of-Line Frames`;
+        const autoName = `${displayVendor} ${new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' })} Batch`;
+        if (!sessionName) setSessionName(autoName);
+      } else {
+        const autoName = `${vendor} ${new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' })} Batch`;
+        if (!sessionName) setSessionName(autoName);
+      }
+      setPreview({ format, headers, rows, lines, vendor, filename: file.name, eolResolution });
     };
     reader.readAsText(file);
   }, [sessionName]);
