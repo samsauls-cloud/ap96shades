@@ -660,12 +660,29 @@ export default function ReceivingPage() {
               {reconciling === selectedSessionId && (
                 <div className="border rounded-lg p-4 bg-muted/30 space-y-3">
                   <p className="text-sm font-medium">Select the invoice this PO receiving belongs to:</p>
-                  {(() => {
-                    const allowed = RECEIVING_TO_INVOICE_VENDOR[selectedSession.vendor];
-                    return allowed && allowed.join(', ') !== selectedSession.vendor ? (
+                  {isEOLSession && eolSessionResolution ? (
+                    <div className="bg-amber-500/10 border border-amber-500/20 rounded-md px-3 py-2 text-xs text-amber-700 dark:text-amber-400 space-y-1">
+                      <div className="flex items-center gap-1.5">
+                        <Info className="h-3.5 w-3.5 shrink-0" />
+                        <span>
+                          <strong>EOL Session</strong> — End-of-Line discount frames. Real vendor{eolSessionResolution.isMultiVendor ? 's' : ''}:{' '}
+                          <strong>{eolSessionResolution.realVendors.join(', ')}</strong>
+                        </span>
+                      </div>
+                      {eolSessionResolution.isMultiVendor && (
+                        <p className="text-[11px]">⚠ Multi-vendor EOL session — contains frames from {eolSessionResolution.realVendors.map(v =>
+                          `${v} (${eolSessionResolution.vendorCounts[v]} items)`
+                        ).join(', ')}. You may need to reconcile against multiple invoices.</p>
+                      )}
+                      <p className="text-[11px]">Price differences between EOL cost and invoice price are expected and will not be flagged.</p>
+                    </div>
+                  ) : (() => {
+                    const allowed = allowedVendors;
+                    const vendorName = selectedSession.vendor;
+                    return allowed && allowed.join(', ') !== vendorName ? (
                       <div className="bg-blue-500/10 border border-blue-500/20 rounded-md px-3 py-2 text-xs text-blue-700 dark:text-blue-400 flex items-center gap-1.5">
                         <Info className="h-3.5 w-3.5 shrink-0" />
-                        Showing invoices from: <strong>{allowed.join(', ')}</strong> (mapped from {selectedSession.vendor})
+                        Showing invoices from: <strong>{allowed.join(', ')}</strong> (mapped from {vendorName})
                       </div>
                     ) : null;
                   })()}
