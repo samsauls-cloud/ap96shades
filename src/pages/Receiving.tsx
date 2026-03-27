@@ -11,7 +11,8 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import {
   Upload, FileText, CheckCircle2, AlertTriangle, XCircle, Minus, Package,
-  ArrowRight, Download, Eye, Filter, ChevronDown, ChevronUp, Info
+  ArrowRight, Download, Eye, Filter, ChevronDown, ChevronUp, Info, ShieldCheck,
+  Send, CheckCheck, FileDown, DollarSign
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
@@ -24,6 +25,12 @@ import {
 } from "@/lib/receiving-engine";
 import { getLineItems, formatCurrency } from "@/lib/supabase-queries";
 import { suggestMatchingInvoices, matchStrengthBadge, type InvoiceSuggestion } from "@/lib/invoice-suggestions";
+import { computeReconciliationTotals, verifyReconciliationMath, type MathCheck, type ReconciliationTotals } from "@/lib/reconciliation-math";
+import {
+  upsertFinalBillEntry, updateInvoiceReconciliation, applyCreditToPayments,
+  fetchFinalBillLedger, markCreditRequestSent, confirmCreditReceived,
+  generateCreditRequestCSV, type FinalBillLedgerEntry
+} from "@/lib/final-bill-queries";
 
 // ── Receiving-to-Invoice Vendor Mapping ──
 const RECEIVING_TO_INVOICE_VENDOR: Record<string, string[]> = {
@@ -78,6 +85,39 @@ function DiscrepancyBadge({ type }: { type?: string }) {
   return <Badge className={`text-xs ${colors[type] ?? ''}`}>{type.replace(/_/g, ' ')}</Badge>;
 }
 
+function FinalBillStatusBadge({ status, creditDue, creditApproved }: { status: string; creditDue: number; creditApproved: boolean }) {
+  if (creditDue === 0) return <Badge className="bg-emerald-600 text-white text-[10px]">Clean ✓</Badge>;
+  if (creditApproved) return <Badge className="bg-blue-600 text-white text-[10px]">Credit Approved</Badge>;
+  if (status === 'credit_requested') return <Badge className="bg-amber-500 text-white text-[10px]">📤 Credit Requested</Badge>;
+  if (status === 'paid') return <Badge className="bg-muted text-muted-foreground text-[10px]">💰 Paid</Badge>;
+  return <Badge className="bg-amber-500/80 text-white text-[10px]">⚠ Credit Pending</Badge>;
+}
+
+function MathVerificationBlock({ checks }: { checks: MathCheck[] }) {
+  const allPassed = checks.every(c => c.pass);
+  return (
+    <div className={`border rounded-lg p-3 space-y-2 ${allPassed ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-red-500/5 border-red-500/20'}`}>
+      <div className="flex items-center gap-2">
+        <ShieldCheck className={`h-4 w-4 ${allPassed ? 'text-emerald-600' : 'text-red-600'}`} />
+        <p className={`text-sm font-semibold ${allPassed ? 'text-emerald-600' : 'text-red-600'}`}>
+          {allPassed ? '✓ All math checks passed' : '✗ Math discrepancies detected'}
+        </p>
+      </div>
+      <div className="space-y-1">
+        {checks.map((c, i) => (
+          <div key={i} className="flex items-center gap-2 text-xs">
+            <span className={c.pass ? 'text-emerald-600' : 'text-red-600'}>{c.pass ? '✓' : '✗'}</span>
+            <span className="text-muted-foreground">{c.name}</span>
+            {!c.pass && (
+              <span className="text-red-600 font-mono">— expected {formatCurrency(c.expected)}, got {formatCurrency(c.actual)}</span>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Main Page ──
 export default function ReceivingPage() {
   const qc = useQueryClient();
@@ -95,6 +135,12 @@ export default function ReceivingPage() {
   const [reconciling, setReconciling] = useState<string | null>(null);
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string>('');
   const [invoiceSearch, setInvoiceSearch] = useState('');
+  const [mathChecks, setMathChecks] = useState<MathCheck[] | null>(null);
+  const [reconTotals, setReconTotals] = useState<ReconciliationTotals | null>(null);
+  const [activeTab, setActiveTab] = useState<'receiving' | 'final-bill'>('receiving');
+  const [creditConfirmOpen, setCreditConfirmOpen] = useState<string | null>(null);
+  const [creditAmount, setCreditAmount] = useState('');
+  const [creditApprover, setCreditApprover] = useState('');
 
   // ── Queries ──
   const { data: sessions = [], isLoading: sessionsLoading } = useQuery({
@@ -122,6 +168,11 @@ export default function ReceivingPage() {
     enabled: !!reconciling,
   });
 
+  // ── Final Bill Ledger Query ──
+  const { data: finalBillEntries = [], isLoading: finalBillLoading } = useQuery({
+    queryKey: ['final-bill-ledger'],
+    queryFn: fetchFinalBillLedger,
+  });
   // ── Invoice filtering by vendor mapping ──
   // For EOL sessions, resolve real vendors from session lines instead of using static map
   const reconSession = reconciling ? sessions.find(s => s.id === reconciling) : null;
@@ -309,10 +360,66 @@ export default function ReceivingPage() {
 
       const status = hasDiscrepancy ? 'discrepancy' : 'reconciled';
       await updateSessionReconciliation(selectedSessionId, selectedInvoiceId, status);
-      toast.success('Reconciliation complete');
+
+      // ── Refresh lines to get updated discrepancy data ──
+      const { data: updatedLines } = await supabase
+        .from('po_receiving_lines')
+        .select('*')
+        .eq('session_id', selectedSessionId);
+      const freshLines = updatedLines ?? sessionLines;
+
+      // ── Compute reconciliation totals ──
+      const totals = computeReconciliationTotals(freshLines, invoice.total);
+      setReconTotals(totals);
+
+      // ── Math verification ──
+      const checks = verifyReconciliationMath(
+        freshLines,
+        Number(selectedSession?.total_ordered_cost || 0),
+        Number(selectedSession?.total_ordered_qty || 0),
+        invoice.total,
+        totals
+      );
+      setMathChecks(checks);
+
+      // ── Update vendor_invoices with reconciliation data ──
+      const reconStatus = totals.totalCreditDue > 0 ? 'credit_pending' : 'reconciled';
+      await updateInvoiceReconciliation(
+        selectedInvoiceId,
+        selectedSessionId,
+        totals.totalCreditDue,
+        totals.finalBillAmount,
+        reconStatus
+      );
+
+      // ── Create/update final bill ledger entry ──
+      await upsertFinalBillEntry(
+        selectedInvoiceId,
+        selectedSessionId,
+        invoice,
+        {
+          total_ordered_qty: Number(selectedSession?.total_ordered_qty || 0),
+          total_received_qty: Number(selectedSession?.total_received_qty || 0),
+        },
+        totals
+      );
+
+      // ── Apply credits to payment installments ──
+      if (totals.totalCreditDue > 0) {
+        await applyCreditToPayments(selectedInvoiceId, totals.totalCreditDue);
+      }
+
+      const allPassed = checks.every(c => c.pass);
+      toast.success(allPassed
+        ? 'Reconciliation complete — all math checks passed ✓'
+        : 'Reconciliation complete — ⚠ math discrepancies detected'
+      );
       setReconciling(null);
       qc.invalidateQueries({ queryKey: ['receiving-lines', selectedSessionId] });
       qc.invalidateQueries({ queryKey: ['receiving-sessions'] });
+      qc.invalidateQueries({ queryKey: ['final-bill-ledger'] });
+      qc.invalidateQueries({ queryKey: ['vendor-invoices-for-recon'] });
+      qc.invalidateQueries({ queryKey: ['invoice_payments'] });
     } catch (err: any) {
       toast.error(err.message);
     }
@@ -377,6 +484,24 @@ export default function ReceivingPage() {
           <h1 className="text-xl sm:text-2xl font-bold">PO Receiving & Reconciliation</h1>
           <p className="text-sm text-muted-foreground">Import Lightspeed PO exports to track receiving vs billing</p>
         </div>
+
+        {/* ── Tabs ── */}
+        <div className="flex gap-2">
+          <Button size="sm" variant={activeTab === 'receiving' ? 'default' : 'outline'} className="text-xs h-8" onClick={() => setActiveTab('receiving')}>
+            <Package className="h-3.5 w-3.5 mr-1" />Receiving
+          </Button>
+          <Button size="sm" variant={activeTab === 'final-bill' ? 'default' : 'outline'} className="text-xs h-8" onClick={() => setActiveTab('final-bill')}>
+            <DollarSign className="h-3.5 w-3.5 mr-1" />Final Bill Ledger
+            {finalBillEntries.filter(e => e.total_credit_due > 0 && !e.credit_approved).length > 0 && (
+              <span className="ml-1 px-1 py-0.5 text-[10px] rounded bg-amber-500/20 text-amber-600">
+                {finalBillEntries.filter(e => e.total_credit_due > 0 && !e.credit_approved).length}
+              </span>
+            )}
+          </Button>
+        </div>
+
+        {activeTab === 'receiving' ? (<>
+
 
         {/* ── Import Section ── */}
         <Card>
@@ -653,6 +778,29 @@ export default function ReceivingPage() {
                       }}>Mark as Reviewed</Button>
                     )}
                   </div>
+
+                  {/* Reconciliation Totals */}
+                  {reconTotals && selectedSession.reconciliation_status !== 'unreconciled' && (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                      <div className="border rounded-lg p-3 text-center">
+                        <p className="text-xs text-muted-foreground">Credit Due (Overbilled)</p>
+                        <p className={`text-sm font-bold ${reconTotals.totalCreditDue > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                          {reconTotals.totalCreditDue > 0 ? `-${formatCurrency(reconTotals.totalCreditDue)}` : '$0.00'}
+                        </p>
+                      </div>
+                      <div className="border rounded-lg p-3 text-center">
+                        <p className="text-xs text-muted-foreground">Final Bill</p>
+                        <p className="text-sm font-bold">{formatCurrency(reconTotals.finalBillAmount)}</p>
+                      </div>
+                      <div className="border rounded-lg p-3 text-center">
+                        <p className="text-xs text-muted-foreground">Discrepancy Lines</p>
+                        <p className="text-sm font-bold">{reconTotals.discrepancyLineCount}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Math Verification */}
+                  {mathChecks && <MathVerificationBlock checks={mathChecks} />}
                 </div>
               )}
 
@@ -991,6 +1139,167 @@ export default function ReceivingPage() {
             )}
           </CardContent>
         </Card>
+        </>) : (
+          /* ── FINAL BILL LEDGER TAB ── */
+          <div className="space-y-6">
+            {/* Summary Bar */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <Card className="bg-card border-border">
+                <CardContent className="p-4 text-center">
+                  <p className="text-xs text-muted-foreground">TOTAL INVOICED</p>
+                  <p className="text-xl font-bold tabular-nums">{formatCurrency(finalBillEntries.reduce((s, e) => s + e.original_invoice_total, 0))}</p>
+                </CardContent>
+              </Card>
+              <Card className="bg-red-500/5 border-red-500/20">
+                <CardContent className="p-4 text-center">
+                  <p className="text-xs text-muted-foreground">TOTAL CREDITS DUE BACK</p>
+                  <p className="text-xl font-bold tabular-nums text-red-600">-{formatCurrency(finalBillEntries.reduce((s, e) => s + e.total_credit_due, 0))}</p>
+                </CardContent>
+              </Card>
+              <Card className="bg-emerald-500/5 border-emerald-500/20">
+                <CardContent className="p-4 text-center">
+                  <p className="text-xs text-muted-foreground">TOTAL ACTUALLY OWED</p>
+                  <p className="text-xl font-bold tabular-nums text-emerald-600">{formatCurrency(finalBillEntries.reduce((s, e) => s + e.final_bill_amount, 0))}</p>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Ledger Table */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Final Bill Ledger</CardTitle>
+                <CardDescription className="text-xs">Reconciled invoices with credit adjustments</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {finalBillLoading ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">Loading…</p>
+                ) : finalBillEntries.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-8">No reconciled invoices yet. Reconcile a receiving session to create ledger entries.</p>
+                ) : (
+                  <div className="overflow-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="text-xs">Vendor</TableHead>
+                          <TableHead className="text-xs">Invoice #</TableHead>
+                          <TableHead className="text-xs">PO #</TableHead>
+                          <TableHead className="text-xs">Date</TableHead>
+                          <TableHead className="text-xs text-right">Original Bill</TableHead>
+                          <TableHead className="text-xs text-right">Credit Due</TableHead>
+                          <TableHead className="text-xs text-right">Final Bill</TableHead>
+                          <TableHead className="text-xs">Status</TableHead>
+                          <TableHead className="text-xs">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {finalBillEntries.map(entry => (
+                          <TableRow key={entry.id}>
+                            <TableCell className="text-xs font-medium">{entry.vendor}</TableCell>
+                            <TableCell className="text-xs font-mono">{entry.invoice_number}</TableCell>
+                            <TableCell className="text-xs text-muted-foreground">{entry.po_number || '—'}</TableCell>
+                            <TableCell className="text-xs">{entry.invoice_date}</TableCell>
+                            <TableCell className="text-xs text-right tabular-nums">{formatCurrency(entry.original_invoice_total)}</TableCell>
+                            <TableCell className="text-xs text-right tabular-nums">
+                              {entry.total_credit_due > 0 ? (
+                                <span className="text-red-600">-{formatCurrency(entry.total_credit_due)}</span>
+                              ) : (
+                                <span className="text-muted-foreground">$0.00</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-xs text-right tabular-nums font-semibold">{formatCurrency(entry.final_bill_amount)}</TableCell>
+                            <TableCell>
+                              <FinalBillStatusBadge status={entry.final_bill_status} creditDue={entry.total_credit_due} creditApproved={entry.credit_approved} />
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex gap-1">
+                                {entry.total_credit_due > 0 && !entry.credit_request_sent && (
+                                  <Button size="sm" variant="outline" className="h-6 text-[10px] gap-1" onClick={async () => {
+                                    await markCreditRequestSent(entry.id);
+                                    toast.success('Credit request marked as sent');
+                                    qc.invalidateQueries({ queryKey: ['final-bill-ledger'] });
+                                  }}>
+                                    <Send className="h-3 w-3" />Send Credit Request
+                                  </Button>
+                                )}
+                                {entry.credit_request_sent && !entry.credit_approved && (
+                                  <Button size="sm" variant="outline" className="h-6 text-[10px] gap-1" onClick={() => {
+                                    setCreditConfirmOpen(entry.id);
+                                    setCreditAmount(entry.total_credit_due.toFixed(2));
+                                  }}>
+                                    <CheckCheck className="h-3 w-3" />Confirm Credit
+                                  </Button>
+                                )}
+                                <Button size="sm" variant="ghost" className="h-6 text-[10px] gap-1" onClick={() => {
+                                  const csv = generateCreditRequestCSV(entry, []);
+                                  const blob = new Blob([csv], { type: 'text/csv' });
+                                  const url = URL.createObjectURL(blob);
+                                  const a = document.createElement('a');
+                                  a.href = url;
+                                  a.download = `credit-request-${entry.invoice_number}.csv`;
+                                  a.click();
+                                }}>
+                                  <FileDown className="h-3 w-3" />CSV
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Credit Confirmation Modal */}
+            {creditConfirmOpen && (
+              <Card className="border-primary">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Confirm Credit Received</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium">Credit Amount Confirmed by Vendor</label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={creditAmount}
+                      onChange={e => setCreditAmount(e.target.value)}
+                      className="max-w-xs"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium">Approved By</label>
+                    <Input
+                      value={creditApprover}
+                      onChange={e => setCreditApprover(e.target.value)}
+                      placeholder="Your name"
+                      className="max-w-xs"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={async () => {
+                      const entry = finalBillEntries.find(e => e.id === creditConfirmOpen);
+                      if (!entry) return;
+                      try {
+                        await confirmCreditReceived(creditConfirmOpen, entry.invoice_id, parseFloat(creditAmount), creditApprover);
+                        toast.success('Credit confirmed and applied to payment schedule');
+                        setCreditConfirmOpen(null);
+                        setCreditAmount('');
+                        setCreditApprover('');
+                        qc.invalidateQueries({ queryKey: ['final-bill-ledger'] });
+                        qc.invalidateQueries({ queryKey: ['invoice_payments'] });
+                      } catch (err: any) {
+                        toast.error(err.message);
+                      }
+                    }}>Confirm Credit</Button>
+                    <Button size="sm" variant="ghost" onClick={() => setCreditConfirmOpen(null)}>Cancel</Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
