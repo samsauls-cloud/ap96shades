@@ -94,6 +94,65 @@ export function resolveEOLVendor(lines: Array<{ item_description?: string; manuf
   };
 }
 
+export type ExportFormat = 'CHECKIN_A' | 'ITEMS_B' | 'ITEMS_C_NO_RECEIVING' | 'UNKNOWN';
+
+export type ReceivingStatus = 'FULLY_RECEIVED' | 'PARTIALLY_RECEIVED' | 'NOT_RECEIVED' | 'NO_RECEIVING_DATA';
+export type MatchStatus = 'MATCHED' | 'UPC_ONLY' | 'SKU_ONLY' | 'NO_MATCH';
+export type DiscrepancyType = 'OVERBILLED' | 'UNDERBILLED' | 'QTY_MISMATCH' | 'PRICE_MISMATCH' | 'NOT_ON_INVOICE';
+
+export interface ParsedLine {
+  system_id: string;
+  upc: string;
+  ean: string;
+  custom_sku: string;
+  manufact_sku: string;
+  item_description: string;
+  vendor_id: string;
+  order_qty: number;
+  received_qty: number | null;
+  not_received_qty: number;
+  unit_cost: number;
+  retail_price: number;
+  unit_discount: number;
+  unit_shipping: number;
+  received_cost: number;
+  ordered_cost: number;
+  lightspeed_status: string;
+  receiving_status: ReceivingStatus;
+}
+
+// ── Format Detection ──
+export function detectFormat(headers: string[]): ExportFormat {
+  const h = headers.map(c => c.toLowerCase().trim());
+  if (h.includes('# received') && h.includes('checked in')) return 'CHECKIN_A';
+  if (h.includes('order qty.') && h.includes('check in qty.')) return 'ITEMS_B';
+  if (h.includes('order qty.') && !h.includes('check in qty.')) return 'ITEMS_C_NO_RECEIVING';
+  return 'UNKNOWN';
+}
+
+export function formatLabel(f: ExportFormat): string {
+  switch (f) {
+    case 'CHECKIN_A': return 'Check-In Items Export';
+    case 'ITEMS_B': return 'Items Export (with check-in data)';
+    case 'ITEMS_C_NO_RECEIVING': return 'Items Export (no receiving data)';
+    default: return 'Unknown Format';
+  }
+}
+
+// ── Vendor Detection ──
+export function vendorFromLightspeed(vendorId: string, itemDescription?: string): string {
+  const mapped = LIGHTSPEED_VENDOR_MAP[String(vendorId)];
+  if (mapped) return mapped;
+  const desc = (itemDescription || '').toUpperCase();
+  if (desc.includes('OAKLEY') || desc.includes('RAY-BAN') || desc.includes('RAYBAN') || desc.includes('PRADA')) return 'Luxottica';
+  if (desc.includes('SAINT LAURENT') || desc.includes('GUCCI') || desc.includes('BOTTEGA') || desc.includes('BALENCIAGA')) return 'Kering';
+  if (desc.includes('TOM FORD')) return 'Marcolin';
+  if (desc.includes('COSTA')) return 'Luxottica';
+  if (desc.includes('MAUI JIM')) return 'Maui Jim';
+  if (desc.includes('SAFILO')) return 'Safilo';
+  return 'Unknown';
+}
+
 // ── Receiving Status ──
 export function deriveReceivingStatus(orderQty: number, receivedQty: number | null): ReceivingStatus {
   if (receivedQty === null || receivedQty === undefined) return 'NO_RECEIVING_DATA';
