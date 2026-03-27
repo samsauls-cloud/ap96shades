@@ -147,8 +147,25 @@ export async function callAnthropicAPI(
 }
 
 export function parsedToInvoice(parsed: any, filename: string): VendorInvoiceInsert {
+  const vendor = normalizeVendor(parsed.vendor);
+  const rawLineItems = parsed.line_items || [];
+
+  // Apply vendor-specific pricing rules (e.g. Marchon 10% discount)
+  const { lineItems, subtotal, total, discountApplied, discountPercent } =
+    applyVendorDiscount(vendor, rawLineItems, parsed.subtotal, parsed.total);
+
+  const discountNote = discountApplied
+    ? `${discountPercent}% vendor discount applied automatically.`
+    : null;
+  const existingNotes = parsed.notes ? String(parsed.notes) : "";
+  const combinedNotes = discountNote
+    ? existingNotes
+      ? `${existingNotes} | ${discountNote}`
+      : discountNote
+    : existingNotes || null;
+
   return {
-    vendor: normalizeVendor(parsed.vendor),
+    vendor,
     doc_type: parsed.doc_type || "INVOICE",
     invoice_number: parsed.invoice_number || filename,
     invoice_date: parsed.invoice_date || new Date().toISOString().split("T")[0],
@@ -157,15 +174,15 @@ export function parsedToInvoice(parsed: any, filename: string): VendorInvoiceIns
     ship_to: parsed.ship_to,
     carrier: parsed.carrier,
     payment_terms: parsed.payment_terms,
-    subtotal: parsed.subtotal,
+    subtotal: subtotal ?? parsed.subtotal,
     tax: parsed.tax,
     freight: parsed.freight,
-    total: parsed.total || 0,
+    total: total ?? parsed.total ?? 0,
     currency: parsed.currency || "USD",
     vendor_brands: parsed.vendor_brands,
-    notes: parsed.notes,
+    notes: combinedNotes,
     filename,
-    line_items: parsed.line_items || [],
+    line_items: lineItems,
   };
 }
 
