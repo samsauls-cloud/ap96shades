@@ -76,6 +76,7 @@ export default function ReceivingPage() {
   const [historyStatus, setHistoryStatus] = useState<string>('all');
   const [reconciling, setReconciling] = useState<string | null>(null);
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string>('');
+  const [invoiceSearch, setInvoiceSearch] = useState('');
 
   // ── Queries ──
   const { data: sessions = [], isLoading: sessionsLoading } = useQuery({
@@ -92,18 +93,26 @@ export default function ReceivingPage() {
   const selectedSession = sessions.find(s => s.id === selectedSessionId);
 
   const { data: vendorInvoices = [] } = useQuery({
-    queryKey: ['vendor-invoices-for-recon', selectedSession?.vendor],
+    queryKey: ['vendor-invoices-for-recon'],
     queryFn: async () => {
-      if (!selectedSession?.vendor) return [];
       const { data } = await supabase
         .from('vendor_invoices')
         .select('*')
-        .eq('vendor', selectedSession.vendor)
         .order('invoice_date', { ascending: false });
       return data ?? [];
     },
-    enabled: !!selectedSession?.vendor && !!reconciling,
+    enabled: !!reconciling,
   });
+
+  const filteredInvoices = useMemo(() => {
+    if (!invoiceSearch.trim()) return vendorInvoices;
+    const q = invoiceSearch.toLowerCase().trim();
+    return vendorInvoices.filter(inv =>
+      inv.invoice_number?.toLowerCase().includes(q) ||
+      inv.po_number?.toLowerCase().includes(q) ||
+      inv.vendor?.toLowerCase().includes(q)
+    );
+  }, [vendorInvoices, invoiceSearch]);
 
   // ── File Handler ──
   const handleFile = useCallback((file: File) => {
