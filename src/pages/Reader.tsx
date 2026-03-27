@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Upload, CheckCircle2, AlertCircle, Loader2, XCircle, ExternalLink, Copy, RotateCcw, Timer, Zap, Package } from "lucide-react";
+import { Upload, CheckCircle2, AlertCircle, Loader2, XCircle, ExternalLink, Copy, RotateCcw, Timer, Zap, Package, FileSpreadsheet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,6 +24,7 @@ import {
 import {
   checkInvoiceDuplicate, mergeExtendedInvoice, updatePOTotalInvoiced, normalizeVendor,
 } from "@/lib/invoice-dedup";
+import { parseCSVToPOs, fileToText } from "@/lib/csv-po-parser";
 
 function formatElapsed(ms: number): string {
   const s = Math.floor(ms / 1000);
@@ -55,15 +56,18 @@ export default function ReaderPage() {
     localStorage.setItem("anthropic_api_key", cleanKey);
   };
 
+  const isAcceptedFile = (f: File) =>
+    f.type === "application/pdf" || f.name.toLowerCase().endsWith(".csv") || f.type === "text/csv";
+
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
-    const files = Array.from(e.dataTransfer.files).filter(f => f.type === "application/pdf");
-    if (files.length === 0) { toast.error("Only PDF files are supported"); return; }
+    const files = Array.from(e.dataTransfer.files).filter(isAcceptedFile);
+    if (files.length === 0) { toast.error("Only PDF and CSV files are supported"); return; }
     setQueue(prev => [...prev, ...files]);
   }, []);
 
   const handleFileInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []).filter(f => f.type === "application/pdf");
+    const files = Array.from(e.target.files ?? []).filter(isAcceptedFile);
     if (files.length === 0) return;
     setQueue(prev => [...prev, ...files]);
     e.target.value = "";
@@ -285,16 +289,106 @@ export default function ReaderPage() {
     }
   };
 
+  const processCSVFile = async (file: File) => {
+    const csvDocId = crypto.randomUUID();
+    setDocs(prev => [...prev, {
+      id: csvDocId, filename: file.name, vendor: "", doc_type: "PO",
+      invoice_number: "", total: 0, line_items_count: 0,
+      status: "processing" as const, file,
+    }]);
+
+    try {
+      const text = await fileToText(file);
+      const result = parseCSVToPOs(text, file.name);
+
+      if (result.invoices.length === 0) {
+        updateDoc(csvDocId, { status: "error", error: "No valid PO lines found in CSV" });
+        return;
+      }
+
+      // Save each vendor PO
+      const savedIds: string[] = [];
+      for (const invoice of result.invoices) {
+        // Dedup check
+        const dedupResult = await checkInvoiceDuplicate(
+          invoice.invoice_number!, invoice.vendor, invoice.line_items as any, invoice.total || 0
+        );
+
+        if (dedupResult.type === "true_duplicate") {
+          continue; // skip dupes silently within CSV
+        }
+
+        const saved = await insertInvoice(invoice);
+        savedIds.push(saved.id);
+
+        // Auto-generate payments
+        try {
+          await generatePaymentsForInvoice(
+            saved.id, invoice.invoice_date, invoice.total || 0,
+            invoice.vendor, invoice.invoice_number!, invoice.po_number ?? null
+          );
+        } catch { /* silent */ }
+      }
+
+      const vendorList = Object.entries(result.vendorSummary)
+        .map(([v, c]) => `${v} (${c})`)
+        .join(", ");
+      const discountNote = result.discountApplied ? " · 10% vendor discount applied" : "";
+
+      updateDoc(csvDocId, {
+        status: "done",
+        vendor: Object.keys(result.vendorSummary).join(", "),
+        doc_type: "PO",
+        invoice_number: result.invoices.map(i => i.invoice_number).join(", "),
+        total: result.invoices.reduce((s, i) => s + (i.total || 0), 0),
+        line_items_count: result.totalLines,
+        dbId: savedIds[0],
+        extendedInfo: `📋 CSV PO — ${result.totalLines} lines across ${result.invoices.length} vendor(s): ${vendorList}${discountNote}`,
+      });
+
+      toast.success(`CSV imported: ${result.totalLines} PO lines, ${result.invoices.length} vendor PO(s) created`);
+    } catch (err: any) {
+      updateDoc(csvDocId, { status: "error", error: err.message });
+      toast.error(`CSV error: ${err.message}`);
+    }
+  };
+
   const processQueue = async () => {
-    if (!apiKey) { toast.error("Please enter your Anthropic API key"); return; }
     if (queue.length === 0) { toast.error("No files in queue"); return; }
+
+    // Separate CSVs from PDFs
+    const csvFiles = queue.filter(f => f.name.toLowerCase().endsWith(".csv") || f.type === "text/csv");
+    const pdfFiles = queue.filter(f => f.type === "application/pdf");
+
+    // Process CSVs first (no API key needed)
+    if (csvFiles.length > 0) {
+      setQueue(prev => prev.filter(f => !csvFiles.includes(f)));
+      for (const csv of csvFiles) {
+        await processCSVFile(csv);
+      }
+      queryClient.invalidateQueries({ queryKey: ["vendor_invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["invoice_stats"] });
+      queryClient.invalidateQueries({ queryKey: ["distinct_vendors"] });
+    }
+
+    // Process PDFs (needs API key)
+    if (pdfFiles.length === 0) {
+      if (csvFiles.length > 0) {
+        setQueue([]);
+        return; // CSVs already processed
+      }
+      toast.error("No files in queue");
+      return;
+    }
+
+    if (!apiKey) { toast.error("Please enter your Anthropic API key for PDF processing"); return; }
 
     setProcessing(true);
     cancelRef.current = false;
     startTimeRef.current = Date.now();
     setElapsed(0);
 
-    const filesToProcess = [...queue];
+    const filesToProcess = [...pdfFiles];
     setBatchTotal(filesToProcess.length);
     setBatchComplete(0);
     setQueue([]);
@@ -547,11 +641,14 @@ export default function ReaderPage() {
           onDrop={handleDrop}
         >
           <CardContent className="p-8 flex flex-col items-center justify-center text-center">
-            <Upload className="h-10 w-10 text-muted-foreground mb-3" />
-            <p className="text-sm font-medium mb-1">Drop PDF invoices here</p>
-            <p className="text-xs text-muted-foreground mb-3">or click to browse files</p>
+            <div className="flex items-center gap-3 mb-3">
+              <Upload className="h-10 w-10 text-muted-foreground" />
+              <FileSpreadsheet className="h-8 w-8 text-muted-foreground" />
+            </div>
+            <p className="text-sm font-medium mb-1">Drop PDF invoices or CSV POs here</p>
+            <p className="text-xs text-muted-foreground mb-3">PDFs are extracted via AI · CSVs are parsed as Lightspeed POs (Marchon 10% discount auto-applied)</p>
             <label>
-              <input type="file" accept=".pdf" multiple onChange={handleFileInput} className="hidden" />
+              <input type="file" accept=".pdf,.csv" multiple onChange={handleFileInput} className="hidden" />
               <Button variant="outline" size="sm" className="text-xs" asChild>
                 <span>Choose Files</span>
               </Button>
@@ -574,7 +671,7 @@ export default function ReaderPage() {
                 {processing ? (
                   <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Processing…</>
                 ) : (
-                  <>Process {queue.length} File(s)</>
+                  <>Process {queue.length} File(s) ({queue.filter(f => f.type === "application/pdf").length} PDF, {queue.filter(f => f.name.toLowerCase().endsWith(".csv") || f.type === "text/csv").length} CSV)</>
                 )}
               </Button>
               {processing && (
