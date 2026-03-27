@@ -16,7 +16,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { generateAllMissingPayments } from "@/lib/payment-queries";
 import { AuditBanner, AuditPanel } from "@/components/invoices/AuditPanel";
 
-type Tab = "summary" | "calendar";
+type Tab = "summary" | "calendar" | "audit";
 
 // ── Server date hook ──────────────────────────────────
 function useServerDate() {
