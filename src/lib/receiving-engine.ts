@@ -490,6 +490,7 @@ export async function splitSessionByPO(
       lightspeed_export_type: parentSession.lightspeed_export_type || '',
       raw_filename: parentSession.raw_filename || '',
       stats,
+      parent_session_id: parentSessionId,
     });
 
     // Move lines to child session
@@ -506,13 +507,14 @@ export async function splitSessionByPO(
     childIds.push(childSession.id);
   }
 
-  // Mark parent as split
+  // Mark parent as split with child links
   await supabase
     .from('po_receiving_sessions')
     .update({
       reconciliation_status: 'split',
       notes: `Split into ${poGroups.length} sub-sessions: ${poGroups.map(g => g.poRef).join(', ')}`,
-    })
+      child_session_ids: childIds,
+    } as any)
     .eq('id', parentSessionId);
 
   return childIds;
@@ -525,16 +527,21 @@ export async function createSession(data: {
   lightspeed_export_type: string;
   raw_filename: string;
   stats: ReturnType<typeof computeSessionStats>;
+  parent_session_id?: string;
 }) {
+  const insert: any = {
+    session_name: data.session_name,
+    vendor: data.vendor,
+    lightspeed_export_type: data.lightspeed_export_type,
+    raw_filename: data.raw_filename,
+    ...data.stats,
+  };
+  if (data.parent_session_id) {
+    insert.parent_session_id = data.parent_session_id;
+  }
   const { data: session, error } = await supabase
     .from('po_receiving_sessions')
-    .insert({
-      session_name: data.session_name,
-      vendor: data.vendor,
-      lightspeed_export_type: data.lightspeed_export_type,
-      raw_filename: data.raw_filename,
-      ...data.stats,
-    })
+    .insert(insert)
     .select()
     .single();
   if (error) throw error;
