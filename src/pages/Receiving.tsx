@@ -842,10 +842,24 @@ export default function ReceivingPage() {
                     {' '}· {new Date(selectedSession.created_at).toLocaleDateString()}
                   </CardDescription>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <Badge className={reconStatusColor(selectedSession.reconciliation_status)}>
-                    {selectedSession.reconciliation_status}
+                    {selectedSession.reconciliation_status === 'partial_reconciled' ? '⚠ Partially Reconciled' : selectedSession.reconciliation_status}
                   </Badge>
+                  {selectedSession.reconciliation_status === 'partial_reconciled' && (() => {
+                    const totalLines = Number(selectedSession.total_lines || 0);
+                    const unmatchedCount = sessionLines.filter((l: any) => l.match_status === 'INVOICE_NOT_UPLOADED').length;
+                    const matchedCount = totalLines - unmatchedCount;
+                    const pctReconciled = totalLines > 0 ? Math.round((matchedCount / totalLines) * 100) : 0;
+                    return (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-amber-600">{matchedCount} of {totalLines} lines reconciled ({pctReconciled}%)</span>
+                        <div className="w-24 h-1.5 bg-muted rounded-full overflow-hidden">
+                          <div className="h-full bg-amber-500 rounded-full transition-all" style={{ width: `${pctReconciled}%` }} />
+                        </div>
+                      </div>
+                    );
+                  })()}
                   {selectedSession.reconciliation_status === 'unreconciled' && (
                     <>
                       <Button size="sm" variant="outline" onClick={() => setReconciling(selectedSessionId)} className="gap-1">
