@@ -419,6 +419,17 @@ export default function ReceivingPage() {
                     <Badge className="bg-emerald-600 text-white gap-1"><CheckCircle2 className="h-3 w-3" />Format: {formatLabel(preview.format)}</Badge>
                   )}
                   <Badge variant="outline">{preview.vendor}</Badge>
+                  {preview.eolResolution && (
+                    <>
+                      <Badge className="bg-amber-500/15 text-amber-600 border-amber-500/30" variant="outline">EOL</Badge>
+                      <Badge variant="outline">{preview.eolResolution.realVendor}</Badge>
+                      {preview.eolResolution.isMultiVendor && (
+                        <Badge className="bg-amber-500/15 text-amber-600 border-amber-500/30" variant="outline">
+                          ⚠ Multi-vendor: {preview.eolResolution.realVendors.join(', ')}
+                        </Badge>
+                      )}
+                    </>
+                  )}
                   <Badge variant="outline">{preview.lines.length} rows</Badge>
                   <span className="text-xs text-muted-foreground">{preview.filename}</span>
                 </div>
