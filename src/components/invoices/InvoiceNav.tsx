@@ -1,11 +1,31 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { FileText, ScanLine, GitCompare, BarChart3, FileBarChart, PackageCheck, LogOut, Menu, X } from "lucide-react";
+import { FileText, ScanLine, GitCompare, BarChart3, FileBarChart, PackageCheck, Shield, LogOut, Menu, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { supabase } from "@/integrations/supabase/client";
 
 export function InvoiceNav() {
   const { pathname } = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [criticalCount, setCriticalCount] = useState(0);
+
+  useEffect(() => {
+    const fetchCritical = async () => {
+      const { count } = await supabase
+        .from("reconciliation_discrepancies")
+        .select("*", { count: "exact", head: true })
+        .eq("severity", "critical")
+        .eq("resolution_status", "open");
+      setCriticalCount(count ?? 0);
+    };
+    fetchCritical();
+
+    const channel = supabase
+      .channel("recon-nav-badge")
+      .on("postgres_changes", { event: "*", schema: "public", table: "reconciliation_discrepancies" }, () => fetchCritical())
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, []);
 
   const links = [
     { to: "/invoices", label: "Invoice Database", icon: FileText },
@@ -14,6 +34,7 @@ export function InvoiceNav() {
     { to: "/invoices/dashboard", label: "AP Dashboard", icon: BarChart3 },
     { to: "/invoices/reports", label: "Reports", icon: FileBarChart },
     { to: "/invoices/receiving", label: "Receiving", icon: PackageCheck },
+    { to: "/reconciliation", label: "Reconciliation", icon: Shield, badge: criticalCount },
   ];
 
   const handleLogout = () => {
