@@ -605,6 +605,15 @@ export default function ReceivingPage() {
               {reconciling === selectedSessionId && (
                 <div className="border rounded-lg p-4 bg-muted/30 space-y-3">
                   <p className="text-sm font-medium">Select the invoice this PO receiving belongs to:</p>
+                  {(() => {
+                    const allowed = RECEIVING_TO_INVOICE_VENDOR[selectedSession.vendor];
+                    return allowed && allowed.join(', ') !== selectedSession.vendor ? (
+                      <div className="bg-blue-500/10 border border-blue-500/20 rounded-md px-3 py-2 text-xs text-blue-700 dark:text-blue-400 flex items-center gap-1.5">
+                        <Info className="h-3.5 w-3.5 shrink-0" />
+                        Showing invoices from: <strong>{allowed.join(', ')}</strong> (mapped from {selectedSession.vendor})
+                      </div>
+                    ) : null;
+                  })()}
                   <Input
                     placeholder="Search by invoice #, PO #, or vendor…"
                     value={invoiceSearch}
