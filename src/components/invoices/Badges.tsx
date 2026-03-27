@@ -13,6 +13,16 @@ const docTypeConfig: Record<string, { label: string; className: string }> = {
   PO: { label: "PO", className: "bg-doc-po/15 text-doc-po border-doc-po/30" },
 };
 
+const reconStatusConfig: Record<string, { label: string; className: string }> = {
+  unreconciled: { label: "⬜ Unreconciled", className: "bg-muted text-muted-foreground border-border" },
+  in_progress: { label: "🔄 In Progress", className: "bg-blue-500/15 text-blue-600 border-blue-500/30" },
+  reconciled: { label: "✅ Reconciled", className: "bg-emerald-500/15 text-emerald-600 border-emerald-500/30" },
+  credit_pending: { label: "⚠ Credit Pending", className: "bg-amber-500/15 text-amber-600 border-amber-500/30" },
+  credit_requested: { label: "📤 Credit Requested", className: "bg-orange-500/15 text-orange-600 border-orange-500/30" },
+  credit_approved: { label: "✓ Credit Approved", className: "bg-blue-500/15 text-blue-600 border-blue-500/30" },
+  paid: { label: "💰 Paid", className: "bg-muted text-muted-foreground border-border" },
+};
+
 export function StatusBadge({ status }: { status: string }) {
   const c = statusConfig[status as InvoiceStatus] ?? { label: status, className: "bg-muted text-muted-foreground border-border" };
   return <Badge variant="outline" className={`text-xs font-medium ${c.className}`}>{c.label}</Badge>;
@@ -21,4 +31,9 @@ export function StatusBadge({ status }: { status: string }) {
 export function DocTypeBadge({ docType }: { docType: string }) {
   const c = docTypeConfig[docType] ?? { label: docType, className: "bg-muted text-muted-foreground border-border" };
   return <Badge variant="outline" className={`text-xs font-semibold ${c.className}`}>{c.label}</Badge>;
+}
+
+export function ReconStatusBadge({ status }: { status: string }) {
+  const c = reconStatusConfig[status] ?? reconStatusConfig.unreconciled;
+  return <Badge variant="outline" className={`text-[10px] font-medium ${c.className}`}>{c.label}</Badge>;
 }
