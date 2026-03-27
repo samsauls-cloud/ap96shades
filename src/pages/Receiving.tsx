@@ -1591,7 +1591,7 @@ export default function ReceivingPage() {
               <div className="flex items-center gap-2">
                 <CardTitle className="text-base">Receiving History</CardTitle>
                 {reconAllEligible.length > 0 && (
-                  <Badge className="bg-primary/10 text-primary text-[10px]">{reconAllEligible.length} unreconciled</Badge>
+                  <Badge className="bg-primary/10 text-primary text-[10px]">{reconAllEligible.length} pending</Badge>
                 )}
               </div>
               <div className="flex items-center gap-2 flex-wrap">
