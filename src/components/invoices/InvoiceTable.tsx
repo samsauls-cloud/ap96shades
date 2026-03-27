@@ -71,6 +71,7 @@ export function InvoiceTable({ invoices, filters, onSort, onRowClick, totalCount
               <TableHead className="text-xs font-semibold">Terms</TableHead>
               <TableHead className="text-xs font-semibold">Tags</TableHead>
               <SortableHead field="status" label="Status" filters={filters} onSort={onSort} />
+              <TableHead className="text-xs font-semibold">Recon</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -99,6 +100,7 @@ export function InvoiceTable({ invoices, filters, onSort, onRowClick, totalCount
                   </div>
                 </TableCell>
                 <TableCell><StatusBadge status={inv.status} /></TableCell>
+                <TableCell><ReconStatusBadge status={(inv as any).reconciliation_status || 'unreconciled'} /></TableCell>
               </TableRow>
             ))}
           </TableBody>
