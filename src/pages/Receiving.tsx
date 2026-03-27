@@ -452,6 +452,24 @@ export default function ReceivingPage() {
           <p className="text-sm text-muted-foreground">Import Lightspeed PO exports to track receiving vs billing</p>
         </div>
 
+        {/* ── Tabs ── */}
+        <div className="flex gap-2">
+          <Button size="sm" variant={activeTab === 'receiving' ? 'default' : 'outline'} className="text-xs h-8" onClick={() => setActiveTab('receiving')}>
+            <Package className="h-3.5 w-3.5 mr-1" />Receiving
+          </Button>
+          <Button size="sm" variant={activeTab === 'final-bill' ? 'default' : 'outline'} className="text-xs h-8" onClick={() => setActiveTab('final-bill')}>
+            <DollarSign className="h-3.5 w-3.5 mr-1" />Final Bill Ledger
+            {finalBillEntries.filter(e => e.total_credit_due > 0 && !e.credit_approved).length > 0 && (
+              <span className="ml-1 px-1 py-0.5 text-[10px] rounded bg-amber-500/20 text-amber-600">
+                {finalBillEntries.filter(e => e.total_credit_due > 0 && !e.credit_approved).length}
+              </span>
+            )}
+          </Button>
+        </div>
+
+        {activeTab === 'receiving' ? (<>
+
+
         {/* ── Import Section ── */}
         <Card>
           <CardHeader className="pb-3">
