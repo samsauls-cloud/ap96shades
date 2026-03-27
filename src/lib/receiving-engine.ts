@@ -337,6 +337,187 @@ export function calcDiscrepancy(receivingLine: any, invoiceLine: LineItem | null
   return null;
 }
 
+// ── Multi-Invoice Matching ──
+
+export interface MultiInvoiceGroup {
+  invoiceId: string;
+  invoiceNumber: string;
+  invoiceTotal: number;
+  vendor: string;
+  poNumber: string | null;
+  lines: any[];
+  matchedLineCount: number;
+  orderedValue: number;
+  receivedValue: number;
+}
+
+export interface MultiInvoiceMatchResult {
+  groups: MultiInvoiceGroup[];
+  unmatchedLines: any[];
+  unmatchedValue: number;
+}
+
+/**
+ * Match session lines against ALL candidate invoices simultaneously.
+ * Each line is assigned to its best-matching invoice by UPC hit.
+ */
+export function multiInvoiceMatch(
+  sessionLines: any[],
+  candidateInvoices: any[],
+  getLineItemsFn: (inv: any) => LineItem[]
+): MultiInvoiceMatchResult {
+  // Build UPC → invoice mapping across all invoices
+  const upcToInvoice = new Map<string, { invoice: any; invoiceLine: LineItem }>();
+  const skuToInvoice = new Map<string, { invoice: any; invoiceLine: LineItem }>();
+
+  for (const inv of candidateInvoices) {
+    const invLines = getLineItemsFn(inv);
+    for (const il of invLines) {
+      if (il.upc) {
+        const normUpc = String(il.upc).replace(/\D/g, '');
+        if (normUpc && !upcToInvoice.has(normUpc)) {
+          upcToInvoice.set(normUpc, { invoice: inv, invoiceLine: il });
+        }
+      }
+      if (il.model) {
+        const normSku = il.model.toLowerCase().replace(/[\s\-]/g, '');
+        if (normSku && !skuToInvoice.has(normSku)) {
+          skuToInvoice.set(normSku, { invoice: inv, invoiceLine: il });
+        }
+      }
+    }
+  }
+
+  // Assign each session line to an invoice
+  const invoiceGroups = new Map<string, MultiInvoiceGroup>();
+  const unmatched: any[] = [];
+
+  for (const line of sessionLines) {
+    const lineUpc = line.upc ? String(line.upc).replace(/\D/g, '') : '';
+    const lineSku = line.manufact_sku ? line.manufact_sku.toLowerCase().replace(/[\s\-]/g, '') : '';
+
+    let hit = lineUpc ? upcToInvoice.get(lineUpc) : undefined;
+    if (!hit && lineSku) hit = skuToInvoice.get(lineSku);
+
+    if (hit) {
+      const invId = hit.invoice.id;
+      if (!invoiceGroups.has(invId)) {
+        invoiceGroups.set(invId, {
+          invoiceId: invId,
+          invoiceNumber: hit.invoice.invoice_number,
+          invoiceTotal: hit.invoice.total,
+          vendor: hit.invoice.vendor,
+          poNumber: hit.invoice.po_number,
+          lines: [],
+          matchedLineCount: 0,
+          orderedValue: 0,
+          receivedValue: 0,
+        });
+      }
+      const group = invoiceGroups.get(invId)!;
+      group.lines.push(line);
+      group.matchedLineCount++;
+      group.orderedValue += Number(line.ordered_cost || 0);
+      group.receivedValue += Number(line.received_cost || 0);
+    } else {
+      unmatched.push(line);
+    }
+  }
+
+  const groups = Array.from(invoiceGroups.values()).sort((a, b) => b.orderedValue - a.orderedValue);
+  const unmatchedValue = unmatched.reduce((s, l) => s + Number(l.ordered_cost || 0), 0);
+
+  return { groups, unmatchedLines: unmatched, unmatchedValue };
+}
+
+// ── Session Split by PO ──
+
+export interface POGroup {
+  poRef: string;
+  lines: any[];
+  lineCount: number;
+  orderedValue: number;
+}
+
+/**
+ * Detect distinct PO references within session lines from item descriptions or SKUs.
+ */
+export function detectPOGroups(lines: any[]): POGroup[] {
+  // Try to extract PO-like patterns from descriptions
+  const groups = new Map<string, any[]>();
+
+  for (const line of lines) {
+    const desc = (line.item_description || '').toUpperCase();
+    // Look for brand as the grouping key for EOL (e.g., "RAYBAN", "VOGUE", "OAKLEY")
+    const sortedBrands = Object.keys(EOL_BRAND_TO_VENDOR).sort((a, b) => b.length - a.length);
+    let brand = 'OTHER';
+    for (const b of sortedBrands) {
+      if (desc.includes(b)) {
+        brand = b;
+        break;
+      }
+    }
+    if (!groups.has(brand)) groups.set(brand, []);
+    groups.get(brand)!.push(line);
+  }
+
+  return Array.from(groups.entries())
+    .map(([poRef, lines]) => ({
+      poRef,
+      lines,
+      lineCount: lines.length,
+      orderedValue: lines.reduce((s: number, l: any) => s + Number(l.ordered_cost || 0), 0),
+    }))
+    .sort((a, b) => b.orderedValue - a.orderedValue);
+}
+
+/**
+ * Split a session into child sessions by PO group.
+ */
+export async function splitSessionByPO(
+  parentSessionId: string,
+  parentSession: any,
+  poGroups: POGroup[]
+): Promise<string[]> {
+  const childIds: string[] = [];
+
+  for (const group of poGroups) {
+    const vendor = EOL_BRAND_TO_VENDOR[group.poRef] || parentSession.vendor;
+    const stats = computeSessionStats(group.lines as ParsedLine[]);
+    const childSession = await createSession({
+      session_name: `${parentSession.session_name} — ${group.poRef}`,
+      vendor,
+      lightspeed_export_type: parentSession.lightspeed_export_type || '',
+      raw_filename: parentSession.raw_filename || '',
+      stats,
+    });
+
+    // Move lines to child session
+    const lineIds = group.lines.map((l: any) => l.id);
+    for (let i = 0; i < lineIds.length; i += 200) {
+      const batch = lineIds.slice(i, i + 200);
+      const { error } = await supabase
+        .from('po_receiving_lines')
+        .update({ session_id: childSession.id })
+        .in('id', batch);
+      if (error) throw error;
+    }
+
+    childIds.push(childSession.id);
+  }
+
+  // Mark parent as split
+  await supabase
+    .from('po_receiving_sessions')
+    .update({
+      reconciliation_status: 'split',
+      notes: `Split into ${poGroups.length} sub-sessions: ${poGroups.map(g => g.poRef).join(', ')}`,
+    })
+    .eq('id', parentSessionId);
+
+  return childIds;
+}
+
 // ── DB Operations ──
 export async function createSession(data: {
   session_name: string;
