@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { fetchAllRows } from "@/lib/supabase-fetch-all";
 import { calculateInstallments, hasTermsEngine, verifyInstallmentMath } from "./payment-terms";
 import { normalizeVendor, isKnownVendor } from "./invoice-dedup";
 
