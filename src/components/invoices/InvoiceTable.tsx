@@ -3,7 +3,7 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
-import { StatusBadge, DocTypeBadge } from "./Badges";
+import { StatusBadge, DocTypeBadge, ReconStatusBadge } from "./Badges";
 import type { VendorInvoice, InvoiceFilters } from "@/lib/supabase-queries";
 import { formatCurrency, formatDate, getTotalUnits } from "@/lib/supabase-queries";
 
