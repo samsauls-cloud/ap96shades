@@ -21,14 +21,12 @@ export function POView({ onRowClick }: { onRowClick: (inv: VendorInvoice) => voi
   const { data: invoices = [], isLoading } = useQuery({
     queryKey: ["vendor_invoices_po_view"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("vendor_invoices")
-        .select("*")
-        .not("po_number", "is", null)
-        .neq("po_number", "")
-        .order("invoice_date", { ascending: false });
-      if (error) throw error;
-      return data as VendorInvoice[];
+      const all = await fetchAllRows<VendorInvoice>("vendor_invoices", {
+        orderBy: "invoice_date",
+        ascending: false,
+        filters: (q: any) => q.not("po_number", "is", null).neq("po_number", ""),
+      });
+      return all;
     },
   });
 
