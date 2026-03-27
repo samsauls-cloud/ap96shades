@@ -92,7 +92,7 @@ export function MatchReportSection({ invoice }: Props) {
               <TableHead className="text-[9px] font-semibold">Model</TableHead>
               <TableHead className="text-[9px] font-semibold">Brand</TableHead>
               <TableHead className="text-[9px] font-semibold">Assortment</TableHead>
-              <TableHead className="text-[9px] font-semibold">Location</TableHead>
+              <TableHead className="text-[9px] font-semibold">Backstock</TableHead>
               <TableHead className="text-[9px] font-semibold text-right">Wholesale</TableHead>
               <TableHead className="text-[9px] font-semibold text-right">Invoice</TableHead>
             </TableRow>
@@ -105,7 +105,7 @@ export function MatchReportSection({ invoice }: Props) {
                 <TableCell className="text-[10px] font-mono">{r.lineItem.model ?? r.lineItem.item_number ?? "—"}</TableCell>
                 <TableCell className="text-[10px]">{r.lineItem.brand ?? "—"}</TableCell>
                 <TableCell className="text-[10px]">{r.assortmentRecord?.assortment ?? "—"}</TableCell>
-                <TableCell className="text-[10px]">{r.assortmentRecord?.go_out_location ?? "—"}</TableCell>
+                <TableCell className="text-[10px]">{r.assortmentRecord?.backstock_location ?? "—"}</TableCell>
                 <TableCell className="text-[10px] text-right tabular-nums">{formatCurrency(r.assortmentRecord?.wholesale)}</TableCell>
                 <TableCell className={`text-[10px] text-right tabular-nums ${r.priceFlag ? "text-status-unpaid font-bold" : ""}`}>
                   {formatCurrency(r.lineItem.unit_price)}{r.priceFlag && " ⚠"}

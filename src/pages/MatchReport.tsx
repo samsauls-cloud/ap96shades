@@ -146,7 +146,7 @@ export default function MatchReportPage() {
                           <TableCell className="text-[10px] font-mono">{r.lineItem.model ?? r.lineItem.item_number ?? "—"}</TableCell>
                           <TableCell className="text-[10px]">{r.lineItem.brand ?? "—"}</TableCell>
                           <TableCell className="text-[10px]">{r.assortmentRecord?.assortment ?? "—"}</TableCell>
-                          <TableCell className="text-[10px]">{r.assortmentRecord?.go_out_location ?? "—"}</TableCell>
+                          <TableCell className="text-[10px]">{r.assortmentRecord?.backstock_location ?? "—"}</TableCell>
                           <TableCell className="text-[10px]">{r.assortmentRecord?.backstock_location ?? "—"}</TableCell>
                           <TableCell className="text-[10px] text-right tabular-nums">{formatCurrency(r.assortmentRecord?.wholesale)}</TableCell>
                           <TableCell className={`text-[10px] text-right tabular-nums ${r.priceFlag ? "text-status-unpaid font-bold" : ""}`}>
