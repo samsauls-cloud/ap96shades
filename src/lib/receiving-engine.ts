@@ -283,28 +283,116 @@ export interface DiscrepancyResult {
   detail?: string;
 }
 
+/**
+ * Invoice line coverage result — tracks which invoice lines were NOT matched by any receiving line.
+ */
+export interface InvoiceCoverageResult {
+  totalInvoiceLines: number;
+  matchedInvoiceLines: number;
+  unmatchedInvoiceLines: LineItem[];
+  coveragePct: number;
+}
+
+/**
+ * Pre-reconciliation duplicate check — detects duplicate UPCs in receiving lines.
+ */
+export interface ReceivingDupCheck {
+  hasDuplicates: boolean;
+  duplicateUPCs: { upc: string; count: number }[];
+  totalDuplicateLines: number;
+}
+
+/**
+ * Check for duplicate UPCs in receiving lines before reconciliation.
+ * Duplicates can cause inaccurate matching if the same UPC appears multiple times.
+ */
+export function checkReceivingLineDuplicates(receivingLines: any[]): ReceivingDupCheck {
+  const upcCounts = new Map<string, number>();
+  for (const line of receivingLines) {
+    const upc = line.upc ? String(line.upc).replace(/\D/g, '') : '';
+    if (!upc) continue;
+    upcCounts.set(upc, (upcCounts.get(upc) || 0) + 1);
+  }
+  const duplicates = Array.from(upcCounts.entries())
+    .filter(([, count]) => count > 1)
+    .map(([upc, count]) => ({ upc, count }));
+  return {
+    hasDuplicates: duplicates.length > 0,
+    duplicateUPCs: duplicates,
+    totalDuplicateLines: duplicates.reduce((s, d) => s + d.count, 0),
+  };
+}
+
 export function matchReceivingToInvoice(
   receivingLines: any[],
   invoiceLineItems: LineItem[]
 ): { line: any; matched_invoice_line: LineItem | null; match_status: MatchStatus }[] {
-  return receivingLines.map(line => {
-    // Match 1: exact UPC
-    let match = invoiceLineItems.find(inv =>
-      inv.upc && line.upc &&
-      String(inv.upc).replace(/\D/g, '') === String(line.upc).replace(/\D/g, '')
-    );
-    if (match) return { line, matched_invoice_line: match, match_status: 'MATCHED' as MatchStatus };
+  // Track which invoice lines have been consumed to avoid double-matching
+  const consumedInvoiceIndices = new Set<number>();
 
-    // Match 2: Manufact SKU → model
-    match = invoiceLineItems.find(inv =>
-      inv.model && line.manufact_sku &&
-      inv.model.toLowerCase().replace(/[\s\-]/g, '') ===
-      line.manufact_sku.toLowerCase().replace(/[\s\-]/g, '')
-    );
-    if (match) return { line, matched_invoice_line: match, match_status: 'SKU_ONLY' as MatchStatus };
+  return receivingLines.map(line => {
+    // Match 1: exact UPC — find first unconsumed invoice line with this UPC
+    const lineUpc = line.upc ? String(line.upc).replace(/\D/g, '') : '';
+    if (lineUpc) {
+      const idx = invoiceLineItems.findIndex((inv, i) =>
+        !consumedInvoiceIndices.has(i) &&
+        inv.upc && String(inv.upc).replace(/\D/g, '') === lineUpc
+      );
+      if (idx >= 0) {
+        consumedInvoiceIndices.add(idx);
+        return { line, matched_invoice_line: invoiceLineItems[idx], match_status: 'MATCHED' as MatchStatus };
+      }
+    }
+
+    // Match 2: Manufact SKU → model — find first unconsumed
+    const lineSku = line.manufact_sku ? line.manufact_sku.toLowerCase().replace(/[\s\-]/g, '') : '';
+    if (lineSku) {
+      const idx = invoiceLineItems.findIndex((inv, i) =>
+        !consumedInvoiceIndices.has(i) &&
+        inv.model && inv.model.toLowerCase().replace(/[\s\-]/g, '') === lineSku
+      );
+      if (idx >= 0) {
+        consumedInvoiceIndices.add(idx);
+        return { line, matched_invoice_line: invoiceLineItems[idx], match_status: 'SKU_ONLY' as MatchStatus };
+      }
+    }
 
     return { line, matched_invoice_line: null, match_status: 'NO_MATCH' as MatchStatus };
   });
+}
+
+/**
+ * After matching, check which invoice lines were NOT matched by any receiving line.
+ * These represent items billed but not found in the PO/receiving data.
+ */
+export function checkInvoiceLineCoverage(
+  matchResults: { matched_invoice_line: LineItem | null }[],
+  invoiceLineItems: LineItem[]
+): InvoiceCoverageResult {
+  const matchedUPCs = new Set<string>();
+  const matchedModels = new Set<string>();
+
+  for (const r of matchResults) {
+    if (!r.matched_invoice_line) continue;
+    if (r.matched_invoice_line.upc) matchedUPCs.add(String(r.matched_invoice_line.upc).replace(/\D/g, ''));
+    if (r.matched_invoice_line.model) matchedModels.add(r.matched_invoice_line.model.toLowerCase().replace(/[\s\-]/g, ''));
+  }
+
+  const unmatched: LineItem[] = [];
+  for (const il of invoiceLineItems) {
+    const ilUpc = il.upc ? String(il.upc).replace(/\D/g, '') : '';
+    const ilModel = il.model ? il.model.toLowerCase().replace(/[\s\-]/g, '') : '';
+    const wasMatched = (ilUpc && matchedUPCs.has(ilUpc)) || (ilModel && matchedModels.has(ilModel));
+    if (!wasMatched) unmatched.push(il);
+  }
+
+  const matched = invoiceLineItems.length - unmatched.length;
+  return {
+    totalInvoiceLines: invoiceLineItems.length,
+    matchedInvoiceLines: matched,
+    unmatchedInvoiceLines: unmatched,
+    coveragePct: invoiceLineItems.length > 0 ? Math.round((matched / invoiceLineItems.length) * 100) : 100,
+  };
 }
 
 export function calcDiscrepancy(receivingLine: any, invoiceLine: LineItem | null, skipPriceCheck = false): DiscrepancyResult | null {
