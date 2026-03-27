@@ -22,8 +22,9 @@ import {
   updateSessionReconciliation, updateLineReconciliation, exportReconciliationCSV,
   checkReceivingDuplicate, mergeReceivingUpdate, resolveEOLVendor,
   multiInvoiceMatch, detectPOGroups, splitSessionByPO,
+  checkReceivingLineDuplicates, checkInvoiceLineCoverage,
   type ExportFormat, type ParsedLine, type ReceivingStatus, type ReceivingDedupAction, type EOLResolution,
-  type MultiInvoiceGroup, type MultiInvoiceMatchResult, type POGroup
+  type MultiInvoiceGroup, type MultiInvoiceMatchResult, type POGroup, type InvoiceCoverageResult
 } from "@/lib/receiving-engine";
 import { getLineItems, formatCurrency } from "@/lib/supabase-queries";
 import { suggestMatchingInvoices, matchStrengthBadge, type InvoiceSuggestion } from "@/lib/invoice-suggestions";
@@ -149,6 +150,7 @@ export default function ReceivingPage() {
   const [mathChecks, setMathChecks] = useState<MathCheck[] | null>(null);
   const [reconTotals, setReconTotals] = useState<ReconciliationTotals | null>(null);
   const [varianceOverride, setVarianceOverride] = useState<{ skipped: boolean; reason?: string } | null>(null);
+  const [invoiceCoverage, setInvoiceCoverage] = useState<InvoiceCoverageResult | null>(null);
   const [activeTab, setActiveTab] = useState<'receiving' | 'final-bill'>('receiving');
   const [creditConfirmOpen, setCreditConfirmOpen] = useState<string | null>(null);
   const [creditAmount, setCreditAmount] = useState('');
@@ -371,7 +373,18 @@ export default function ReceivingPage() {
       const invoice = vendorInvoices.find(v => v.id === selectedInvoiceId);
       if (!invoice) return;
       const invoiceLines = getLineItems(invoice);
+
+      // Pre-reconciliation: check for duplicate UPCs in receiving lines
+      const dupCheck = checkReceivingLineDuplicates(sessionLines);
+      if (dupCheck.hasDuplicates) {
+        console.warn(`⚠ Receiving lines contain ${dupCheck.duplicateUPCs.length} duplicate UPC(s) — matching will consume invoice lines in order`);
+      }
+
       const results = matchReceivingToInvoice(sessionLines, invoiceLines);
+
+      // Post-match: check invoice line coverage
+      const coverage = checkInvoiceLineCoverage(results, invoiceLines);
+      setInvoiceCoverage(coverage);
 
       const skipPriceCheck = selectedSession?.vendor === 'EOL';
       let hasDiscrepancy = false;
@@ -452,7 +465,13 @@ export default function ReceivingPage() {
       const unmatchedCount = freshLines.filter((l: any) => l.match_status === 'INVOICE_NOT_UPLOADED').length;
       const allPassed = checks.every(c => c.pass);
       let msg = allPassed ? 'Reconciliation complete — all math checks passed ✓' : 'Reconciliation complete — ⚠ math discrepancies detected';
-      if (unmatchedCount > 0) msg += ` · ${unmatchedCount} lines unmatched (may belong to other invoices)`;
+      if (unmatchedCount > 0) msg += ` · ${unmatchedCount} receiving lines unmatched`;
+      if (coverage.unmatchedInvoiceLines.length > 0) {
+        msg += ` · ⚠ ${coverage.unmatchedInvoiceLines.length} invoice line(s) not found in receiving data`;
+      }
+      if (coverage.coveragePct === 100 && allPassed) {
+        msg += ' · 📋 100% invoice coverage';
+      }
       toast.success(msg);
 
       setReconciling(null);
@@ -1035,6 +1054,44 @@ export default function ReceivingPage() {
                   )}
 
                   {mathChecks && <MathVerificationBlock checks={mathChecks} varianceOverride={varianceOverride || undefined} />}
+
+                  {/* Invoice Line Coverage Check */}
+                  {invoiceCoverage && (
+                    <div className={`border rounded-lg p-3 space-y-2 ${
+                      invoiceCoverage.coveragePct === 100
+                        ? 'bg-emerald-500/5 border-emerald-500/20'
+                        : 'bg-amber-500/5 border-amber-500/20'
+                    }`}>
+                      <div className="flex items-center gap-2">
+                        {invoiceCoverage.coveragePct === 100
+                          ? <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                          : <AlertTriangle className="h-4 w-4 text-amber-600" />
+                        }
+                        <p className={`text-sm font-semibold ${invoiceCoverage.coveragePct === 100 ? 'text-emerald-600' : 'text-amber-600'}`}>
+                          {invoiceCoverage.coveragePct === 100
+                            ? `✓ All ${invoiceCoverage.totalInvoiceLines} invoice lines matched in receiving data`
+                            : `⚠ ${invoiceCoverage.unmatchedInvoiceLines.length} of ${invoiceCoverage.totalInvoiceLines} invoice lines not found in receiving data (${invoiceCoverage.coveragePct}% coverage)`
+                          }
+                        </p>
+                      </div>
+                      {invoiceCoverage.unmatchedInvoiceLines.length > 0 && (
+                        <div className="space-y-1 ml-6">
+                          <p className="text-[10px] text-amber-600 font-medium">Items billed but missing from PO receiving:</p>
+                          {invoiceCoverage.unmatchedInvoiceLines.slice(0, 10).map((il, i) => (
+                            <div key={i} className="flex items-center gap-3 text-xs text-muted-foreground">
+                              <span className="font-mono">{il.upc || '—'}</span>
+                              <span>{il.model || il.item_number || '—'}</span>
+                              <span className="tabular-nums">{il.description || ''}</span>
+                              <span className="font-semibold tabular-nums">{formatCurrency(Number(il.unit_price || 0))}</span>
+                            </div>
+                          ))}
+                          {invoiceCoverage.unmatchedInvoiceLines.length > 10 && (
+                            <p className="text-[10px] text-muted-foreground">…and {invoiceCoverage.unmatchedInvoiceLines.length - 10} more</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
