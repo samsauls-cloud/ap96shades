@@ -9,6 +9,7 @@ const VENDOR_BRAND_MAP: Record<string, string[]> = {
   Marcolin: ["MIU MIU", "BURBERRY", "COACH", "MICHAEL KORS", "VERSACE"],
   Safilo: ["PRADA", "BOSS"],
   "Maui Jim": ["MAUI JIM"],
+  Marchon: ["NIKE", "COLUMBIA", "DRAGON", "FLEXON", "CALVIN KLEIN", "LACOSTE", "SALVATORE FERRAGAMO", "MCM", "NAUTICA"],
   Chanel: ["CHANEL"],
   "Costa del Mar": ["COSTA DEL MAR"],
 };
