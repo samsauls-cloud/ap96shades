@@ -4,7 +4,8 @@ import { toast } from "sonner";
 import { Download, Package, List } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
-  fetchInvoices, fetchDistinctVendors, fetchDistinctTags, invoiceToCSVRow, lineItemsToCSV,
+  fetchInvoices, fetchDistinctVendors, fetchDistinctTags, fetchInvoiceStats,
+  invoiceToCSVRow, lineItemsToCSV,
   type InvoiceFilters, type VendorInvoice,
 } from "@/lib/supabase-queries";
 import { StatsBar } from "@/components/invoices/StatsBar";
@@ -33,6 +34,13 @@ export default function InvoicesPage() {
   const { data: allTags = [] } = useQuery({
     queryKey: ["distinct_tags"],
     queryFn: fetchDistinctTags,
+  });
+
+  // Stats query — filters only, no pagination
+  const statsFilters = { ...filters, page: undefined, perPage: undefined };
+  const { data: stats } = useQuery({
+    queryKey: ["invoice_stats", statsFilters],
+    queryFn: () => fetchInvoiceStats(filters),
   });
 
   const invoices = data?.data ?? [];
@@ -84,7 +92,7 @@ export default function InvoicesPage() {
     <div className="min-h-screen bg-background">
       <InvoiceNav />
       <main className="max-w-[1600px] mx-auto px-4 sm:px-6 py-6 space-y-5">
-        <StatsBar invoices={invoices} totalCount={totalCount} />
+        <StatsBar stats={stats} />
         <InvoiceFiltersBar filters={filters} onChange={setFilters} vendors={vendors} tags={allTags} />
 
         <div className="flex flex-wrap gap-2 items-center">

@@ -544,6 +544,20 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_invoice_stats: {
+        Args: {
+          p_date_from?: string
+          p_date_to?: string
+          p_doc_type?: string
+          p_max_total?: number
+          p_min_total?: number
+          p_search?: string
+          p_status?: string
+          p_tag?: string
+          p_vendor?: string
+        }
+        Returns: Json
+      }
       get_server_date: { Args: never; Returns: string }
     }
     Enums: {
