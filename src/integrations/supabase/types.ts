@@ -564,6 +564,56 @@ export type Database = {
           },
         ]
       }
+      recon_stale_queue: {
+        Row: {
+          brand: string | null
+          entity_id: string | null
+          entity_type: string
+          id: string
+          prior_recon_run_id: string | null
+          processed_at: string | null
+          queued_at: string | null
+          status: string | null
+          triggered_by: string
+          upc: string | null
+          vendor: string | null
+        }
+        Insert: {
+          brand?: string | null
+          entity_id?: string | null
+          entity_type: string
+          id?: string
+          prior_recon_run_id?: string | null
+          processed_at?: string | null
+          queued_at?: string | null
+          status?: string | null
+          triggered_by: string
+          upc?: string | null
+          vendor?: string | null
+        }
+        Update: {
+          brand?: string | null
+          entity_id?: string | null
+          entity_type?: string
+          id?: string
+          prior_recon_run_id?: string | null
+          processed_at?: string | null
+          queued_at?: string | null
+          status?: string | null
+          triggered_by?: string
+          upc?: string | null
+          vendor?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "recon_stale_queue_prior_recon_run_id_fkey"
+            columns: ["prior_recon_run_id"]
+            isOneToOne: false
+            referencedRelation: "reconciliation_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       reconciliation_discrepancies: {
         Row: {
           amount_at_risk: number | null
@@ -678,6 +728,8 @@ export type Database = {
           notes: string | null
           run_at: string | null
           run_by: string | null
+          run_type: string | null
+          scope_description: string | null
           status: string | null
           total_amount_at_risk: number | null
           total_discrepancies: number | null
@@ -689,6 +741,8 @@ export type Database = {
           notes?: string | null
           run_at?: string | null
           run_by?: string | null
+          run_type?: string | null
+          scope_description?: string | null
           status?: string | null
           total_amount_at_risk?: number | null
           total_discrepancies?: number | null
@@ -700,6 +754,8 @@ export type Database = {
           notes?: string | null
           run_at?: string | null
           run_by?: string | null
+          run_type?: string | null
+          scope_description?: string | null
           status?: string | null
           total_amount_at_risk?: number | null
           total_discrepancies?: number | null
@@ -716,26 +772,33 @@ export type Database = {
           credit_due: number | null
           currency: string
           doc_type: string
+          entered_after_recon: boolean | null
           filename: string | null
           final_bill_amount: number | null
           freight: number | null
           has_discrepancy: boolean | null
           id: string
+          import_source: string | null
           imported_at: string
           imported_by: string | null
           invoice_date: string
           invoice_number: string
+          invoice_received_at: string | null
           is_multi_shipment: boolean
           last_reconciled_at: string | null
           last_shipment_date: string | null
           last_shipment_file: string | null
+          lightspeed_po_number: string | null
           line_items: Json
           notes: string | null
           payment_terms: string | null
           po_number: string | null
           po_total_invoiced: number | null
+          received_date: string | null
           recon_notes: string | null
           recon_run_id: string | null
+          recon_stale: boolean | null
+          recon_stale_reason: string | null
           recon_status: string | null
           reconciled_at: string | null
           reconciled_session_id: string | null
@@ -757,26 +820,33 @@ export type Database = {
           credit_due?: number | null
           currency?: string
           doc_type?: string
+          entered_after_recon?: boolean | null
           filename?: string | null
           final_bill_amount?: number | null
           freight?: number | null
           has_discrepancy?: boolean | null
           id?: string
+          import_source?: string | null
           imported_at?: string
           imported_by?: string | null
           invoice_date: string
           invoice_number: string
+          invoice_received_at?: string | null
           is_multi_shipment?: boolean
           last_reconciled_at?: string | null
           last_shipment_date?: string | null
           last_shipment_file?: string | null
+          lightspeed_po_number?: string | null
           line_items?: Json
           notes?: string | null
           payment_terms?: string | null
           po_number?: string | null
           po_total_invoiced?: number | null
+          received_date?: string | null
           recon_notes?: string | null
           recon_run_id?: string | null
+          recon_stale?: boolean | null
+          recon_stale_reason?: string | null
           recon_status?: string | null
           reconciled_at?: string | null
           reconciled_session_id?: string | null
@@ -798,26 +868,33 @@ export type Database = {
           credit_due?: number | null
           currency?: string
           doc_type?: string
+          entered_after_recon?: boolean | null
           filename?: string | null
           final_bill_amount?: number | null
           freight?: number | null
           has_discrepancy?: boolean | null
           id?: string
+          import_source?: string | null
           imported_at?: string
           imported_by?: string | null
           invoice_date?: string
           invoice_number?: string
+          invoice_received_at?: string | null
           is_multi_shipment?: boolean
           last_reconciled_at?: string | null
           last_shipment_date?: string | null
           last_shipment_file?: string | null
+          lightspeed_po_number?: string | null
           line_items?: Json
           notes?: string | null
           payment_terms?: string | null
           po_number?: string | null
           po_total_invoiced?: number | null
+          received_date?: string | null
           recon_notes?: string | null
           recon_run_id?: string | null
+          recon_stale?: boolean | null
+          recon_stale_reason?: string | null
           recon_status?: string | null
           reconciled_at?: string | null
           reconciled_session_id?: string | null

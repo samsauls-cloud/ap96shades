@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   Play, Download, AlertTriangle, CheckCircle2, Shield, DollarSign,
-  FileText, Clock, Filter, Search, X,
+  FileText, Clock, Filter, Search, X, ChevronDown, RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -20,10 +20,16 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Checkbox } from "@/components/ui/checkbox";
 import { InvoiceNav } from "@/components/invoices/InvoiceNav";
+import { StaleQueuePanel } from "@/components/invoices/StaleQueuePanel";
 import { supabase } from "@/integrations/supabase/client";
 import { runFullReconciliation, type ReconciliationProgress } from "@/lib/reconciliation-engine";
+import { runTargetedReconciliation } from "@/lib/targeted-reconciliation";
+import { fetchStaleCount } from "@/lib/stale-queue-queries";
 import { formatCurrency, formatDate } from "@/lib/supabase-queries";
 
 type ResolutionAction = "resolved" | "disputed" | "waived";
@@ -80,6 +86,12 @@ export default function ReconciliationPage() {
     },
   });
 
+  const { data: staleCount = 0 } = useQuery({
+    queryKey: ["stale_count"],
+    queryFn: fetchStaleCount,
+    refetchInterval: 15000,
+  });
+
   const latestRun = runs[0];
 
   // Filtered & sorted discrepancies
@@ -122,22 +134,35 @@ export default function ReconciliationPage() {
     };
   }, [discrepancies, latestRun]);
 
-  const handleRun = async () => {
+  const handleRun = async (mode: "full" | "stale_only") => {
     setRunning(true);
-    setProgress({ step: "Starting…", detail: "Initializing reconciliation engine" });
+    const label = mode === "full" ? "Full reconciliation" : "Re-reconciling stale records";
+    setProgress({ step: "Starting…", detail: label });
     try {
-      const result = await runFullReconciliation(setProgress);
-      toast.success(`Reconciliation complete: ${result.totalDiscrepancies} discrepancies found`);
-      qc.invalidateQueries({ queryKey: ["recon_discrepancies"] });
-      qc.invalidateQueries({ queryKey: ["recon_runs"] });
-      qc.invalidateQueries({ queryKey: ["vendor_invoices"] });
-      qc.invalidateQueries({ queryKey: ["invoice_stats"] });
+      let result;
+      if (mode === "full") {
+        result = await runFullReconciliation(setProgress);
+      } else {
+        result = await runTargetedReconciliation({ mode: "stale_only" }, setProgress);
+      }
+      toast.success(`${label} complete: ${result.totalDiscrepancies} discrepancies found`);
+      invalidateAll();
     } catch (err: any) {
       toast.error(`Reconciliation failed: ${err.message}`);
     } finally {
       setRunning(false);
       setProgress(null);
     }
+  };
+
+  const invalidateAll = () => {
+    qc.invalidateQueries({ queryKey: ["recon_discrepancies"] });
+    qc.invalidateQueries({ queryKey: ["recon_runs"] });
+    qc.invalidateQueries({ queryKey: ["vendor_invoices"] });
+    qc.invalidateQueries({ queryKey: ["invoice_stats"] });
+    qc.invalidateQueries({ queryKey: ["stale_queue"] });
+    qc.invalidateQueries({ queryKey: ["stale_count"] });
+    qc.invalidateQueries({ queryKey: ["stale_count_banner"] });
   };
 
   const handleResolve = async () => {
@@ -229,6 +254,14 @@ export default function ReconciliationPage() {
 
   const TYPES = ["QTY_MISMATCH", "PRICE_MISMATCH", "INVOICE_NO_PO", "PO_NO_INVOICE", "DUPLICATE_INVOICE", "UPC_NOT_FOUND", "OVERPAYMENT", "UNDERPAYMENT"];
 
+  const runTypeLabels: Record<string, string> = {
+    full: "Full",
+    stale_only: "Stale Only",
+    targeted_vendor: "Targeted - Vendor",
+    targeted_upc: "Targeted - UPC",
+    targeted_invoice: "Targeted - Invoice",
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <InvoiceNav />
@@ -242,10 +275,27 @@ export default function ReconciliationPage() {
             </p>
           </div>
           <div className="flex gap-2">
-            <Button size="sm" className="text-xs h-8 gap-1.5" onClick={handleRun} disabled={running}>
-              <Play className="h-3.5 w-3.5" />
-              {running ? "Running…" : "Run Reconciliation Now"}
-            </Button>
+            {/* Split run button */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" className="text-xs h-8 gap-1.5" disabled={running}>
+                  <Play className="h-3.5 w-3.5" />
+                  {running ? "Running…" : "Run Reconciliation"}
+                  <ChevronDown className="h-3 w-3 ml-1" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => handleRun("full")} className="text-xs gap-2">
+                  <Play className="h-3 w-3" /> Full Reconciliation
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleRun("stale_only")} className="text-xs gap-2" disabled={staleCount === 0}>
+                  <RefreshCw className="h-3 w-3" /> Re-Reconcile Stale Only
+                  {staleCount > 0 && (
+                    <Badge className="ml-auto bg-amber-500 text-white text-[9px] h-4 px-1">{staleCount} pending</Badge>
+                  )}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <Button variant="outline" size="sm" className="text-xs h-8 gap-1.5" onClick={exportCSV}>
               <Download className="h-3.5 w-3.5" /> Export Report CSV
             </Button>
@@ -266,6 +316,9 @@ export default function ReconciliationPage() {
           </Card>
         )}
 
+        {/* Stale Queue Panel */}
+        <StaleQueuePanel onRunComplete={invalidateAll} />
+
         {/* Summary cards */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
           {[
@@ -274,7 +327,7 @@ export default function ReconciliationPage() {
             { label: "Critical Issues", value: stats.critical.toString(), icon: Shield, color: "text-destructive" },
             { label: "$ at Risk", value: formatCurrency(stats.atRisk), icon: DollarSign, color: "text-destructive" },
             { label: "Clean Invoices", value: stats.cleanInvoices.toString(), icon: CheckCircle2, color: "text-emerald-500" },
-            { label: "Open Issues", value: stats.open.toString(), icon: Clock, color: "text-amber-500" },
+            { label: "Stale Records", value: staleCount.toString(), icon: RefreshCw, color: "text-amber-500" },
           ].map(item => (
             <Card key={item.label} className="bg-card border-border">
               <CardContent className="p-4">
@@ -472,6 +525,8 @@ export default function ReconciliationPage() {
                 <TableRow className="border-border hover:bg-transparent">
                   <TableHead className="text-[10px] font-semibold">Run #</TableHead>
                   <TableHead className="text-[10px] font-semibold">Run At</TableHead>
+                  <TableHead className="text-[10px] font-semibold">Type</TableHead>
+                  <TableHead className="text-[10px] font-semibold">Scope</TableHead>
                   <TableHead className="text-[10px] font-semibold text-right">Invoices</TableHead>
                   <TableHead className="text-[10px] font-semibold text-right">PO Lines</TableHead>
                   <TableHead className="text-[10px] font-semibold text-right">Discrepancies</TableHead>
@@ -481,11 +536,19 @@ export default function ReconciliationPage() {
               </TableHeader>
               <TableBody>
                 {runs.length === 0 ? (
-                  <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground text-sm">No runs yet</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground text-sm">No runs yet</TableCell></TableRow>
                 ) : runs.map((r, i) => (
                   <TableRow key={r.id} className="border-border">
                     <TableCell className="text-[10px] font-mono">#{runs.length - i}</TableCell>
                     <TableCell className="text-[10px]">{formatDate(r.run_at)}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="text-[9px]">
+                        {runTypeLabels[(r as any).run_type] ?? "Full"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-[10px] text-muted-foreground max-w-[200px] truncate">
+                      {(r as any).scope_description ?? "All records"}
+                    </TableCell>
                     <TableCell className="text-[10px] text-right tabular-nums">{r.total_invoices_checked}</TableCell>
                     <TableCell className="text-[10px] text-right tabular-nums">{r.total_po_lines_checked}</TableCell>
                     <TableCell className="text-[10px] text-right tabular-nums">{r.total_discrepancies}</TableCell>

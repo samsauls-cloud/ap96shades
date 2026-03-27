@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Separator } from "@/components/ui/separator";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Trash2, Copy, Download, DollarSign, Loader2 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { StatusBadge, DocTypeBadge } from "./Badges";
 import { MatchReportSection } from "./MatchReportSection";
@@ -265,7 +266,14 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
         <MatchReportSection invoice={inv} />
 
         {/* Reconciliation Status */}
-        <ReconSection invoiceId={inv.id} reconStatus={(inv as any).recon_status} lastReconciled={(inv as any).last_reconciled_at} />
+        <ReconSection
+          invoiceId={inv.id}
+          reconStatus={(inv as any).recon_status}
+          lastReconciled={(inv as any).last_reconciled_at}
+          isStale={(inv as any).recon_stale === true}
+          staleReason={(inv as any).recon_stale_reason}
+          enteredAfterRecon={(inv as any).entered_after_recon === true}
+        />
         {/* Payment schedule */}
         {hasTermsEngine(inv.vendor) && (
           <div className="mb-4">
@@ -352,18 +360,51 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
   );
 }
 
-function ReconSection({ invoiceId, reconStatus, lastReconciled }: { invoiceId: string; reconStatus?: string; lastReconciled?: string }) {
+function ReconSection({ invoiceId, reconStatus, lastReconciled, isStale, staleReason, enteredAfterRecon }: {
+  invoiceId: string; reconStatus?: string; lastReconciled?: string;
+  isStale?: boolean; staleReason?: string | null; enteredAfterRecon?: boolean;
+}) {
   const navigate = useNavigate();
   const { data: discrepancies = [] } = useQuery({
     queryKey: ["invoice_recon_discrepancies", invoiceId],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("reconciliation_discrepancies")
-        .select("*")
+        .select("*, reconciliation_runs!reconciliation_discrepancies_run_id_fkey(run_at, run_type, scope_description)")
         .eq("invoice_id", invoiceId)
         .order("created_at", { ascending: false });
-      if (error) throw error;
+      if (error) {
+        // Fallback if join fails
+        const { data: d2 } = await supabase
+          .from("reconciliation_discrepancies")
+          .select("*")
+          .eq("invoice_id", invoiceId)
+          .order("created_at", { ascending: false });
+        return d2 ?? [];
+      }
       return data ?? [];
+    },
+  });
+
+  // Fetch recon run history for this invoice
+  const { data: reconRuns = [] } = useQuery({
+    queryKey: ["invoice_recon_runs", invoiceId],
+    queryFn: async () => {
+      // Get all run_ids this invoice was part of
+      const { data: runIds } = await supabase
+        .from("reconciliation_discrepancies")
+        .select("run_id")
+        .eq("invoice_id", invoiceId);
+      const uniqueRunIds = [...new Set((runIds ?? []).map(r => r.run_id).filter(Boolean))];
+
+      if (uniqueRunIds.length === 0) return [];
+
+      const { data: runs } = await supabase
+        .from("reconciliation_runs")
+        .select("*")
+        .in("id", uniqueRunIds)
+        .order("run_at", { ascending: false });
+      return runs ?? [];
     },
   });
 
@@ -376,7 +417,22 @@ function ReconSection({ invoiceId, reconStatus, lastReconciled }: { invoiceId: s
         <h3 className="text-xs font-semibold text-muted-foreground">Reconciliation Status</h3>
         {lastReconciled && <span className="text-[9px] text-muted-foreground">Last: {formatDate(lastReconciled)}</span>}
       </div>
-      {reconStatus === "clean" ? (
+
+      {/* Stale warning */}
+      {isStale && (
+        <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 mb-2">
+          <p className="text-xs text-amber-700 font-medium">⟳ Stale — {staleReason ?? "Data changed since last reconciliation"}</p>
+        </div>
+      )}
+
+      {/* Entered after recon warning */}
+      {enteredAfterRecon && (
+        <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20 mb-2">
+          <p className="text-xs text-blue-600 font-medium">⚠️ Entered after reconciliation run{lastReconciled ? ` on ${formatDate(lastReconciled)}` : ""}</p>
+        </div>
+      )}
+
+      {reconStatus === "clean" && !isStale ? (
         <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
           <p className="text-xs text-emerald-600 font-medium">✅ Clean — no discrepancies found</p>
         </div>
@@ -401,6 +457,30 @@ function ReconSection({ invoiceId, reconStatus, lastReconciled }: { invoiceId: s
       ) : (
         <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20">
           <p className="text-xs text-destructive font-medium">⚠ Discrepancies found</p>
+        </div>
+      )}
+
+      {/* Reconciliation Timeline */}
+      {reconRuns.length > 0 && (
+        <div className="mt-3">
+          <h4 className="text-[10px] font-semibold text-muted-foreground mb-1.5">Reconciliation Timeline</h4>
+          <div className="space-y-1">
+            {reconRuns.slice(0, 5).map(run => {
+              const runDiscrepancies = discrepancies.filter(d => d.run_id === run.id);
+              const hasIssues = runDiscrepancies.some(d => d.resolution_status === "open");
+              return (
+                <div key={run.id} className="flex items-center justify-between text-[10px] p-2 rounded border border-border">
+                  <span>{formatDate(run.run_at)}</span>
+                  <Badge variant="outline" className="text-[8px]">
+                    {(run as any).run_type === "full" ? "Full" : (run as any).run_type ?? "Full"}
+                  </Badge>
+                  <span className={hasIssues ? "text-destructive font-medium" : "text-emerald-600 font-medium"}>
+                    {hasIssues ? `⚠ ${runDiscrepancies.length} issues` : "✅ Clean"}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>
