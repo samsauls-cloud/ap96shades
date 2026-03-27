@@ -60,14 +60,19 @@ export function InvoiceNav() {
               <Link
                 key={l.to}
                 to={l.to}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
                   pathname === l.to
                     ? "bg-primary text-primary-foreground"
                     : "text-muted-foreground hover:text-foreground hover:bg-accent"
-                }`}
+                } ${'badge' in l && (l as any).badge > 0 ? "animate-pulse" : ""}`}
               >
                 <l.icon className="h-3.5 w-3.5" />
                 {l.label}
+                {'badge' in l && (l as any).badge > 0 && (
+                  <span className="absolute -top-1 -right-1 h-4 min-w-[16px] flex items-center justify-center rounded-full bg-destructive text-destructive-foreground text-[8px] font-bold px-1">
+                    {(l as any).badge}
+                  </span>
+                )}
               </Link>
             ))}
           </nav>
