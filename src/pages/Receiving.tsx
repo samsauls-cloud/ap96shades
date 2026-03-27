@@ -566,21 +566,47 @@ export default function ReceivingPage() {
               {reconciling === selectedSessionId && (
                 <div className="border rounded-lg p-4 bg-muted/30 space-y-3">
                   <p className="text-sm font-medium">Select the invoice this PO receiving belongs to:</p>
-                  <Select value={selectedInvoiceId} onValueChange={setSelectedInvoiceId}>
-                    <SelectTrigger className="max-w-md">
-                      <SelectValue placeholder="Select invoice…" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {vendorInvoices.map(inv => (
-                        <SelectItem key={inv.id} value={inv.id}>
-                          {inv.invoice_number} — {inv.vendor} — {formatCurrency(inv.total)} — {inv.invoice_date}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Input
+                    placeholder="Search by invoice #, PO #, or vendor…"
+                    value={invoiceSearch}
+                    onChange={e => setInvoiceSearch(e.target.value)}
+                    className="max-w-md"
+                  />
+                  <div className="max-h-48 overflow-auto border rounded-md bg-background">
+                    {filteredInvoices.length === 0 ? (
+                      <p className="text-xs text-muted-foreground text-center py-4">
+                        {vendorInvoices.length === 0 ? 'No invoices found in system' : 'No invoices match your search'}
+                      </p>
+                    ) : (
+                      filteredInvoices.map(inv => (
+                        <button
+                          key={inv.id}
+                          className={`w-full text-left px-3 py-2 text-xs border-b last:border-b-0 transition-colors hover:bg-accent/50 ${
+                            selectedInvoiceId === inv.id ? 'bg-accent' : ''
+                          }`}
+                          onClick={() => setSelectedInvoiceId(inv.id)}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="font-mono font-medium">{inv.invoice_number}</span>
+                            <span className="font-semibold tabular-nums">{formatCurrency(inv.total)}</span>
+                          </div>
+                          <div className="flex items-center gap-2 text-muted-foreground mt-0.5">
+                            <span>{inv.vendor}</span>
+                            {inv.po_number && <span>· PO {inv.po_number}</span>}
+                            <span>· {inv.invoice_date}</span>
+                          </div>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                  {selectedInvoiceId && (
+                    <p className="text-xs text-muted-foreground">
+                      Selected: <span className="font-mono font-medium text-foreground">{vendorInvoices.find(v => v.id === selectedInvoiceId)?.invoice_number}</span>
+                    </p>
+                  )}
                   <div className="flex gap-2">
                     <Button size="sm" onClick={runReconciliation} disabled={!selectedInvoiceId}>Run Reconciliation</Button>
-                    <Button size="sm" variant="ghost" onClick={() => setReconciling(null)}>Cancel</Button>
+                    <Button size="sm" variant="ghost" onClick={() => { setReconciling(null); setInvoiceSearch(''); }}>Cancel</Button>
                   </div>
                 </div>
               )}
