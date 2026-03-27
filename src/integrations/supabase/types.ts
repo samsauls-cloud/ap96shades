@@ -485,12 +485,14 @@ export type Database = {
       }
       po_receiving_sessions: {
         Row: {
+          child_session_ids: string[] | null
           created_at: string
           fully_received: number | null
           id: string
           lightspeed_export_type: string | null
           not_received: number | null
           notes: string | null
+          parent_session_id: string | null
           partially_received: number | null
           raw_filename: string | null
           reconciled_invoice_id: string | null
@@ -504,12 +506,14 @@ export type Database = {
           vendor: string
         }
         Insert: {
+          child_session_ids?: string[] | null
           created_at?: string
           fully_received?: number | null
           id?: string
           lightspeed_export_type?: string | null
           not_received?: number | null
           notes?: string | null
+          parent_session_id?: string | null
           partially_received?: number | null
           raw_filename?: string | null
           reconciled_invoice_id?: string | null
@@ -523,12 +527,14 @@ export type Database = {
           vendor: string
         }
         Update: {
+          child_session_ids?: string[] | null
           created_at?: string
           fully_received?: number | null
           id?: string
           lightspeed_export_type?: string | null
           not_received?: number | null
           notes?: string | null
+          parent_session_id?: string | null
           partially_received?: number | null
           raw_filename?: string | null
           reconciled_invoice_id?: string | null
@@ -542,6 +548,13 @@ export type Database = {
           vendor?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "po_receiving_sessions_parent_session_id_fkey"
+            columns: ["parent_session_id"]
+            isOneToOne: false
+            referencedRelation: "po_receiving_sessions"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "po_receiving_sessions_reconciled_invoice_id_fkey"
             columns: ["reconciled_invoice_id"]
