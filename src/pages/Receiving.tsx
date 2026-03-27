@@ -165,6 +165,10 @@ export default function ReceivingPage() {
   const [poGroups, setPOGroups] = useState<POGroup[] | null>(null);
   const [splitting, setSplitting] = useState(false);
 
+  // Reconcile All state
+  const [reconAllRunning, setReconAllRunning] = useState(false);
+  const [reconAllProgress, setReconAllProgress] = useState<{ done: number; total: number; current: string } | null>(null);
+
   // ── Queries ──
   const { data: sessions = [], isLoading: sessionsLoading } = useQuery({
     queryKey: ['receiving-sessions'],
