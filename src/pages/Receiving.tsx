@@ -292,9 +292,10 @@ export default function ReceivingPage() {
       const invoiceLines = getLineItems(invoice);
       const results = matchReceivingToInvoice(sessionLines, invoiceLines);
 
+      const skipPriceCheck = selectedSession?.vendor === 'EOL';
       let hasDiscrepancy = false;
       for (const r of results) {
-        const disc = calcDiscrepancy(r.line, r.matched_invoice_line);
+        const disc = calcDiscrepancy(r.line, r.matched_invoice_line, skipPriceCheck);
         const update: any = {
           matched_invoice_line: r.matched_invoice_line as any,
           match_status: r.match_status,
