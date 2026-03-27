@@ -301,14 +301,14 @@ export default function ReconciliationPage() {
               {vendors.map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
             </SelectContent>
           </Select>
-          <Select value={typeFilter} onValueChange={setTypeFilter}>
+          <Select value={typeFilter || "__all__"} onValueChange={v => setTypeFilter(v === "__all__" ? "" : v)}>
             <SelectTrigger className="h-8 w-[160px] text-xs"><SelectValue placeholder="All Types" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="__all__">All Types</SelectItem>
               {TYPES.map(t => <SelectItem key={t} value={t}>{t.replace(/_/g, " ")}</SelectItem>)}
             </SelectContent>
           </Select>
-          <Select value={severityFilter} onValueChange={setSeverityFilter}>
+          <Select value={severityFilter || "__all__"} onValueChange={v => setSeverityFilter(v === "__all__" ? "" : v)}>
             <SelectTrigger className="h-8 w-[120px] text-xs"><SelectValue placeholder="All Severity" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="__all__">All</SelectItem>
@@ -317,7 +317,7 @@ export default function ReconciliationPage() {
               <SelectItem value="info">Info</SelectItem>
             </SelectContent>
           </Select>
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <Select value={statusFilter || "__all__"} onValueChange={v => setStatusFilter(v === "__all__" ? "" : v)}>
             <SelectTrigger className="h-8 w-[120px] text-xs"><SelectValue placeholder="All Status" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="__all__">All</SelectItem>
