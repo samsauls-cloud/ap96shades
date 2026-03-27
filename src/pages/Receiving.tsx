@@ -1054,6 +1054,44 @@ export default function ReceivingPage() {
                   )}
 
                   {mathChecks && <MathVerificationBlock checks={mathChecks} varianceOverride={varianceOverride || undefined} />}
+
+                  {/* Invoice Line Coverage Check */}
+                  {invoiceCoverage && (
+                    <div className={`border rounded-lg p-3 space-y-2 ${
+                      invoiceCoverage.coveragePct === 100
+                        ? 'bg-emerald-500/5 border-emerald-500/20'
+                        : 'bg-amber-500/5 border-amber-500/20'
+                    }`}>
+                      <div className="flex items-center gap-2">
+                        {invoiceCoverage.coveragePct === 100
+                          ? <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                          : <AlertTriangle className="h-4 w-4 text-amber-600" />
+                        }
+                        <p className={`text-sm font-semibold ${invoiceCoverage.coveragePct === 100 ? 'text-emerald-600' : 'text-amber-600'}`}>
+                          {invoiceCoverage.coveragePct === 100
+                            ? `✓ All ${invoiceCoverage.totalInvoiceLines} invoice lines matched in receiving data`
+                            : `⚠ ${invoiceCoverage.unmatchedInvoiceLines.length} of ${invoiceCoverage.totalInvoiceLines} invoice lines not found in receiving data (${invoiceCoverage.coveragePct}% coverage)`
+                          }
+                        </p>
+                      </div>
+                      {invoiceCoverage.unmatchedInvoiceLines.length > 0 && (
+                        <div className="space-y-1 ml-6">
+                          <p className="text-[10px] text-amber-600 font-medium">Items billed but missing from PO receiving:</p>
+                          {invoiceCoverage.unmatchedInvoiceLines.slice(0, 10).map((il, i) => (
+                            <div key={i} className="flex items-center gap-3 text-xs text-muted-foreground">
+                              <span className="font-mono">{il.upc || '—'}</span>
+                              <span>{il.model || il.item_number || '—'}</span>
+                              <span className="tabular-nums">{il.description || ''}</span>
+                              <span className="font-semibold tabular-nums">{formatCurrency(Number(il.unit_price || 0))}</span>
+                            </div>
+                          ))}
+                          {invoiceCoverage.unmatchedInvoiceLines.length > 10 && (
+                            <p className="text-[10px] text-muted-foreground">…and {invoiceCoverage.unmatchedInvoiceLines.length - 10} more</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
