@@ -327,10 +327,66 @@ export default function ReceivingPage() {
 
       const status = hasDiscrepancy ? 'discrepancy' : 'reconciled';
       await updateSessionReconciliation(selectedSessionId, selectedInvoiceId, status);
-      toast.success('Reconciliation complete');
+
+      // ── Refresh lines to get updated discrepancy data ──
+      const { data: updatedLines } = await supabase
+        .from('po_receiving_lines')
+        .select('*')
+        .eq('session_id', selectedSessionId);
+      const freshLines = updatedLines ?? sessionLines;
+
+      // ── Compute reconciliation totals ──
+      const totals = computeReconciliationTotals(freshLines, invoice.total);
+      setReconTotals(totals);
+
+      // ── Math verification ──
+      const checks = verifyReconciliationMath(
+        freshLines,
+        Number(selectedSession?.total_ordered_cost || 0),
+        Number(selectedSession?.total_ordered_qty || 0),
+        invoice.total,
+        totals
+      );
+      setMathChecks(checks);
+
+      // ── Update vendor_invoices with reconciliation data ──
+      const reconStatus = totals.totalCreditDue > 0 ? 'credit_pending' : 'reconciled';
+      await updateInvoiceReconciliation(
+        selectedInvoiceId,
+        selectedSessionId,
+        totals.totalCreditDue,
+        totals.finalBillAmount,
+        reconStatus
+      );
+
+      // ── Create/update final bill ledger entry ──
+      await upsertFinalBillEntry(
+        selectedInvoiceId,
+        selectedSessionId,
+        invoice,
+        {
+          total_ordered_qty: Number(selectedSession?.total_ordered_qty || 0),
+          total_received_qty: Number(selectedSession?.total_received_qty || 0),
+        },
+        totals
+      );
+
+      // ── Apply credits to payment installments ──
+      if (totals.totalCreditDue > 0) {
+        await applyCreditToPayments(selectedInvoiceId, totals.totalCreditDue);
+      }
+
+      const allPassed = checks.every(c => c.pass);
+      toast.success(allPassed
+        ? 'Reconciliation complete — all math checks passed ✓'
+        : 'Reconciliation complete — ⚠ math discrepancies detected'
+      );
       setReconciling(null);
       qc.invalidateQueries({ queryKey: ['receiving-lines', selectedSessionId] });
       qc.invalidateQueries({ queryKey: ['receiving-sessions'] });
+      qc.invalidateQueries({ queryKey: ['final-bill-ledger'] });
+      qc.invalidateQueries({ queryKey: ['vendor-invoices-for-recon'] });
+      qc.invalidateQueries({ queryKey: ['invoice_payments'] });
     } catch (err: any) {
       toast.error(err.message);
     }
