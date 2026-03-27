@@ -7,15 +7,16 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { AlertCircle, Calendar, TrendingUp, Loader2, RefreshCw } from "lucide-react";
+import { AlertCircle, Calendar, TrendingUp, Loader2, RefreshCw, ShieldCheck } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/supabase-queries";
-import { fetchPayments, type InvoicePayment } from "@/lib/payment-queries";
+import { fetchPayments, type InvoicePayment, runFullAudit, type AuditResult } from "@/lib/payment-queries";
 import { PaymentStatusBadge } from "@/components/invoices/PaymentStatusBadge";
 import { RecordPaymentModal } from "@/components/invoices/RecordPaymentModal";
 import { supabase } from "@/integrations/supabase/client";
 import { generateAllMissingPayments } from "@/lib/payment-queries";
+import { AuditBanner, AuditPanel } from "@/components/invoices/AuditPanel";
 
-type Tab = "summary" | "calendar";
+type Tab = "summary" | "calendar" | "audit";
 
 // ── Server date hook ──────────────────────────────────
 function useServerDate() {
@@ -80,32 +81,12 @@ function isInMonth(dueDate: string, month: RollingMonth): boolean {
   return d >= month.startDate && d <= month.endDate;
 }
 
-// ── Audit data ────────────────────────────────────────
-interface AuditData {
-  total_invoices: number;
-  total_invoiced: number;
-  has_payments: number;
-  missing_payments: number;
-  non_lux_vendors: string[];
-}
-
+// ── Audit hook ────────────────────────────────────────
 function useAuditData() {
   return useQuery({
-    queryKey: ["ap_audit"],
-    queryFn: async (): Promise<AuditData> => {
-      const { data: invoices } = await supabase.from("vendor_invoices").select("id, vendor, total");
-      const { data: payments } = await supabase.from("invoice_payments").select("invoice_id");
-      const allInv = invoices ?? [];
-      const paymentInvoiceIds = new Set((payments ?? []).map((p: any) => p.invoice_id));
-      const vendors = [...new Set(allInv.map(i => i.vendor))];
-      return {
-        total_invoices: allInv.length,
-        total_invoiced: allInv.reduce((s, i) => s + (i.total || 0), 0),
-        has_payments: allInv.filter(i => paymentInvoiceIds.has(i.id)).length,
-        missing_payments: allInv.filter(i => !paymentInvoiceIds.has(i.id)).length,
-        non_lux_vendors: vendors.filter(v => v !== "Luxottica"),
-      };
-    },
+    queryKey: ["ap_full_audit"],
+    queryFn: runFullAudit,
+    staleTime: 30_000,
   });
 }
 
@@ -117,7 +98,7 @@ const BUCKET_CONFIG = {
   radar: { label: "Due in 61-90 days", emoji: "🔵", desc: "On radar", color: "text-blue-500 bg-blue-500/10 border-blue-500/20" },
 };
 
-const SUPPORTED_VENDORS = ["Luxottica", "Kering", "Maui Jim", "Marcolin", "Safilo"];
+
 
 export default function APDashboard() {
   const queryClient = useQueryClient();
@@ -137,12 +118,12 @@ export default function APDashboard() {
     queryFn: fetchPayments,
   });
 
-  const { data: audit } = useAuditData();
+  const { data: audit, isLoading: auditLoading } = useAuditData();
 
   // ── Realtime subscriptions ──────────────────────────
   const refreshAll = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["invoice_payments"] });
-    queryClient.invalidateQueries({ queryKey: ["ap_audit"] });
+    queryClient.invalidateQueries({ queryKey: ["ap_full_audit"] });
     queryClient.invalidateQueries({ queryKey: ["server_date"] });
   }, [queryClient]);
 
@@ -254,37 +235,29 @@ export default function APDashboard() {
     }
   };
 
-  const vendorsInSystem = [...new Set(payments.map(p => p.vendor))];
-  const missingVendors = SUPPORTED_VENDORS.filter(v => !vendorsInSystem.includes(v));
+
+  const totalInvoiceCount = payments.length > 0 ? [...new Set(payments.map(p => p.invoice_id))].length : 0;
 
   return (
     <div className="min-h-screen bg-background">
       <InvoiceNav />
       <div className="max-w-[1600px] mx-auto px-4 sm:px-6 py-6 space-y-6">
 
-        {missingVendors.length > 0 && audit && audit.missing_payments > 0 && (
-          <div className="p-4 rounded-lg bg-yellow-500/10 border border-yellow-500/30">
-            <p className="text-sm font-medium text-yellow-600 dark:text-yellow-400">
-              ⚠ {audit.missing_payments} invoices need payment schedules generated. Click "Generate Missing Payments" below.
-            </p>
-          </div>
-        )}
+        {/* Accuracy Banner */}
+        <AuditBanner audit={audit ?? null} totalInvoices={totalInvoiceCount} />
 
-        {audit && (
+        {/* Generate Missing + Quick Stats */}
+        {audit && audit.missingPayments.length > 0 && (
           <Card className="bg-card border-border">
             <CardContent className="p-4">
               <p className="text-sm text-muted-foreground">
-                📊 <span className="font-medium text-foreground">Data Audit:</span>{" "}
-                {audit.total_invoices} invoices · {formatCurrency(audit.total_invoiced)} total
-                · {audit.has_payments} have schedules · {audit.missing_payments} missing
+                📊 <span className="font-medium text-foreground">{audit.missingPayments.length} invoices</span> need payment schedules
                 {serverDate && <> · Server date: <span className="font-mono text-foreground">{serverDate}</span></>}
               </p>
-              {audit.missing_payments > 0 && (
-                <Button size="sm" variant="outline" className="mt-2 text-xs h-7" onClick={handleGenerateAll} disabled={generating}>
-                  {generating ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <RefreshCw className="h-3 w-3 mr-1" />}
-                  Generate All Missing Payments
-                </Button>
-              )}
+              <Button size="sm" variant="outline" className="mt-2 text-xs h-7" onClick={handleGenerateAll} disabled={generating}>
+                {generating ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <RefreshCw className="h-3 w-3 mr-1" />}
+                Generate All Missing Payments
+              </Button>
             </CardContent>
           </Card>
         )}
@@ -295,6 +268,14 @@ export default function APDashboard() {
           </Button>
           <Button size="sm" variant={activeTab === "calendar" ? "default" : "outline"} className="text-xs h-8 flex-1 sm:flex-none" onClick={() => setActiveTab("calendar")}>
             <Calendar className="h-3.5 w-3.5 mr-1" /> 4-Month View
+          </Button>
+          <Button size="sm" variant={activeTab === "audit" ? "default" : "outline"} className="text-xs h-8 flex-1 sm:flex-none" onClick={() => setActiveTab("audit")}>
+            <ShieldCheck className="h-3.5 w-3.5 mr-1" /> Audit
+            {audit && (audit.missingPayments.length + audit.mathDiscrepancies.length + audit.unknownVendors.length + audit.duplicateInvoices.length) > 0 && (
+              <span className="ml-1 px-1 py-0.5 text-[10px] rounded bg-yellow-500/20 text-yellow-600">
+                {audit.missingPayments.length + audit.mathDiscrepancies.length + audit.unknownVendors.length + audit.duplicateInvoices.length}
+              </span>
+            )}
           </Button>
         </div>
 
@@ -400,7 +381,7 @@ export default function APDashboard() {
               })}
             </div>
           </div>
-        ) : (
+        ) : activeTab === "calendar" ? (
           <div className="space-y-6">
             {/* 4-Month Summary Grid */}
             <Card className="bg-card border-border">
@@ -506,7 +487,14 @@ export default function APDashboard() {
               );
             })}
           </div>
-        )}
+        ) : activeTab === "audit" ? (
+          <AuditPanel
+            audit={audit ?? null}
+            onRefresh={refreshAll}
+            isLoading={auditLoading}
+            totalInvoices={totalInvoiceCount}
+          />
+        ) : null}
       </div>
 
       <RecordPaymentModal

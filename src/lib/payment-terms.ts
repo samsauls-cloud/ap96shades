@@ -1,4 +1,5 @@
 import { lastDayOfMonth, addDays, format } from "date-fns";
+import { normalizeVendor, isKnownVendor } from "@/lib/invoice-dedup";
 
 export interface PaymentInstallment {
   vendor: string;
@@ -7,178 +8,156 @@ export interface PaymentInstallment {
   invoice_amount: number;
   invoice_date: string; // YYYY-MM-DD
   terms: string;
-  installment_label: string; // e.g. "1 of 3"
+  installment_label: string | null; // e.g. "1 of 3", null for single-payment
   due_date: string; // YYYY-MM-DD
   amount_due: number;
 }
 
-function getEndOfMonth(date: Date): Date {
-  return lastDayOfMonth(date);
+// ── Terms configuration — single source of truth ─────────
+export interface VendorTermsConfig {
+  type: "EOM_SPLIT" | "DAYS_SPLIT" | "EOM_SINGLE";
+  installments: number;
+  offsets: number[];
+  basis: "EOM" | "INVOICE_DATE";
+  label: string; // human-readable label
 }
 
-function luxottticaInstallments(
-  invoiceDate: string,
-  total: number,
-  vendor: string,
-  invoiceNumber: string,
-  poNumber: string | null
-): PaymentInstallment[] {
-  const date = new Date(invoiceDate + "T00:00:00");
-  const eom = getEndOfMonth(date);
-  const terms = "EOM 30 / 60 / 90";
-  const perPayment = Math.floor((total / 3) * 100) / 100;
-  const remainder = Math.round((total - perPayment * 2) * 100) / 100;
-
-  const offsets = [30, 60, 90];
-  return offsets.map((offset, i) => ({
-    vendor,
-    invoice_number: invoiceNumber,
-    po_number: poNumber,
-    invoice_amount: total,
-    invoice_date: invoiceDate,
-    terms,
-    installment_label: `${i + 1} of 3`,
-    due_date: format(addDays(eom, offset), "yyyy-MM-dd"),
-    amount_due: i === 2 ? remainder : perPayment,
-  }));
-}
-
-function keringInstallments(
-  invoiceDate: string,
-  total: number,
-  vendor: string,
-  invoiceNumber: string,
-  poNumber: string | null
-): PaymentInstallment[] {
-  const date = new Date(invoiceDate + "T00:00:00");
-  const terms = "Days 30 / 60 / 90";
-  const perPayment = Math.floor((total / 3) * 100) / 100;
-  const remainder = Math.round((total - perPayment * 2) * 100) / 100;
-
-  return [30, 60, 90].map((offset, i) => ({
-    vendor,
-    invoice_number: invoiceNumber,
-    po_number: poNumber,
-    invoice_amount: total,
-    invoice_date: invoiceDate,
-    terms,
-    installment_label: `${i + 1} of 3`,
-    due_date: format(addDays(date, offset), "yyyy-MM-dd"),
-    amount_due: i === 2 ? remainder : perPayment,
-  }));
-}
-
-function mauiJimInstallments(
-  invoiceDate: string,
-  total: number,
-  vendor: string,
-  invoiceNumber: string,
-  poNumber: string | null
-): PaymentInstallment[] {
-  const date = new Date(invoiceDate + "T00:00:00");
-  const eom = getEndOfMonth(date);
-  const terms = "EOM 60 / 90 / 120 / 150";
-  const perPayment = Math.floor((total / 4) * 100) / 100;
-  const remainder = Math.round((total - perPayment * 3) * 100) / 100;
-
-  return [60, 90, 120, 150].map((offset, i) => ({
-    vendor,
-    invoice_number: invoiceNumber,
-    po_number: poNumber,
-    invoice_amount: total,
-    invoice_date: invoiceDate,
-    terms,
-    installment_label: `${i + 1} of 4`,
-    due_date: format(addDays(eom, offset), "yyyy-MM-dd"),
-    amount_due: i === 3 ? remainder : perPayment,
-  }));
-}
-
-function marcolinInstallments(
-  invoiceDate: string,
-  total: number,
-  vendor: string,
-  invoiceNumber: string,
-  poNumber: string | null
-): PaymentInstallment[] {
-  const date = new Date(invoiceDate + "T00:00:00");
-  const eom = getEndOfMonth(date);
-  const terms = "EOM 20";
-
-  return [{
-    vendor,
-    invoice_number: invoiceNumber,
-    po_number: poNumber,
-    invoice_amount: total,
-    invoice_date: invoiceDate,
-    terms,
-    installment_label: "1 of 1",
-    due_date: format(addDays(eom, 20), "yyyy-MM-dd"),
-    amount_due: total,
-  }];
-}
-
-function safiloInstallments(
-  invoiceDate: string,
-  total: number,
-  vendor: string,
-  invoiceNumber: string,
-  poNumber: string | null
-): PaymentInstallment[] {
-  const date = new Date(invoiceDate + "T00:00:00");
-  const eom = getEndOfMonth(date);
-  const terms = "EOM 60";
-
-  return [{
-    vendor,
-    invoice_number: invoiceNumber,
-    po_number: poNumber,
-    invoice_amount: total,
-    invoice_date: invoiceDate,
-    terms,
-    installment_label: "1 of 1",
-    due_date: format(addDays(eom, 60), "yyyy-MM-dd"),
-    amount_due: total,
-  }];
-}
-
-const VENDOR_TERMS: Record<string, string> = {
-  Luxottica: "EOM 30 / 60 / 90",
-  Kering: "Days 30 / 60 / 90",
-  "Maui Jim": "EOM 60 / 90 / 120 / 150",
-  Marcolin: "EOM 20",
-  Safilo: "EOM 60",
+export const VENDOR_TERMS: Record<string, VendorTermsConfig> = {
+  Luxottica: {
+    type: "EOM_SPLIT",
+    installments: 3,
+    offsets: [30, 60, 90],
+    basis: "EOM",
+    label: "EOM 30 / 60 / 90",
+  },
+  Kering: {
+    type: "DAYS_SPLIT",
+    installments: 3,
+    offsets: [30, 60, 90],
+    basis: "INVOICE_DATE",
+    label: "Days 30 / 60 / 90",
+  },
+  "Maui Jim": {
+    type: "EOM_SPLIT",
+    installments: 4,
+    offsets: [60, 90, 120, 150],
+    basis: "EOM",
+    label: "EOM 60 / 90 / 120 / 150",
+  },
+  Marcolin: {
+    type: "EOM_SINGLE",
+    installments: 1,
+    offsets: [20],
+    basis: "EOM",
+    label: "EOM 20",
+  },
+  Safilo: {
+    type: "EOM_SINGLE",
+    installments: 1,
+    offsets: [60],
+    basis: "EOM",
+    label: "EOM 60",
+  },
 };
 
-export function getVendorTerms(vendor: string): string | null {
-  return VENDOR_TERMS[vendor] ?? null;
+// Maui Jim alternate terms for older POs
+const MAUI_JIM_ALT: VendorTermsConfig = {
+  type: "DAYS_SPLIT",
+  installments: 3,
+  offsets: [90, 120, 150],
+  basis: "INVOICE_DATE",
+  label: "Days 90 / 120 / 150",
+};
+
+// ── Due date calculation ──────────────────────────────────
+function calculateDueDate(invoiceDate: string, basis: "EOM" | "INVOICE_DATE", offsetDays: number): Date {
+  const d = new Date(invoiceDate + "T00:00:00");
+  if (basis === "EOM") {
+    const endOfMonth = lastDayOfMonth(d);
+    return addDays(endOfMonth, offsetDays);
+  }
+  // INVOICE_DATE
+  return addDays(d, offsetDays);
 }
 
+// ── Resolve terms config for vendor + payment_terms text ──
+function resolveTermsConfig(vendor: string, paymentTermsText?: string | null): VendorTermsConfig | null {
+  const normalized = normalizeVendor(vendor);
+
+  // Maui Jim special case: detect legacy terms from PDF text
+  if (normalized === "Maui Jim" && paymentTermsText) {
+    const lower = paymentTermsText.toLowerCase();
+    if (lower.includes("days") || lower.includes("net 90") || lower.includes("net 120")) {
+      return MAUI_JIM_ALT;
+    }
+  }
+
+  return VENDOR_TERMS[normalized] ?? null;
+}
+
+// ── Public API ────────────────────────────────────────────
+
+export function getVendorTerms(vendor: string): string | null {
+  const config = VENDOR_TERMS[normalizeVendor(vendor)];
+  return config?.label ?? null;
+}
+
+export function hasTermsEngine(vendor: string): boolean {
+  return normalizeVendor(vendor) in VENDOR_TERMS;
+}
+
+/**
+ * Calculate installments from config-driven terms engine.
+ * Returns empty array if vendor has no terms config.
+ */
 export function calculateInstallments(
   invoiceDate: string,
   total: number,
   vendor: string,
   invoiceNumber: string,
-  poNumber: string | null
+  poNumber: string | null,
+  paymentTermsText?: string | null,
 ): PaymentInstallment[] {
-  if (vendor === "Luxottica") {
-    return luxottticaInstallments(invoiceDate, total, vendor, invoiceNumber, poNumber);
+  const normalized = normalizeVendor(vendor);
+  const config = resolveTermsConfig(normalized, paymentTermsText);
+
+  if (!config) {
+    console.error(`No terms defined for vendor: ${normalized}`);
+    return [];
   }
-  if (vendor === "Kering") {
-    return keringInstallments(invoiceDate, total, vendor, invoiceNumber, poNumber);
-  }
-  if (vendor === "Maui Jim") {
-    return mauiJimInstallments(invoiceDate, total, vendor, invoiceNumber, poNumber);
-  }
-  if (vendor === "Marcolin") {
-    return marcolinInstallments(invoiceDate, total, vendor, invoiceNumber, poNumber);
-  }
-  if (vendor === "Safilo") {
-    return safiloInstallments(invoiceDate, total, vendor, invoiceNumber, poNumber);
-  }
-  return [];
+
+  // Guard: total must be positive
+  const parsedTotal = typeof total === "number" ? total : parseFloat(String(total)) || 0;
+  if (parsedTotal <= 0) return [];
+
+  const baseAmount = parseFloat((parsedTotal / config.installments).toFixed(2));
+  // Last installment absorbs rounding
+  const lastAmount = parseFloat((parsedTotal - baseAmount * (config.installments - 1)).toFixed(2));
+
+  return config.offsets.map((offset, index) => {
+    const isLast = index === config.installments - 1;
+    const amount = isLast ? lastAmount : baseAmount;
+    const dueDate = calculateDueDate(invoiceDate, config.basis, offset);
+
+    return {
+      vendor: normalized,
+      invoice_number: invoiceNumber,
+      po_number: poNumber,
+      invoice_amount: parsedTotal,
+      invoice_date: invoiceDate,
+      terms: config.label,
+      installment_label: config.installments > 1 ? `${index + 1} of ${config.installments}` : null,
+      due_date: format(dueDate, "yyyy-MM-dd"),
+      amount_due: amount,
+    };
+  });
 }
 
-export function hasTermsEngine(vendor: string): boolean {
-  return vendor in VENDOR_TERMS;
+/**
+ * Verify that installments sum matches invoice total within tolerance.
+ * Returns discrepancy (0 = perfect).
+ */
+export function verifyInstallmentMath(installments: PaymentInstallment[], invoiceTotal: number): number {
+  const sum = installments.reduce((s, inst) => s + inst.amount_due, 0);
+  return parseFloat((invoiceTotal - sum).toFixed(2));
 }
