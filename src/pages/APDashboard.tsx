@@ -98,7 +98,7 @@ const BUCKET_CONFIG = {
   radar: { label: "Due in 61-90 days", emoji: "🔵", desc: "On radar", color: "text-blue-500 bg-blue-500/10 border-blue-500/20" },
 };
 
-const SUPPORTED_VENDORS = ["Luxottica", "Kering", "Maui Jim", "Marcolin", "Safilo"];
+
 
 export default function APDashboard() {
   const queryClient = useQueryClient();
@@ -235,8 +235,6 @@ export default function APDashboard() {
     }
   };
 
-  const vendorsInSystem = [...new Set(payments.map(p => p.vendor))];
-  const missingVendors = SUPPORTED_VENDORS.filter(v => !vendorsInSystem.includes(v));
 
   const totalInvoiceCount = payments.length > 0 ? [...new Set(payments.map(p => p.invoice_id))].length : 0;
 
