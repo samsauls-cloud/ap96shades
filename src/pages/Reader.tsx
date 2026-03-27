@@ -641,11 +641,14 @@ export default function ReaderPage() {
           onDrop={handleDrop}
         >
           <CardContent className="p-8 flex flex-col items-center justify-center text-center">
-            <Upload className="h-10 w-10 text-muted-foreground mb-3" />
-            <p className="text-sm font-medium mb-1">Drop PDF invoices here</p>
-            <p className="text-xs text-muted-foreground mb-3">or click to browse files</p>
+            <div className="flex items-center gap-3 mb-3">
+              <Upload className="h-10 w-10 text-muted-foreground" />
+              <FileSpreadsheet className="h-8 w-8 text-muted-foreground" />
+            </div>
+            <p className="text-sm font-medium mb-1">Drop PDF invoices or CSV POs here</p>
+            <p className="text-xs text-muted-foreground mb-3">PDFs are extracted via AI · CSVs are parsed as Lightspeed POs (Marchon 10% discount auto-applied)</p>
             <label>
-              <input type="file" accept=".pdf" multiple onChange={handleFileInput} className="hidden" />
+              <input type="file" accept=".pdf,.csv" multiple onChange={handleFileInput} className="hidden" />
               <Button variant="outline" size="sm" className="text-xs" asChild>
                 <span>Choose Files</span>
               </Button>
