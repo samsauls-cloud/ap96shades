@@ -483,7 +483,16 @@ export async function splitSessionByPO(
 
   for (const group of poGroups) {
     const vendor = EOL_BRAND_TO_VENDOR[group.poRef] || parentSession.vendor;
-    const stats = computeSessionStats(group.lines as ParsedLine[]);
+    // Convert DB rows to ParsedLine-compatible objects for stats computation
+    const parsedLines = group.lines.map((l: any) => ({
+      ...l,
+      order_qty: Number(l.order_qty || 0),
+      received_qty: l.received_qty != null ? Number(l.received_qty) : null,
+      ordered_cost: Number(l.ordered_cost || 0),
+      received_cost: Number(l.received_cost || 0),
+      receiving_status: l.receiving_status || 'NO_RECEIVING_DATA',
+    }));
+    const stats = computeSessionStats(parsedLines as ParsedLine[]);
     const childSession = await createSession({
       session_name: `${parentSession.session_name} — ${group.poRef}`,
       vendor,
