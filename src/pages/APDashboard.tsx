@@ -117,7 +117,7 @@ const BUCKET_CONFIG = {
   radar: { label: "Due in 61-90 days", emoji: "🔵", desc: "On radar", color: "text-blue-500 bg-blue-500/10 border-blue-500/20" },
 };
 
-const MISSING_VENDORS = ["Kering", "Maui Jim", "Marcolin", "Safilo"];
+const SUPPORTED_VENDORS = ["Luxottica", "Kering", "Maui Jim", "Marcolin", "Safilo"];
 
 export default function APDashboard() {
   const queryClient = useQueryClient();
@@ -255,17 +255,17 @@ export default function APDashboard() {
   };
 
   const vendorsInSystem = [...new Set(payments.map(p => p.vendor))];
-  const missingVendors = MISSING_VENDORS.filter(v => !vendorsInSystem.includes(v));
+  const missingVendors = SUPPORTED_VENDORS.filter(v => !vendorsInSystem.includes(v));
 
   return (
     <div className="min-h-screen bg-background">
       <InvoiceNav />
       <div className="max-w-[1600px] mx-auto px-4 sm:px-6 py-6 space-y-6">
 
-        {missingVendors.length > 0 && (
+        {missingVendors.length > 0 && audit && audit.missing_payments > 0 && (
           <div className="p-4 rounded-lg bg-yellow-500/10 border border-yellow-500/30">
             <p className="text-sm font-medium text-yellow-600 dark:text-yellow-400">
-              ⚠ Dashboard reflects Luxottica invoices only. {missingVendors.join(", ")} invoices have not been uploaded yet.
+              ⚠ {audit.missing_payments} invoices need payment schedules generated. Click "Generate Missing Payments" below.
             </p>
           </div>
         )}
