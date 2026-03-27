@@ -652,6 +652,20 @@ export default function ReceivingPage() {
           const lines = await fetchSessionLines(session.id);
           if (lines.length === 0) { skipped++; continue; }
 
+          // For re-reconciliation: reset existing match data on lines
+          const isReRecon = session.reconciliation_status !== 'unreconciled';
+          if (isReRecon) {
+            for (const line of lines) {
+              await updateLineReconciliation(line.id, {
+                matched_invoice_line: null as any,
+                match_status: null,
+                billing_discrepancy: false,
+                discrepancy_type: null,
+                discrepancy_amount: 0,
+              });
+            }
+          }
+
           // Determine allowed vendors
           const isEOL = session.vendor === 'EOL';
           let allowedV: string[];
