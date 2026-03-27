@@ -11,8 +11,9 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import {
   Upload, FileText, CheckCircle2, AlertTriangle, XCircle, Minus, Package,
-  ArrowRight, Download, Eye, Filter, ChevronDown, ChevronUp
+  ArrowRight, Download, Eye, Filter, ChevronDown, ChevronUp, Info
 } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   detectFormat, formatLabel, parseCSV, parseLines, computeSessionStats,
   vendorFromLightspeed, createSession, insertReceivingLines, fetchSessions,
@@ -22,6 +23,22 @@ import {
   type ExportFormat, type ParsedLine, type ReceivingStatus, type ReceivingDedupAction
 } from "@/lib/receiving-engine";
 import { getLineItems, formatCurrency } from "@/lib/supabase-queries";
+
+// ── Receiving-to-Invoice Vendor Mapping ──
+const RECEIVING_TO_INVOICE_VENDOR: Record<string, string[]> = {
+  'EOL':       ['Luxottica', 'Maui Jim'],
+  'Luxottica': ['Luxottica'],
+  'Kering':    ['Kering'],
+  'Marcolin':  ['Marcolin'],
+  'Marchon':   ['Safilo', 'Marcolin'],
+  'Safilo':    ['Safilo'],
+  'Maui Jim':  ['Maui Jim'],
+};
+
+const VENDOR_TOOLTIPS: Record<string, string> = {
+  'EOL': 'Costa / EOL frames are distributed by Luxottica — search Luxottica or Maui Jim invoices when reconciling.',
+  'Marchon': 'Marchon frames may appear on Safilo or Marcolin invoices.',
+};
 
 // ── Status Badge ──
 function ReceivingStatusBadge({ status, ordered, received }: { status: ReceivingStatus; ordered?: number; received?: number | null }) {
@@ -105,14 +122,23 @@ export default function ReceivingPage() {
   });
 
   const filteredInvoices = useMemo(() => {
-    if (!invoiceSearch.trim()) return vendorInvoices;
-    const q = invoiceSearch.toLowerCase().trim();
-    return vendorInvoices.filter(inv =>
-      inv.invoice_number?.toLowerCase().includes(q) ||
-      inv.po_number?.toLowerCase().includes(q) ||
-      inv.vendor?.toLowerCase().includes(q)
-    );
-  }, [vendorInvoices, invoiceSearch]);
+    // Filter by vendor mapping first
+    const reconSession = reconciling ? sessions.find(s => s.id === reconciling) : null;
+    const allowedVendors = reconSession ? RECEIVING_TO_INVOICE_VENDOR[reconSession.vendor] : null;
+    let list = allowedVendors
+      ? vendorInvoices.filter(inv => allowedVendors.some(v => inv.vendor?.toLowerCase() === v.toLowerCase()))
+      : vendorInvoices;
+
+    if (invoiceSearch.trim()) {
+      const q = invoiceSearch.toLowerCase().trim();
+      list = list.filter(inv =>
+        inv.invoice_number?.toLowerCase().includes(q) ||
+        inv.po_number?.toLowerCase().includes(q) ||
+        inv.vendor?.toLowerCase().includes(q)
+      );
+    }
+    return list;
+  }, [vendorInvoices, invoiceSearch, reconciling, sessions]);
 
   // ── File Handler ──
   const handleFile = useCallback((file: File) => {
@@ -460,7 +486,20 @@ export default function ReceivingPage() {
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                 <div>
                   <CardTitle className="text-base">{selectedSession.session_name}</CardTitle>
-                  <CardDescription className="text-xs">{selectedSession.raw_filename} · {selectedSession.vendor} · {new Date(selectedSession.created_at).toLocaleDateString()}</CardDescription>
+                  <CardDescription className="text-xs flex items-center gap-1">
+                    {selectedSession.raw_filename} · {selectedSession.vendor}
+                    {VENDOR_TOOLTIPS[selectedSession.vendor] && (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Info className="h-3 w-3 text-amber-500 cursor-help inline" />
+                          </TooltipTrigger>
+                          <TooltipContent className="max-w-xs text-xs">{VENDOR_TOOLTIPS[selectedSession.vendor]}</TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    )}
+                    {' '}· {new Date(selectedSession.created_at).toLocaleDateString()}
+                  </CardDescription>
                 </div>
                 <div className="flex items-center gap-2">
                   <Badge className={reconStatusColor(selectedSession.reconciliation_status)}>
@@ -566,6 +605,15 @@ export default function ReceivingPage() {
               {reconciling === selectedSessionId && (
                 <div className="border rounded-lg p-4 bg-muted/30 space-y-3">
                   <p className="text-sm font-medium">Select the invoice this PO receiving belongs to:</p>
+                  {(() => {
+                    const allowed = RECEIVING_TO_INVOICE_VENDOR[selectedSession.vendor];
+                    return allowed && allowed.join(', ') !== selectedSession.vendor ? (
+                      <div className="bg-blue-500/10 border border-blue-500/20 rounded-md px-3 py-2 text-xs text-blue-700 dark:text-blue-400 flex items-center gap-1.5">
+                        <Info className="h-3.5 w-3.5 shrink-0" />
+                        Showing invoices from: <strong>{allowed.join(', ')}</strong> (mapped from {selectedSession.vendor})
+                      </div>
+                    ) : null;
+                  })()}
                   <Input
                     placeholder="Search by invoice #, PO #, or vendor…"
                     value={invoiceSearch}
@@ -764,7 +812,19 @@ export default function ReceivingPage() {
                       return (
                         <TableRow key={s.id} className={selectedSessionId === s.id ? 'bg-accent' : 'cursor-pointer hover:bg-muted/50'} onClick={() => setSelectedSessionId(s.id)}>
                           <TableCell className="text-xs font-medium">{s.session_name}</TableCell>
-                          <TableCell className="text-xs">{s.vendor}</TableCell>
+                          <TableCell className="text-xs flex items-center gap-1">
+                            {s.vendor}
+                            {VENDOR_TOOLTIPS[s.vendor] && (
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Info className="h-3 w-3 text-amber-500 cursor-help" />
+                                  </TooltipTrigger>
+                                  <TooltipContent className="max-w-xs text-xs">{VENDOR_TOOLTIPS[s.vendor]}</TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            )}
+                          </TableCell>
                           <TableCell className="text-xs">{new Date(s.created_at).toLocaleDateString()}</TableCell>
                           <TableCell className="text-xs text-right">{s.total_lines}</TableCell>
                           <TableCell className="text-xs text-right">{pct}%</TableCell>
