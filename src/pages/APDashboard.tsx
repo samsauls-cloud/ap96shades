@@ -383,7 +383,7 @@ export default function APDashboard() {
               })}
             </div>
           </div>
-        ) : (
+        ) : activeTab === "calendar" ? (
           <div className="space-y-6">
             {/* 4-Month Summary Grid */}
             <Card className="bg-card border-border">
