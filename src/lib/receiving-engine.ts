@@ -10,6 +10,90 @@ const LIGHTSPEED_VENDOR_MAP: Record<string, string> = {
   '21': 'Marchon',
 };
 
+// ── EOL Brand → Real Vendor Map ──
+export const EOL_BRAND_TO_VENDOR: Record<string, string> = {
+  // Luxottica brands
+  'OAKLEY': 'Luxottica',
+  'RAY-BAN': 'Luxottica',
+  'RAYBAN': 'Luxottica',
+  'COSTA': 'Luxottica',
+  'COSTA DEL MAR': 'Luxottica',
+  'PRADA': 'Luxottica',
+  'VERSACE': 'Luxottica',
+  'PERSOL': 'Luxottica',
+  'COACH': 'Luxottica',
+  'MICHAEL KORS': 'Luxottica',
+  'MK': 'Luxottica',
+  'RALPH': 'Luxottica',
+  'VOGUE': 'Luxottica',
+  'BURBERRY': 'Luxottica',
+  'ARNETTE': 'Luxottica',
+  'OLIVER PEOPLES': 'Luxottica',
+  // Kering brands
+  'GUCCI': 'Kering',
+  'SAINT LAURENT': 'Kering',
+  'YSL': 'Kering',
+  'BOTTEGA': 'Kering',
+  'BOTTEGA VENETA': 'Kering',
+  'BALENCIAGA': 'Kering',
+  'ALEXANDER MCQUEEN': 'Kering',
+  'CARTIER': 'Kering',
+  // Maui Jim
+  'MAUI JIM': 'Maui Jim',
+  // Safilo brands
+  'CARRERA': 'Safilo',
+  'BOSS': 'Safilo',
+  'HUGO BOSS': 'Safilo',
+  'JIMMY CHOO': 'Safilo',
+  'FOSSIL': 'Safilo',
+  'KATE SPADE': 'Safilo',
+  // Marcolin brands
+  'TOM FORD': 'Marcolin',
+  'GUESS': 'Marcolin',
+  'SWAROVSKI': 'Marcolin',
+  'MONTBLANC': 'Marcolin',
+};
+
+export interface EOLResolution {
+  isEOL: boolean;
+  realVendor: string;
+  realVendors: string[]; // all distinct real vendors found
+  isMultiVendor: boolean;
+  vendorCounts: Record<string, number>;
+}
+
+/**
+ * Resolve the real vendor(s) for an EOL session by scanning item descriptions/SKUs.
+ */
+export function resolveEOLVendor(lines: Array<{ item_description?: string; manufact_sku?: string }>): EOLResolution {
+  const vendorCounts: Record<string, number> = {};
+
+  for (const item of lines) {
+    const desc = ((item.item_description || '') + ' ' + (item.manufact_sku || '')).toUpperCase();
+    // Sort brands by length descending so "COSTA DEL MAR" matches before "COSTA"
+    const sortedBrands = Object.keys(EOL_BRAND_TO_VENDOR).sort((a, b) => b.length - a.length);
+    for (const brand of sortedBrands) {
+      if (desc.includes(brand)) {
+        const vendor = EOL_BRAND_TO_VENDOR[brand];
+        vendorCounts[vendor] = (vendorCounts[vendor] || 0) + 1;
+        break; // only count first brand match per line
+      }
+    }
+  }
+
+  const realVendors = Object.entries(vendorCounts)
+    .sort((a, b) => b[1] - a[1])
+    .map(([v]) => v);
+
+  return {
+    isEOL: true,
+    realVendor: realVendors[0] || 'Unknown',
+    realVendors,
+    isMultiVendor: realVendors.length > 1,
+    vendorCounts,
+  };
+}
+
 export type ExportFormat = 'CHECKIN_A' | 'ITEMS_B' | 'ITEMS_C_NO_RECEIVING' | 'UNKNOWN';
 
 export type ReceivingStatus = 'FULLY_RECEIVED' | 'PARTIALLY_RECEIVED' | 'NOT_RECEIVED' | 'NO_RECEIVING_DATA';
@@ -63,7 +147,7 @@ export function vendorFromLightspeed(vendorId: string, itemDescription?: string)
   if (desc.includes('OAKLEY') || desc.includes('RAY-BAN') || desc.includes('RAYBAN') || desc.includes('PRADA')) return 'Luxottica';
   if (desc.includes('SAINT LAURENT') || desc.includes('GUCCI') || desc.includes('BOTTEGA') || desc.includes('BALENCIAGA')) return 'Kering';
   if (desc.includes('TOM FORD')) return 'Marcolin';
-  if (desc.includes('COSTA')) return 'EOL';
+  if (desc.includes('COSTA')) return 'Luxottica';
   if (desc.includes('MAUI JIM')) return 'Maui Jim';
   if (desc.includes('SAFILO')) return 'Safilo';
   return 'Unknown';
@@ -223,7 +307,7 @@ export function matchReceivingToInvoice(
   });
 }
 
-export function calcDiscrepancy(receivingLine: any, invoiceLine: LineItem | null): DiscrepancyResult | null {
+export function calcDiscrepancy(receivingLine: any, invoiceLine: LineItem | null, skipPriceCheck = false): DiscrepancyResult | null {
   if (!invoiceLine) return { type: 'NOT_ON_INVOICE', amount: receivingLine.ordered_cost ?? 0 };
 
   const invQty = Number(invoiceLine.qty_shipped || invoiceLine.qty_ordered || invoiceLine.qty || 0);
@@ -241,7 +325,8 @@ export function calcDiscrepancy(receivingLine: any, invoiceLine: LineItem | null
     amount: (rcvQty - invQty) * invPrice,
     detail: `Received ${rcvQty}, only billed ${invQty}`,
   };
-  if (invPrice > 0) {
+  // EOL sessions: skip price mismatch — EOL unit costs are discounted and expected to differ
+  if (!skipPriceCheck && invPrice > 0) {
     const priceDiff = Math.abs(invPrice - rcvCost);
     if (priceDiff / invPrice > 0.02) return {
       type: 'PRICE_MISMATCH',

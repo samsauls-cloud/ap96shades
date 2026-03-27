@@ -19,15 +19,15 @@ import {
   vendorFromLightspeed, createSession, insertReceivingLines, fetchSessions,
   fetchSessionLines, matchReceivingToInvoice, calcDiscrepancy,
   updateSessionReconciliation, updateLineReconciliation, exportReconciliationCSV,
-  checkReceivingDuplicate, mergeReceivingUpdate,
-  type ExportFormat, type ParsedLine, type ReceivingStatus, type ReceivingDedupAction
+  checkReceivingDuplicate, mergeReceivingUpdate, resolveEOLVendor,
+  type ExportFormat, type ParsedLine, type ReceivingStatus, type ReceivingDedupAction, type EOLResolution
 } from "@/lib/receiving-engine";
 import { getLineItems, formatCurrency } from "@/lib/supabase-queries";
 import { suggestMatchingInvoices, matchStrengthBadge, type InvoiceSuggestion } from "@/lib/invoice-suggestions";
 
 // ── Receiving-to-Invoice Vendor Mapping ──
 const RECEIVING_TO_INVOICE_VENDOR: Record<string, string[]> = {
-  'EOL':       ['Luxottica', 'Maui Jim'],
+  'EOL':       ['Luxottica', 'Kering', 'Maui Jim', 'Safilo', 'Marcolin'], // EOL can be any real vendor
   'Luxottica': ['Luxottica'],
   'Kering':    ['Kering'],
   'Marcolin':  ['Marcolin'],
@@ -37,7 +37,7 @@ const RECEIVING_TO_INVOICE_VENDOR: Record<string, string[]> = {
 };
 
 const VENDOR_TOOLTIPS: Record<string, string> = {
-  'EOL': 'Costa / EOL frames are distributed by Luxottica — search Luxottica or Maui Jim invoices when reconciling.',
+  'EOL': 'EOL is a discount classification — these frames belong to real vendors (Luxottica, Kering, etc.). The system auto-resolves the real vendor from item descriptions.',
   'Marchon': 'Marchon frames may appear on Safilo or Marcolin invoices.',
 };
 
@@ -84,7 +84,7 @@ export default function ReceivingPage() {
   const [sessionName, setSessionName] = useState('');
   const [dragOver, setDragOver] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [preview, setPreview] = useState<{ format: ExportFormat; headers: string[]; rows: string[][]; lines: ParsedLine[]; vendor: string; filename: string } | null>(null);
+  const [preview, setPreview] = useState<{ format: ExportFormat; headers: string[]; rows: string[][]; lines: ParsedLine[]; vendor: string; filename: string; eolResolution?: EOLResolution } | null>(null);
   const [dedupResult, setDedupResult] = useState<ReceivingDedupAction | null>(null);
   const [checkingDedup, setCheckingDedup] = useState(false);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
@@ -123,8 +123,23 @@ export default function ReceivingPage() {
   });
 
   // ── Invoice filtering by vendor mapping ──
+  // For EOL sessions, resolve real vendors from session lines instead of using static map
   const reconSession = reconciling ? sessions.find(s => s.id === reconciling) : null;
-  const allowedVendors = reconSession ? RECEIVING_TO_INVOICE_VENDOR[reconSession.vendor] : null;
+  const isEOLSession = reconSession?.vendor === 'EOL';
+  const eolSessionResolution = useMemo(() => {
+    if (!isEOLSession || sessionLines.length === 0) return null;
+    return resolveEOLVendor(sessionLines as any[]);
+  }, [isEOLSession, sessionLines]);
+
+  const allowedVendors = useMemo(() => {
+    if (!reconSession) return null;
+    if (isEOLSession && eolSessionResolution) {
+      // Use only the resolved real vendors for EOL
+      return eolSessionResolution.realVendors.length > 0 ? eolSessionResolution.realVendors : ['Luxottica'];
+    }
+    return RECEIVING_TO_INVOICE_VENDOR[reconSession.vendor] ?? null;
+  }, [reconSession, isEOLSession, eolSessionResolution]);
+
   const vendorFilteredInvoices = useMemo(() => {
     return allowedVendors
       ? vendorInvoices.filter(inv => allowedVendors.some(v => inv.vendor?.toLowerCase() === v.toLowerCase()))
@@ -172,9 +187,21 @@ export default function ReceivingPage() {
       const firstVendorId = lines.find(l => l.vendor_id)?.vendor_id ?? '';
       const firstDesc = lines[0]?.item_description ?? '';
       const vendor = vendorFromLightspeed(firstVendorId, firstDesc);
-      const autoName = `${vendor} ${new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' })} Batch`;
-      if (!sessionName) setSessionName(autoName);
-      setPreview({ format, headers, rows, lines, vendor, filename: file.name });
+
+      // EOL resolution: determine real vendor(s) from item descriptions
+      let eolResolution: EOLResolution | undefined;
+      if (vendor === 'EOL') {
+        eolResolution = resolveEOLVendor(lines);
+        const displayVendor = eolResolution.isMultiVendor
+          ? `EOL — Multi-vendor (${eolResolution.realVendors.join(', ')})`
+          : `EOL — ${eolResolution.realVendor} End-of-Line Frames`;
+        const autoName = `${displayVendor} ${new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' })} Batch`;
+        if (!sessionName) setSessionName(autoName);
+      } else {
+        const autoName = `${vendor} ${new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' })} Batch`;
+        if (!sessionName) setSessionName(autoName);
+      }
+      setPreview({ format, headers, rows, lines, vendor, filename: file.name, eolResolution });
     };
     reader.readAsText(file);
   }, [sessionName]);
@@ -265,9 +292,10 @@ export default function ReceivingPage() {
       const invoiceLines = getLineItems(invoice);
       const results = matchReceivingToInvoice(sessionLines, invoiceLines);
 
+      const skipPriceCheck = selectedSession?.vendor === 'EOL';
       let hasDiscrepancy = false;
       for (const r of results) {
-        const disc = calcDiscrepancy(r.line, r.matched_invoice_line);
+        const disc = calcDiscrepancy(r.line, r.matched_invoice_line, skipPriceCheck);
         const update: any = {
           matched_invoice_line: r.matched_invoice_line as any,
           match_status: r.match_status,
@@ -391,6 +419,17 @@ export default function ReceivingPage() {
                     <Badge className="bg-emerald-600 text-white gap-1"><CheckCircle2 className="h-3 w-3" />Format: {formatLabel(preview.format)}</Badge>
                   )}
                   <Badge variant="outline">{preview.vendor}</Badge>
+                  {preview.eolResolution && (
+                    <>
+                      <Badge className="bg-amber-500/15 text-amber-600 border-amber-500/30" variant="outline">EOL</Badge>
+                      <Badge variant="outline">{preview.eolResolution.realVendor}</Badge>
+                      {preview.eolResolution.isMultiVendor && (
+                        <Badge className="bg-amber-500/15 text-amber-600 border-amber-500/30" variant="outline">
+                          ⚠ Multi-vendor: {preview.eolResolution.realVendors.join(', ')}
+                        </Badge>
+                      )}
+                    </>
+                  )}
                   <Badge variant="outline">{preview.lines.length} rows</Badge>
                   <span className="text-xs text-muted-foreground">{preview.filename}</span>
                 </div>
@@ -621,12 +660,29 @@ export default function ReceivingPage() {
               {reconciling === selectedSessionId && (
                 <div className="border rounded-lg p-4 bg-muted/30 space-y-3">
                   <p className="text-sm font-medium">Select the invoice this PO receiving belongs to:</p>
-                  {(() => {
-                    const allowed = RECEIVING_TO_INVOICE_VENDOR[selectedSession.vendor];
-                    return allowed && allowed.join(', ') !== selectedSession.vendor ? (
+                  {isEOLSession && eolSessionResolution ? (
+                    <div className="bg-amber-500/10 border border-amber-500/20 rounded-md px-3 py-2 text-xs text-amber-700 dark:text-amber-400 space-y-1">
+                      <div className="flex items-center gap-1.5">
+                        <Info className="h-3.5 w-3.5 shrink-0" />
+                        <span>
+                          <strong>EOL Session</strong> — End-of-Line discount frames. Real vendor{eolSessionResolution.isMultiVendor ? 's' : ''}:{' '}
+                          <strong>{eolSessionResolution.realVendors.join(', ')}</strong>
+                        </span>
+                      </div>
+                      {eolSessionResolution.isMultiVendor && (
+                        <p className="text-[11px]">⚠ Multi-vendor EOL session — contains frames from {eolSessionResolution.realVendors.map(v =>
+                          `${v} (${eolSessionResolution.vendorCounts[v]} items)`
+                        ).join(', ')}. You may need to reconcile against multiple invoices.</p>
+                      )}
+                      <p className="text-[11px]">Price differences between EOL cost and invoice price are expected and will not be flagged.</p>
+                    </div>
+                  ) : (() => {
+                    const allowed = allowedVendors;
+                    const vendorName = selectedSession.vendor;
+                    return allowed && allowed.join(', ') !== vendorName ? (
                       <div className="bg-blue-500/10 border border-blue-500/20 rounded-md px-3 py-2 text-xs text-blue-700 dark:text-blue-400 flex items-center gap-1.5">
                         <Info className="h-3.5 w-3.5 shrink-0" />
-                        Showing invoices from: <strong>{allowed.join(', ')}</strong> (mapped from {selectedSession.vendor})
+                        Showing invoices from: <strong>{allowed.join(', ')}</strong> (mapped from {vendorName})
                       </div>
                     ) : null;
                   })()}
