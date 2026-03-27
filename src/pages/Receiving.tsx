@@ -22,8 +22,9 @@ import {
   updateSessionReconciliation, updateLineReconciliation, exportReconciliationCSV,
   checkReceivingDuplicate, mergeReceivingUpdate, resolveEOLVendor,
   multiInvoiceMatch, detectPOGroups, splitSessionByPO,
+  checkReceivingLineDuplicates, checkInvoiceLineCoverage,
   type ExportFormat, type ParsedLine, type ReceivingStatus, type ReceivingDedupAction, type EOLResolution,
-  type MultiInvoiceGroup, type MultiInvoiceMatchResult, type POGroup
+  type MultiInvoiceGroup, type MultiInvoiceMatchResult, type POGroup, type InvoiceCoverageResult
 } from "@/lib/receiving-engine";
 import { getLineItems, formatCurrency } from "@/lib/supabase-queries";
 import { suggestMatchingInvoices, matchStrengthBadge, type InvoiceSuggestion } from "@/lib/invoice-suggestions";
