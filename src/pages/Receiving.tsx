@@ -122,14 +122,29 @@ export default function ReceivingPage() {
     enabled: !!reconciling,
   });
 
-  const filteredInvoices = useMemo(() => {
-    // Filter by vendor mapping first
-    const reconSession = reconciling ? sessions.find(s => s.id === reconciling) : null;
-    const allowedVendors = reconSession ? RECEIVING_TO_INVOICE_VENDOR[reconSession.vendor] : null;
-    let list = allowedVendors
+  // ── Invoice filtering by vendor mapping ──
+  const reconSession = reconciling ? sessions.find(s => s.id === reconciling) : null;
+  const allowedVendors = reconSession ? RECEIVING_TO_INVOICE_VENDOR[reconSession.vendor] : null;
+  const vendorFilteredInvoices = useMemo(() => {
+    return allowedVendors
       ? vendorInvoices.filter(inv => allowedVendors.some(v => inv.vendor?.toLowerCase() === v.toLowerCase()))
       : vendorInvoices;
+  }, [vendorInvoices, allowedVendors]);
 
+  // ── Auto-suggestions ──
+  const invoiceSuggestions = useMemo((): InvoiceSuggestion[] => {
+    if (!reconSession || vendorFilteredInvoices.length === 0 || sessionLines.length === 0) return [];
+    return suggestMatchingInvoices(
+      sessionLines,
+      Number(reconSession.total_ordered_cost || 0),
+      reconSession.raw_filename || '',
+      reconSession.session_name || '',
+      vendorFilteredInvoices
+    );
+  }, [reconSession, vendorFilteredInvoices, sessionLines]);
+
+  const filteredInvoices = useMemo(() => {
+    let list = vendorFilteredInvoices;
     if (invoiceSearch.trim()) {
       const q = invoiceSearch.toLowerCase().trim();
       list = list.filter(inv =>
@@ -139,7 +154,7 @@ export default function ReceivingPage() {
       );
     }
     return list;
-  }, [vendorInvoices, invoiceSearch, reconciling, sessions]);
+  }, [vendorFilteredInvoices, invoiceSearch]);
 
   // ── File Handler ──
   const handleFile = useCallback((file: File) => {
