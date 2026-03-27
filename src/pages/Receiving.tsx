@@ -192,7 +192,7 @@ export default function ReceivingPage() {
         .order('invoice_date', { ascending: false });
       return data ?? [];
     },
-    enabled: !!reconciling,
+    staleTime: 5 * 60 * 1000,
   });
 
   // ── Final Bill Ledger Query ──
