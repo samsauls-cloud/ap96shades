@@ -1,32 +1,55 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { LineItem } from "@/lib/supabase-queries";
 
-// ── Vendor normalization ──────────────────────────────────
-const vendorMap: Record<string, string> = {
-  "luxottica of america inc.": "Luxottica",
-  "luxottica of america": "Luxottica",
+// ── Vendor normalization — SINGLE SOURCE OF TRUTH ─────
+const KNOWN_VENDORS = ["Luxottica", "Kering", "Maui Jim", "Safilo", "Marcolin"] as const;
+export type KnownVendor = typeof KNOWN_VENDORS[number];
+
+const VENDOR_MAP: Record<string, string> = {
+  // Luxottica
   "luxottica": "Luxottica",
-  "maui jim inc.": "Maui Jim",
-  "maui jim, inc.": "Maui Jim",
-  "maui jim": "Maui Jim",
-  "marcolin usa": "Marcolin",
-  "marcolin usa inc.": "Marcolin",
-  "marcolin s.p.a.": "Marcolin",
-  "marcolin": "Marcolin",
+  "luxottica of america": "Luxottica",
+  "luxottica of america inc": "Luxottica",
+  "luxottica of america inc.": "Luxottica",
+  "luxottica usa": "Luxottica",
+  "essilor luxottica": "Luxottica",
+  "essilorluxottica": "Luxottica",
+  // Kering
+  "kering": "Kering",
   "kering eyewear": "Kering",
   "kering eyewear usa": "Kering",
+  "kering eyewear usa inc": "Kering",
   "kering eyewear usa, inc.": "Kering",
   "kering eyewear usa, inc": "Kering",
-  "kering": "Kering",
-  "safilo usa": "Safilo",
-  "safilo usa inc.": "Safilo",
-  "safilo usa, inc": "Safilo",
-  "safilo usa, inc.": "Safilo",
-  "safilo s.p.a.": "Safilo",
-  "safilo": "Safilo",
+  "kering eyewear usa inc.": "Kering",
+  // Maui Jim
+  "maui jim": "Maui Jim",
+  "maui jim inc": "Maui Jim",
+  "maui jim inc.": "Maui Jim",
+  "maui jim, inc.": "Maui Jim",
+  "maui jim usa": "Maui Jim",
+  "maui jim usa inc": "Maui Jim",
   "maui jim usa, inc.": "Maui Jim",
   "maui jim usa, inc": "Maui Jim",
-  "maui jim usa": "Maui Jim",
+  // Safilo
+  "safilo": "Safilo",
+  "safilo usa": "Safilo",
+  "safilo usa inc": "Safilo",
+  "safilo usa inc.": "Safilo",
+  "safilo usa, inc.": "Safilo",
+  "safilo usa, inc": "Safilo",
+  "safilo s.p.a.": "Safilo",
+  "safilo spa": "Safilo",
+  "safilo group": "Safilo",
+  // Marcolin
+  "marcolin": "Marcolin",
+  "marcolin usa": "Marcolin",
+  "marcolin usa inc": "Marcolin",
+  "marcolin usa inc.": "Marcolin",
+  "marcolin usa, inc.": "Marcolin",
+  "marcolin s.p.a.": "Marcolin",
+  "marcolin spa": "Marcolin",
+  // Legacy extras
   "chanel": "Chanel",
   "costa del mar": "Costa",
   "costa": "Costa",
@@ -34,9 +57,28 @@ const vendorMap: Record<string, string> = {
   "cartier": "Cartier",
 };
 
+/**
+ * Normalize vendor name. Uses punctuation-stripped lowercase matching.
+ * Returns the canonical vendor name or the trimmed raw string if unknown.
+ */
 export function normalizeVendor(raw: string | null | undefined): string {
-  return vendorMap[raw?.toLowerCase().trim() ?? ""] || raw?.trim() || "Unknown";
+  if (!raw) return "Unknown";
+  // Try exact lowercase match first, then stripped version
+  const lower = raw.toLowerCase().trim();
+  if (VENDOR_MAP[lower]) return VENDOR_MAP[lower];
+  const stripped = lower.replace(/[.,]/g, "").replace(/\s+/g, " ").trim();
+  if (VENDOR_MAP[stripped]) return VENDOR_MAP[stripped];
+  return raw.trim();
 }
+
+/**
+ * Returns true if the vendor is one of the 5 known/supported vendors.
+ */
+export function isKnownVendor(vendor: string): boolean {
+  return (KNOWN_VENDORS as readonly string[]).includes(vendor);
+}
+
+export { KNOWN_VENDORS };
 
 // ── UPC / Model extraction ────────────────────────────────
 function extractUPCs(items: LineItem[]): Set<string> {
@@ -90,7 +132,6 @@ export async function checkInvoiceDuplicate(
   const incomingUPCs = extractUPCs(incomingItems);
   const existingUPCs = extractUPCs(existingItems);
 
-  // If we have UPCs to compare
   if (incomingUPCs.size > 0) {
     const overlap = [...incomingUPCs].filter(u => existingUPCs.has(u));
     const newUPCItems = incomingItems.filter(
@@ -114,11 +155,9 @@ export async function checkInvoiceDuplicate(
       };
     }
 
-    // All incoming UPCs overlap → true duplicate
     return { type: "true_duplicate", existingId: existing.id };
   }
 
-  // Fallback: compare by model/item_number
   const incomingModels = extractModels(incomingItems);
   const existingModels = extractModels(existingItems);
 
@@ -144,7 +183,6 @@ export async function checkInvoiceDuplicate(
     };
   }
 
-  // No UPCs or models → treat as true duplicate (can't differentiate)
   return { type: "true_duplicate", existingId: existing.id };
 }
 
@@ -156,7 +194,6 @@ export async function mergeExtendedInvoice(
   incomingDate: string,
   incomingFilename: string
 ) {
-  // Get current record
   const { data: current } = await supabase
     .from("vendor_invoices")
     .select("line_items, shipment_count")
@@ -201,7 +238,6 @@ export async function updatePOTotalInvoiced(poNumber: string, vendor: string) {
 
   const poTotal = data.reduce((sum, inv) => sum + Number(inv.total), 0);
 
-  // Update all linked records
   await supabase
     .from("vendor_invoices")
     .update({ po_total_invoiced: poTotal })

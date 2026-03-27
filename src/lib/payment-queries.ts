@@ -1,5 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
-import { calculateInstallments, hasTermsEngine } from "./payment-terms";
+import { calculateInstallments, hasTermsEngine, verifyInstallmentMath } from "./payment-terms";
+import { normalizeVendor, isKnownVendor } from "./invoice-dedup";
 
 export interface PaymentHistoryEntry {
   date: string;
@@ -69,7 +70,6 @@ function normalizePayment(row: any): InvoicePayment {
   const amountPaid = Number(row.amount_paid) || 0;
   const balanceRemaining = amountDue - amountPaid;
   let paymentStatus = row.payment_status || derivePaymentStatus(amountDue, amountPaid);
-  // Override if manually disputed/void
   if (row.payment_status === "disputed" || row.payment_status === "void") {
     paymentStatus = row.payment_status;
   }
@@ -111,7 +111,6 @@ export async function recordPayment(
   note: string,
   recordedBy: string
 ): Promise<void> {
-  // Fetch current payment
   const { data: current, error: fetchErr } = await supabase
     .from("invoice_payments")
     .select("*")
@@ -204,31 +203,104 @@ export async function markPaymentUnpaid(paymentId: string): Promise<void> {
       is_paid: false,
       paid_date: null,
       amount_paid: 0,
-      balance_remaining: null, // will be recalculated client-side
+      balance_remaining: null,
       payment_status: "unpaid",
     } as any)
     .eq("id", paymentId);
   if (error) throw error;
 }
 
+/**
+ * Generate payment installments for a single invoice.
+ * DUPLICATE PREVENTION: Always checks for existing payments first.
+ * Returns count of rows inserted (0 if already exists or vendor not supported).
+ */
 export async function generatePaymentsForInvoice(
   invoiceId: string,
   invoiceDate: string,
   total: number,
   vendor: string,
   invoiceNumber: string,
-  poNumber: string | null
+  poNumber: string | null,
+  paymentTermsText?: string | null,
 ): Promise<number> {
+  // ── Duplicate prevention guard ──────────────────────
   const { data: existing } = await supabase
     .from("invoice_payments")
     .select("id")
     .eq("invoice_id", invoiceId)
     .limit(1);
 
-  if (existing && existing.length > 0) return 0;
-  if (!hasTermsEngine(vendor)) return 0;
+  if (existing && existing.length > 0) {
+    console.log(`Payments already exist for ${invoiceNumber} — skipping`);
+    return 0;
+  }
 
-  const installments = calculateInstallments(invoiceDate, total, vendor, invoiceNumber, poNumber);
+  const normalized = normalizeVendor(vendor);
+
+  // Don't generate for unknown vendors
+  if (!isKnownVendor(normalized)) {
+    console.log(`Unknown vendor "${normalized}" — skipping payment generation`);
+    return 0;
+  }
+
+  if (!hasTermsEngine(normalized)) return 0;
+
+  const installments = calculateInstallments(invoiceDate, total, normalized, invoiceNumber, poNumber, paymentTermsText);
+  if (installments.length === 0) return 0;
+
+  // ── Math verification before insert ─────────────────
+  const discrepancy = verifyInstallmentMath(installments, total);
+  if (Math.abs(discrepancy) > 0.02) {
+    console.error(`Math discrepancy for ${invoiceNumber}: total=${total}, installments sum=${total - discrepancy}, diff=${discrepancy}`);
+    // Still insert but log the issue
+  }
+
+  const rows = installments.map(inst => ({
+    invoice_id: invoiceId,
+    vendor: inst.vendor,
+    invoice_number: inst.invoice_number,
+    po_number: inst.po_number,
+    invoice_amount: inst.invoice_amount,
+    invoice_date: inst.invoice_date,
+    terms: inst.terms,
+    installment_label: inst.installment_label,
+    due_date: inst.due_date,
+    amount_due: inst.amount_due,
+    amount_paid: 0,
+    balance_remaining: inst.amount_due,
+    payment_status: "unpaid",
+  }));
+
+  const { error } = await supabase.from("invoice_payments").insert(rows);
+  if (error) throw error;
+  return rows.length;
+}
+
+/**
+ * Recalculate payments for an invoice: deletes existing and regenerates.
+ * Returns count of new rows inserted.
+ */
+export async function recalculatePaymentsForInvoice(
+  invoiceId: string,
+  invoiceDate: string,
+  total: number,
+  vendor: string,
+  invoiceNumber: string,
+  poNumber: string | null,
+  paymentTermsText?: string | null,
+): Promise<number> {
+  // Delete existing
+  const { error: delErr } = await supabase
+    .from("invoice_payments")
+    .delete()
+    .eq("invoice_id", invoiceId);
+  if (delErr) throw delErr;
+
+  const normalized = normalizeVendor(vendor);
+  if (!hasTermsEngine(normalized)) return 0;
+
+  const installments = calculateInstallments(invoiceDate, total, normalized, invoiceNumber, poNumber, paymentTermsText);
   if (installments.length === 0) return 0;
 
   const rows = installments.map(inst => ({
@@ -255,7 +327,7 @@ export async function generatePaymentsForInvoice(
 export async function generateAllMissingPayments(): Promise<{ generated: number; invoices: number }> {
   const { data: allInvoices, error: invErr } = await supabase
     .from("vendor_invoices")
-    .select("id, invoice_date, total, vendor, invoice_number, po_number");
+    .select("id, invoice_date, total, vendor, invoice_number, po_number, payment_terms");
   if (invErr) throw invErr;
 
   const { data: existingPayments, error: payErr } = await supabase
@@ -264,17 +336,113 @@ export async function generateAllMissingPayments(): Promise<{ generated: number;
   if (payErr) throw payErr;
 
   const hasPayments = new Set((existingPayments ?? []).map(p => (p as any).invoice_id));
-  const missing = (allInvoices ?? []).filter(inv => !hasPayments.has(inv.id) && hasTermsEngine(inv.vendor));
+  const missing = (allInvoices ?? []).filter(inv => {
+    const normalized = normalizeVendor(inv.vendor);
+    return !hasPayments.has(inv.id) && isKnownVendor(normalized) && hasTermsEngine(normalized);
+  });
 
   let totalGenerated = 0;
   for (const inv of missing) {
     const count = await generatePaymentsForInvoice(
-      inv.id, inv.invoice_date, inv.total, inv.vendor, inv.invoice_number, inv.po_number
+      inv.id, inv.invoice_date, inv.total, inv.vendor, inv.invoice_number, inv.po_number, inv.payment_terms
     );
     totalGenerated += count;
   }
 
   return { generated: totalGenerated, invoices: missing.length };
+}
+
+// ── Audit queries ─────────────────────────────────────────
+
+export interface AuditResult {
+  missingPayments: { id: string; invoice_number: string; vendor: string; total: number; invoice_date: string }[];
+  mathDiscrepancies: { id: string; invoice_number: string; vendor: string; total: number; installmentsSum: number; discrepancy: number }[];
+  unknownVendors: { id: string; invoice_number: string; vendor: string; total: number }[];
+  duplicateInvoices: { invoice_number: string; vendor: string; count: number }[];
+  lastAuditTime: string;
+}
+
+export async function runFullAudit(): Promise<AuditResult> {
+  const { data: allInvoices } = await supabase
+    .from("vendor_invoices")
+    .select("id, invoice_number, vendor, total, invoice_date, doc_type");
+  const { data: allPayments } = await supabase
+    .from("invoice_payments")
+    .select("invoice_id, amount_due");
+
+  const invoices = allInvoices ?? [];
+  const payments = allPayments ?? [];
+
+  // 1. Missing payments
+  const paymentInvoiceIds = new Set(payments.map((p: any) => p.invoice_id));
+  const missingPayments = invoices.filter(inv => {
+    const normalized = normalizeVendor(inv.vendor);
+    return !paymentInvoiceIds.has(inv.id) && isKnownVendor(normalized) && inv.doc_type === "INVOICE";
+  }).map(inv => ({
+    id: inv.id,
+    invoice_number: inv.invoice_number,
+    vendor: normalizeVendor(inv.vendor),
+    total: inv.total,
+    invoice_date: inv.invoice_date,
+  }));
+
+  // 2. Math discrepancies
+  const paymentsByInvoice = new Map<string, number>();
+  for (const p of payments) {
+    const iid = (p as any).invoice_id;
+    if (iid) {
+      paymentsByInvoice.set(iid, (paymentsByInvoice.get(iid) || 0) + Number((p as any).amount_due));
+    }
+  }
+  const mathDiscrepancies: AuditResult["mathDiscrepancies"] = [];
+  for (const inv of invoices) {
+    const sum = paymentsByInvoice.get(inv.id);
+    if (sum !== undefined) {
+      const diff = parseFloat((inv.total - sum).toFixed(2));
+      if (Math.abs(diff) > 0.02) {
+        mathDiscrepancies.push({
+          id: inv.id,
+          invoice_number: inv.invoice_number,
+          vendor: inv.vendor,
+          total: inv.total,
+          installmentsSum: sum,
+          discrepancy: diff,
+        });
+      }
+    }
+  }
+
+  // 3. Unknown vendors
+  const unknownVendors = invoices
+    .filter(inv => !isKnownVendor(normalizeVendor(inv.vendor)))
+    .map(inv => ({
+      id: inv.id,
+      invoice_number: inv.invoice_number,
+      vendor: inv.vendor,
+      total: inv.total,
+    }));
+
+  // 4. Duplicate invoices
+  const invCounts = new Map<string, number>();
+  for (const inv of invoices) {
+    const key = `${inv.invoice_number}||${normalizeVendor(inv.vendor)}`;
+    invCounts.set(key, (invCounts.get(key) || 0) + 1);
+  }
+  const duplicateInvoices: AuditResult["duplicateInvoices"] = [];
+  for (const [key, count] of invCounts) {
+    if (count > 1) {
+      const [invoice_number, vendor] = key.split("||");
+      duplicateInvoices.push({ invoice_number, vendor, count });
+    }
+  }
+
+  return {
+    missingPayments,
+    mathDiscrepancies,
+    unknownVendors,
+    duplicateInvoices,
+    lastAuditTime: new Date().toISOString(),
+  };
 }
 
 // Invoice-level rollup (computed, not stored)
@@ -302,7 +470,6 @@ export function computeInvoiceRollup(payments: InvoicePayment[]): InvoicePayment
   if (payments.some(p => p.payment_status === "disputed")) invoice_payment_status = "disputed";
   else if (installments_paid === total_installments && total_installments > 0) invoice_payment_status = "paid";
   else if (total_amount_paid > 0) invoice_payment_status = "partial";
-  // Check overdue
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   if (payments.some(p => isOverdue(p.due_date, p.payment_status))) {
