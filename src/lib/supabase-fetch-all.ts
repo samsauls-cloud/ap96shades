@@ -22,7 +22,7 @@ export async function fetchAllRows<T = any>(
   const ascending = options?.ascending ?? false;
 
   while (true) {
-    let query = supabase
+    let query = (supabase as any)
       .from(table)
       .select(select)
       .order(orderBy, { ascending })
@@ -38,10 +38,9 @@ export async function fetchAllRows<T = any>(
 
     all.push(...(data as T[]));
 
-    if (data.length < PAGE_SIZE) break; // last page
+    if (data.length < PAGE_SIZE) break;
     from += PAGE_SIZE;
 
-    // Safety cap at 100k
     if (from >= 100_000) break;
   }
 
