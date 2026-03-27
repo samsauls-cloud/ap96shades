@@ -1428,29 +1428,58 @@ export default function ReceivingPage() {
                   <TableBody>
                     {filteredSessions.map(s => {
                       const pct = s.total_ordered_qty ? Math.round((Number(s.total_received_qty) / Number(s.total_ordered_qty)) * 100) : 0;
+                      const isParent = s.reconciliation_status === 'split';
+                      const isChild = !!(s as any).parent_session_id;
+                      const childSessions = isParent
+                        ? filteredSessions.filter(c => (c as any).parent_session_id === s.id)
+                        : [];
+
                       return (
-                        <TableRow key={s.id} className={selectedSessionId === s.id ? 'bg-accent' : 'cursor-pointer hover:bg-muted/50'} onClick={() => setSelectedSessionId(s.id)}>
-                          <TableCell className="text-xs font-medium">{s.session_name}</TableCell>
-                          <TableCell className="text-xs flex items-center gap-1">
-                            {s.vendor}
-                            {VENDOR_TOOLTIPS[s.vendor] && (
-                              <TooltipProvider>
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Info className="h-3 w-3 text-amber-500 cursor-help" />
-                                  </TooltipTrigger>
-                                  <TooltipContent className="max-w-xs text-xs">{VENDOR_TOOLTIPS[s.vendor]}</TooltipContent>
-                                </Tooltip>
-                              </TooltipProvider>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-xs">{new Date(s.created_at).toLocaleDateString()}</TableCell>
-                          <TableCell className="text-xs text-right">{s.total_lines}</TableCell>
-                          <TableCell className="text-xs text-right">{pct}%</TableCell>
-                          <TableCell className="text-xs text-right">{formatCurrency(Number(s.total_ordered_cost))}</TableCell>
-                          <TableCell><Badge className={`text-xs ${reconStatusColor(s.reconciliation_status)}`}>{s.reconciliation_status}</Badge></TableCell>
-                          <TableCell><Eye className="h-3.5 w-3.5 text-muted-foreground" /></TableCell>
-                        </TableRow>
+                        <React.Fragment key={s.id}>
+                          <TableRow
+                            className={`${selectedSessionId === s.id ? 'bg-accent' : 'cursor-pointer hover:bg-muted/50'} ${isChild ? 'bg-muted/20' : ''}`}
+                            onClick={() => setSelectedSessionId(s.id)}
+                          >
+                            <TableCell className="text-xs font-medium">
+                              <div className="flex items-center gap-1">
+                                {isChild && <span className="text-muted-foreground">└</span>}
+                                {isParent && <span>📦</span>}
+                                {s.session_name}
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-xs flex items-center gap-1">
+                              {s.vendor}
+                              {VENDOR_TOOLTIPS[s.vendor] && (
+                                <TooltipProvider>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Info className="h-3 w-3 text-amber-500 cursor-help" />
+                                    </TooltipTrigger>
+                                    <TooltipContent className="max-w-xs text-xs">{VENDOR_TOOLTIPS[s.vendor]}</TooltipContent>
+                                  </Tooltip>
+                                </TooltipProvider>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-xs">{new Date(s.created_at).toLocaleDateString()}</TableCell>
+                            <TableCell className="text-xs text-right">{s.total_lines}</TableCell>
+                            <TableCell className="text-xs text-right">{pct}%</TableCell>
+                            <TableCell className="text-xs text-right">{formatCurrency(Number(s.total_ordered_cost))}</TableCell>
+                            <TableCell>
+                              <div className="flex flex-col gap-1">
+                                <Badge className={`text-xs ${reconStatusColor(s.reconciliation_status)}`}>
+                                  {s.reconciliation_status === 'partial_reconciled' ? '⚠ Partial' : s.reconciliation_status}
+                                </Badge>
+                                {s.reconciliation_status === 'partial_reconciled' && (
+                                  <span className="text-[10px] text-amber-600">Upload missing invoices</span>
+                                )}
+                                {isParent && childSessions.length > 0 && (
+                                  <span className="text-[10px] text-muted-foreground">{childSessions.length} sub-sessions</span>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell><Eye className="h-3.5 w-3.5 text-muted-foreground" /></TableCell>
+                          </TableRow>
+                        </React.Fragment>
                       );
                     })}
                   </TableBody>
@@ -1459,11 +1488,17 @@ export default function ReceivingPage() {
                 <div className="md:hidden divide-y">
                   {filteredSessions.map(s => {
                     const pct = s.total_ordered_qty ? Math.round((Number(s.total_received_qty) / Number(s.total_ordered_qty)) * 100) : 0;
+                    const isChild = !!(s as any).parent_session_id;
                     return (
-                      <div key={s.id} className={`p-3 space-y-1 cursor-pointer ${selectedSessionId === s.id ? 'bg-accent' : ''}`} onClick={() => setSelectedSessionId(s.id)}>
+                      <div key={s.id} className={`p-3 space-y-1 cursor-pointer ${selectedSessionId === s.id ? 'bg-accent' : ''} ${isChild ? 'pl-6' : ''}`} onClick={() => setSelectedSessionId(s.id)}>
                         <div className="flex items-center justify-between">
-                          <span className="text-sm font-medium">{s.session_name}</span>
-                          <Badge className={`text-xs ${reconStatusColor(s.reconciliation_status)}`}>{s.reconciliation_status}</Badge>
+                          <span className="text-sm font-medium">
+                            {isChild && <span className="text-muted-foreground mr-1">└</span>}
+                            {s.session_name}
+                          </span>
+                          <Badge className={`text-xs ${reconStatusColor(s.reconciliation_status)}`}>
+                            {s.reconciliation_status === 'partial_reconciled' ? '⚠ Partial' : s.reconciliation_status}
+                          </Badge>
                         </div>
                         <div className="flex items-center gap-3 text-xs text-muted-foreground">
                           <span>{s.vendor}</span>
