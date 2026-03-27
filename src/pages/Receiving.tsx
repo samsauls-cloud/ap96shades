@@ -122,14 +122,23 @@ export default function ReceivingPage() {
   });
 
   const filteredInvoices = useMemo(() => {
-    if (!invoiceSearch.trim()) return vendorInvoices;
-    const q = invoiceSearch.toLowerCase().trim();
-    return vendorInvoices.filter(inv =>
-      inv.invoice_number?.toLowerCase().includes(q) ||
-      inv.po_number?.toLowerCase().includes(q) ||
-      inv.vendor?.toLowerCase().includes(q)
-    );
-  }, [vendorInvoices, invoiceSearch]);
+    // Filter by vendor mapping first
+    const reconSession = reconciling ? sessions.find(s => s.id === reconciling) : null;
+    const allowedVendors = reconSession ? RECEIVING_TO_INVOICE_VENDOR[reconSession.vendor] : null;
+    let list = allowedVendors
+      ? vendorInvoices.filter(inv => allowedVendors.some(v => inv.vendor?.toLowerCase() === v.toLowerCase()))
+      : vendorInvoices;
+
+    if (invoiceSearch.trim()) {
+      const q = invoiceSearch.toLowerCase().trim();
+      list = list.filter(inv =>
+        inv.invoice_number?.toLowerCase().includes(q) ||
+        inv.po_number?.toLowerCase().includes(q) ||
+        inv.vendor?.toLowerCase().includes(q)
+      );
+    }
+    return list;
+  }, [vendorInvoices, invoiceSearch, reconciling, sessions]);
 
   // ── File Handler ──
   const handleFile = useCallback((file: File) => {
