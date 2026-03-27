@@ -85,6 +85,39 @@ function DiscrepancyBadge({ type }: { type?: string }) {
   return <Badge className={`text-xs ${colors[type] ?? ''}`}>{type.replace(/_/g, ' ')}</Badge>;
 }
 
+function FinalBillStatusBadge({ status, creditDue, creditApproved }: { status: string; creditDue: number; creditApproved: boolean }) {
+  if (creditDue === 0) return <Badge className="bg-emerald-600 text-white text-[10px]">Clean ✓</Badge>;
+  if (creditApproved) return <Badge className="bg-blue-600 text-white text-[10px]">Credit Approved</Badge>;
+  if (status === 'credit_requested') return <Badge className="bg-amber-500 text-white text-[10px]">📤 Credit Requested</Badge>;
+  if (status === 'paid') return <Badge className="bg-muted text-muted-foreground text-[10px]">💰 Paid</Badge>;
+  return <Badge className="bg-amber-500/80 text-white text-[10px]">⚠ Credit Pending</Badge>;
+}
+
+function MathVerificationBlock({ checks }: { checks: MathCheck[] }) {
+  const allPassed = checks.every(c => c.pass);
+  return (
+    <div className={`border rounded-lg p-3 space-y-2 ${allPassed ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-red-500/5 border-red-500/20'}`}>
+      <div className="flex items-center gap-2">
+        <ShieldCheck className={`h-4 w-4 ${allPassed ? 'text-emerald-600' : 'text-red-600'}`} />
+        <p className={`text-sm font-semibold ${allPassed ? 'text-emerald-600' : 'text-red-600'}`}>
+          {allPassed ? '✓ All math checks passed' : '✗ Math discrepancies detected'}
+        </p>
+      </div>
+      <div className="space-y-1">
+        {checks.map((c, i) => (
+          <div key={i} className="flex items-center gap-2 text-xs">
+            <span className={c.pass ? 'text-emerald-600' : 'text-red-600'}>{c.pass ? '✓' : '✗'}</span>
+            <span className="text-muted-foreground">{c.name}</span>
+            {!c.pass && (
+              <span className="text-red-600 font-mono">— expected {formatCurrency(c.expected)}, got {formatCurrency(c.actual)}</span>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Main Page ──
 export default function ReceivingPage() {
   const qc = useQueryClient();
