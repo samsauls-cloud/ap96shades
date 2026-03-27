@@ -238,34 +238,28 @@ export default function APDashboard() {
   const vendorsInSystem = [...new Set(payments.map(p => p.vendor))];
   const missingVendors = SUPPORTED_VENDORS.filter(v => !vendorsInSystem.includes(v));
 
+  const totalInvoiceCount = payments.length > 0 ? [...new Set(payments.map(p => p.invoice_id))].length : 0;
+
   return (
     <div className="min-h-screen bg-background">
       <InvoiceNav />
       <div className="max-w-[1600px] mx-auto px-4 sm:px-6 py-6 space-y-6">
 
-        {missingVendors.length > 0 && audit && audit.missing_payments > 0 && (
-          <div className="p-4 rounded-lg bg-yellow-500/10 border border-yellow-500/30">
-            <p className="text-sm font-medium text-yellow-600 dark:text-yellow-400">
-              ⚠ {audit.missing_payments} invoices need payment schedules generated. Click "Generate Missing Payments" below.
-            </p>
-          </div>
-        )}
+        {/* Accuracy Banner */}
+        <AuditBanner audit={audit ?? null} totalInvoices={totalInvoiceCount} />
 
-        {audit && (
+        {/* Generate Missing + Quick Stats */}
+        {audit && audit.missingPayments.length > 0 && (
           <Card className="bg-card border-border">
             <CardContent className="p-4">
               <p className="text-sm text-muted-foreground">
-                📊 <span className="font-medium text-foreground">Data Audit:</span>{" "}
-                {audit.total_invoices} invoices · {formatCurrency(audit.total_invoiced)} total
-                · {audit.has_payments} have schedules · {audit.missing_payments} missing
+                📊 <span className="font-medium text-foreground">{audit.missingPayments.length} invoices</span> need payment schedules
                 {serverDate && <> · Server date: <span className="font-mono text-foreground">{serverDate}</span></>}
               </p>
-              {audit.missing_payments > 0 && (
-                <Button size="sm" variant="outline" className="mt-2 text-xs h-7" onClick={handleGenerateAll} disabled={generating}>
-                  {generating ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <RefreshCw className="h-3 w-3 mr-1" />}
-                  Generate All Missing Payments
-                </Button>
-              )}
+              <Button size="sm" variant="outline" className="mt-2 text-xs h-7" onClick={handleGenerateAll} disabled={generating}>
+                {generating ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <RefreshCw className="h-3 w-3 mr-1" />}
+                Generate All Missing Payments
+              </Button>
             </CardContent>
           </Card>
         )}
@@ -276,6 +270,14 @@ export default function APDashboard() {
           </Button>
           <Button size="sm" variant={activeTab === "calendar" ? "default" : "outline"} className="text-xs h-8 flex-1 sm:flex-none" onClick={() => setActiveTab("calendar")}>
             <Calendar className="h-3.5 w-3.5 mr-1" /> 4-Month View
+          </Button>
+          <Button size="sm" variant={activeTab === "audit" ? "default" : "outline"} className="text-xs h-8 flex-1 sm:flex-none" onClick={() => setActiveTab("audit")}>
+            <ShieldCheck className="h-3.5 w-3.5 mr-1" /> Audit
+            {audit && (audit.missingPayments.length + audit.mathDiscrepancies.length + audit.unknownVendors.length + audit.duplicateInvoices.length) > 0 && (
+              <span className="ml-1 px-1 py-0.5 text-[10px] rounded bg-yellow-500/20 text-yellow-600">
+                {audit.missingPayments.length + audit.mathDiscrepancies.length + audit.unknownVendors.length + audit.duplicateInvoices.length}
+              </span>
+            )}
           </Button>
         </div>
 
