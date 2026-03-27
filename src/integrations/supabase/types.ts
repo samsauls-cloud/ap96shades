@@ -277,6 +277,172 @@ export type Database = {
         }
         Relationships: []
       }
+      po_receiving_lines: {
+        Row: {
+          billing_discrepancy: boolean | null
+          created_at: string
+          custom_sku: string | null
+          discrepancy_amount: number | null
+          discrepancy_type: string | null
+          ean: string | null
+          id: string
+          item_description: string | null
+          lightspeed_status: string | null
+          manufact_sku: string | null
+          match_status: string | null
+          matched_invoice_line: Json | null
+          not_received_qty: number | null
+          notes: string | null
+          order_qty: number | null
+          ordered_cost: number | null
+          received_cost: number | null
+          received_qty: number | null
+          receiving_status: string | null
+          retail_price: number | null
+          session_id: string
+          system_id: string | null
+          unit_cost: number | null
+          unit_discount: number | null
+          unit_shipping: number | null
+          upc: string | null
+          vendor_id: string | null
+        }
+        Insert: {
+          billing_discrepancy?: boolean | null
+          created_at?: string
+          custom_sku?: string | null
+          discrepancy_amount?: number | null
+          discrepancy_type?: string | null
+          ean?: string | null
+          id?: string
+          item_description?: string | null
+          lightspeed_status?: string | null
+          manufact_sku?: string | null
+          match_status?: string | null
+          matched_invoice_line?: Json | null
+          not_received_qty?: number | null
+          notes?: string | null
+          order_qty?: number | null
+          ordered_cost?: number | null
+          received_cost?: number | null
+          received_qty?: number | null
+          receiving_status?: string | null
+          retail_price?: number | null
+          session_id: string
+          system_id?: string | null
+          unit_cost?: number | null
+          unit_discount?: number | null
+          unit_shipping?: number | null
+          upc?: string | null
+          vendor_id?: string | null
+        }
+        Update: {
+          billing_discrepancy?: boolean | null
+          created_at?: string
+          custom_sku?: string | null
+          discrepancy_amount?: number | null
+          discrepancy_type?: string | null
+          ean?: string | null
+          id?: string
+          item_description?: string | null
+          lightspeed_status?: string | null
+          manufact_sku?: string | null
+          match_status?: string | null
+          matched_invoice_line?: Json | null
+          not_received_qty?: number | null
+          notes?: string | null
+          order_qty?: number | null
+          ordered_cost?: number | null
+          received_cost?: number | null
+          received_qty?: number | null
+          receiving_status?: string | null
+          retail_price?: number | null
+          session_id?: string
+          system_id?: string | null
+          unit_cost?: number | null
+          unit_discount?: number | null
+          unit_shipping?: number | null
+          upc?: string | null
+          vendor_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "po_receiving_lines_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "po_receiving_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      po_receiving_sessions: {
+        Row: {
+          created_at: string
+          fully_received: number | null
+          id: string
+          lightspeed_export_type: string | null
+          not_received: number | null
+          notes: string | null
+          partially_received: number | null
+          raw_filename: string | null
+          reconciled_invoice_id: string | null
+          reconciliation_status: string
+          session_name: string
+          total_lines: number | null
+          total_ordered_cost: number | null
+          total_ordered_qty: number | null
+          total_received_cost: number | null
+          total_received_qty: number | null
+          vendor: string
+        }
+        Insert: {
+          created_at?: string
+          fully_received?: number | null
+          id?: string
+          lightspeed_export_type?: string | null
+          not_received?: number | null
+          notes?: string | null
+          partially_received?: number | null
+          raw_filename?: string | null
+          reconciled_invoice_id?: string | null
+          reconciliation_status?: string
+          session_name: string
+          total_lines?: number | null
+          total_ordered_cost?: number | null
+          total_ordered_qty?: number | null
+          total_received_cost?: number | null
+          total_received_qty?: number | null
+          vendor: string
+        }
+        Update: {
+          created_at?: string
+          fully_received?: number | null
+          id?: string
+          lightspeed_export_type?: string | null
+          not_received?: number | null
+          notes?: string | null
+          partially_received?: number | null
+          raw_filename?: string | null
+          reconciled_invoice_id?: string | null
+          reconciliation_status?: string
+          session_name?: string
+          total_lines?: number | null
+          total_ordered_cost?: number | null
+          total_ordered_qty?: number | null
+          total_received_cost?: number | null
+          total_received_qty?: number | null
+          vendor?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "po_receiving_sessions_reconciled_invoice_id_fkey"
+            columns: ["reconciled_invoice_id"]
+            isOneToOne: false
+            referencedRelation: "vendor_invoices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       vendor_invoices: {
         Row: {
           account_number: string | null
