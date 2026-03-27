@@ -564,6 +564,150 @@ export type Database = {
           },
         ]
       }
+      reconciliation_discrepancies: {
+        Row: {
+          amount_at_risk: number | null
+          brand: string | null
+          created_at: string | null
+          discrepancy_type: string
+          id: string
+          invoice_date: string | null
+          invoice_id: string | null
+          invoice_number: string | null
+          invoiced_line_total: number | null
+          invoiced_qty: number | null
+          invoiced_unit_price: number | null
+          model_number: string | null
+          ordered_line_total: number | null
+          ordered_qty: number | null
+          ordered_unit_price: number | null
+          po_number: string | null
+          price_delta: number | null
+          qty_delta: number | null
+          received_qty: number | null
+          resolution_notes: string | null
+          resolution_status: string | null
+          resolved_at: string | null
+          resolved_by: string | null
+          run_id: string | null
+          severity: string | null
+          sku: string | null
+          upc: string | null
+          vendor: string | null
+        }
+        Insert: {
+          amount_at_risk?: number | null
+          brand?: string | null
+          created_at?: string | null
+          discrepancy_type: string
+          id?: string
+          invoice_date?: string | null
+          invoice_id?: string | null
+          invoice_number?: string | null
+          invoiced_line_total?: number | null
+          invoiced_qty?: number | null
+          invoiced_unit_price?: number | null
+          model_number?: string | null
+          ordered_line_total?: number | null
+          ordered_qty?: number | null
+          ordered_unit_price?: number | null
+          po_number?: string | null
+          price_delta?: number | null
+          qty_delta?: number | null
+          received_qty?: number | null
+          resolution_notes?: string | null
+          resolution_status?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          run_id?: string | null
+          severity?: string | null
+          sku?: string | null
+          upc?: string | null
+          vendor?: string | null
+        }
+        Update: {
+          amount_at_risk?: number | null
+          brand?: string | null
+          created_at?: string | null
+          discrepancy_type?: string
+          id?: string
+          invoice_date?: string | null
+          invoice_id?: string | null
+          invoice_number?: string | null
+          invoiced_line_total?: number | null
+          invoiced_qty?: number | null
+          invoiced_unit_price?: number | null
+          model_number?: string | null
+          ordered_line_total?: number | null
+          ordered_qty?: number | null
+          ordered_unit_price?: number | null
+          po_number?: string | null
+          price_delta?: number | null
+          qty_delta?: number | null
+          received_qty?: number | null
+          resolution_notes?: string | null
+          resolution_status?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          run_id?: string | null
+          severity?: string | null
+          sku?: string | null
+          upc?: string | null
+          vendor?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reconciliation_discrepancies_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "vendor_invoices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reconciliation_discrepancies_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "reconciliation_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      reconciliation_runs: {
+        Row: {
+          id: string
+          notes: string | null
+          run_at: string | null
+          run_by: string | null
+          status: string | null
+          total_amount_at_risk: number | null
+          total_discrepancies: number | null
+          total_invoices_checked: number | null
+          total_po_lines_checked: number | null
+        }
+        Insert: {
+          id?: string
+          notes?: string | null
+          run_at?: string | null
+          run_by?: string | null
+          status?: string | null
+          total_amount_at_risk?: number | null
+          total_discrepancies?: number | null
+          total_invoices_checked?: number | null
+          total_po_lines_checked?: number | null
+        }
+        Update: {
+          id?: string
+          notes?: string | null
+          run_at?: string | null
+          run_by?: string | null
+          status?: string | null
+          total_amount_at_risk?: number | null
+          total_discrepancies?: number | null
+          total_invoices_checked?: number | null
+          total_po_lines_checked?: number | null
+        }
+        Relationships: []
+      }
       vendor_invoices: {
         Row: {
           account_number: string | null
@@ -575,12 +719,14 @@ export type Database = {
           filename: string | null
           final_bill_amount: number | null
           freight: number | null
+          has_discrepancy: boolean | null
           id: string
           imported_at: string
           imported_by: string | null
           invoice_date: string
           invoice_number: string
           is_multi_shipment: boolean
+          last_reconciled_at: string | null
           last_shipment_date: string | null
           last_shipment_file: string | null
           line_items: Json
@@ -588,6 +734,9 @@ export type Database = {
           payment_terms: string | null
           po_number: string | null
           po_total_invoiced: number | null
+          recon_notes: string | null
+          recon_run_id: string | null
+          recon_status: string | null
           reconciled_at: string | null
           reconciled_session_id: string | null
           reconciliation_status: string | null
@@ -611,12 +760,14 @@ export type Database = {
           filename?: string | null
           final_bill_amount?: number | null
           freight?: number | null
+          has_discrepancy?: boolean | null
           id?: string
           imported_at?: string
           imported_by?: string | null
           invoice_date: string
           invoice_number: string
           is_multi_shipment?: boolean
+          last_reconciled_at?: string | null
           last_shipment_date?: string | null
           last_shipment_file?: string | null
           line_items?: Json
@@ -624,6 +775,9 @@ export type Database = {
           payment_terms?: string | null
           po_number?: string | null
           po_total_invoiced?: number | null
+          recon_notes?: string | null
+          recon_run_id?: string | null
+          recon_status?: string | null
           reconciled_at?: string | null
           reconciled_session_id?: string | null
           reconciliation_status?: string | null
@@ -647,12 +801,14 @@ export type Database = {
           filename?: string | null
           final_bill_amount?: number | null
           freight?: number | null
+          has_discrepancy?: boolean | null
           id?: string
           imported_at?: string
           imported_by?: string | null
           invoice_date?: string
           invoice_number?: string
           is_multi_shipment?: boolean
+          last_reconciled_at?: string | null
           last_shipment_date?: string | null
           last_shipment_file?: string | null
           line_items?: Json
@@ -660,6 +816,9 @@ export type Database = {
           payment_terms?: string | null
           po_number?: string | null
           po_total_invoiced?: number | null
+          recon_notes?: string | null
+          recon_run_id?: string | null
+          recon_status?: string | null
           reconciled_at?: string | null
           reconciled_session_id?: string | null
           reconciliation_status?: string | null

@@ -15,6 +15,9 @@ const docTypeConfig: Record<string, { label: string; className: string }> = {
 
 const reconStatusConfig: Record<string, { label: string; className: string }> = {
   unreconciled: { label: "⬜ Unreconciled", className: "bg-muted text-muted-foreground border-border" },
+  pending: { label: "—", className: "bg-muted text-muted-foreground border-border" },
+  clean: { label: "✅ Clean", className: "bg-emerald-500/15 text-emerald-600 border-emerald-500/30" },
+  discrepancy: { label: "⚠ Issues", className: "bg-destructive/15 text-destructive border-destructive/30" },
   in_progress: { label: "🔄 In Progress", className: "bg-blue-500/15 text-blue-600 border-blue-500/30" },
   reconciled: { label: "✅ Reconciled", className: "bg-emerald-500/15 text-emerald-600 border-emerald-500/30" },
   credit_pending: { label: "⚠ Credit Pending", className: "bg-amber-500/15 text-amber-600 border-amber-500/30" },
