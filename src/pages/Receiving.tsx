@@ -622,10 +622,10 @@ export default function ReceivingPage() {
     }
   };
 
-  // ── Reconcile All Unreconciled Sessions ──
+  // ── Reconcile All — includes unreconciled, partial, and discrepancy sessions ──
   const reconAllEligible = useMemo(() => {
     return sessions.filter(s =>
-      s.reconciliation_status === 'unreconciled' &&
+      ['unreconciled', 'partial_reconciled', 'discrepancy'].includes(s.reconciliation_status) &&
       !((s as any).child_session_ids?.length > 0) // exclude parent split sessions
     );
   }, [sessions]);
@@ -651,6 +651,20 @@ export default function ReceivingPage() {
           // Fetch session lines
           const lines = await fetchSessionLines(session.id);
           if (lines.length === 0) { skipped++; continue; }
+
+          // For re-reconciliation: reset existing match data on lines
+          const isReRecon = session.reconciliation_status !== 'unreconciled';
+          if (isReRecon) {
+            for (const line of lines) {
+              await updateLineReconciliation(line.id, {
+                matched_invoice_line: null as any,
+                match_status: null,
+                billing_discrepancy: false,
+                discrepancy_type: null,
+                discrepancy_amount: 0,
+              });
+            }
+          }
 
           // Determine allowed vendors
           const isEOL = session.vendor === 'EOL';
@@ -1591,7 +1605,7 @@ export default function ReceivingPage() {
               <div className="flex items-center gap-2">
                 <CardTitle className="text-base">Receiving History</CardTitle>
                 {reconAllEligible.length > 0 && (
-                  <Badge className="bg-primary/10 text-primary text-[10px]">{reconAllEligible.length} unreconciled</Badge>
+                  <Badge className="bg-primary/10 text-primary text-[10px]">{reconAllEligible.length} pending</Badge>
                 )}
               </div>
               <div className="flex items-center gap-2 flex-wrap">
