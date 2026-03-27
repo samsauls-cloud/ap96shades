@@ -709,85 +709,111 @@ export type ReceivingDedupAction =
   | { type: 'exact_duplicate'; existingSessionId: string; sessionName: string }
   | { type: 'update_available'; existingSessionId: string; sessionName: string; changedLines: number; unchangedLines: number; newLines: number };
 
+/**
+ * Generate a content fingerprint from parsed lines (vendor + sorted line keys).
+ * This is filename-agnostic — identical CSV content always produces the same hash.
+ */
+function computeContentFingerprint(vendor: string, lines: ParsedLine[]): string {
+  const lineKeys = lines
+    .map(l => `${l.upc || ''}|${l.manufact_sku || ''}|${l.order_qty}|${l.received_qty ?? 'null'}|${l.unit_cost}`)
+    .sort();
+  return `${vendor}::${lines.length}::${lineKeys.join('\n')}`;
+}
+
+/**
+ * Simple string hash (djb2) for fingerprint comparison.
+ */
+function djb2Hash(str: string): string {
+  let hash = 5381;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) + hash) + str.charCodeAt(i);
+    hash = hash & hash; // Convert to 32-bit int
+  }
+  return Math.abs(hash).toString(36);
+}
+
 export async function checkReceivingDuplicate(
   vendor: string,
   filename: string,
   incomingLines: ParsedLine[]
 ): Promise<ReceivingDedupAction> {
-  // Guard 1: exact filename match
-  const { data: byFile } = await supabase
+  // Generate content fingerprint for incoming data
+  const fingerprint = djb2Hash(computeContentFingerprint(vendor, incomingLines));
+
+  // Guard 1: Check ALL sessions for this vendor (not just by filename)
+  const { data: vendorSessions } = await supabase
     .from('po_receiving_sessions')
-    .select('id, session_name')
-    .eq('raw_filename', filename)
+    .select('id, session_name, raw_filename, total_lines')
     .eq('vendor', vendor)
-    .limit(1);
+    .order('created_at', { ascending: false })
+    .limit(50);
 
-  if (byFile && byFile.length > 0) {
-    const existingSession = byFile[0];
-    // Check if lines are identical
-    const { data: existingLines } = await supabase
-      .from('po_receiving_lines')
-      .select('upc, manufact_sku, order_qty, received_qty')
-      .eq('session_id', existingSession.id);
+  if (vendorSessions && vendorSessions.length > 0) {
+    // Check sessions with same line count first (most likely matches)
+    const sameSizeSessions = vendorSessions.filter(s => s.total_lines === incomingLines.length);
 
-    if (existingLines) {
-      const existingKey = new Set(existingLines.map(l =>
-        `${l.upc || ''}|${l.manufact_sku || ''}|${l.order_qty}|${l.received_qty}`
-      ));
-      const incomingKey = new Set(incomingLines.map(l =>
-        `${l.upc || ''}|${l.manufact_sku || ''}|${l.order_qty}|${l.received_qty}`
-      ));
-      const identical = existingKey.size === incomingKey.size &&
-        [...incomingKey].every(k => existingKey.has(k));
+    for (const existingSession of sameSizeSessions) {
+      const { data: existingLines } = await supabase
+        .from('po_receiving_lines')
+        .select('upc, manufact_sku, order_qty, received_qty, unit_cost')
+        .eq('session_id', existingSession.id);
 
-      if (identical) {
-        return { type: 'exact_duplicate', existingSessionId: existingSession.id, sessionName: existingSession.session_name };
+      if (!existingLines) continue;
+
+      // Build fingerprint from existing lines
+      const existingLineKeys = existingLines
+        .map(l => `${l.upc || ''}|${l.manufact_sku || ''}|${l.order_qty}|${l.received_qty ?? 'null'}|${l.unit_cost}`)
+        .sort();
+      const existingFP = djb2Hash(`${vendor}::${existingLines.length}::${existingLineKeys.join('\n')}`);
+
+      if (existingFP === fingerprint) {
+        return {
+          type: 'exact_duplicate',
+          existingSessionId: existingSession.id,
+          sessionName: existingSession.session_name,
+        };
       }
+    }
 
-      // Not identical = updated CSV — compute diff
-      const existingByUPC = new Map<string, typeof existingLines[0]>();
-      for (const l of existingLines) {
-        const key = l.upc || l.manufact_sku || '';
-        if (key) existingByUPC.set(key, l);
-      }
+    // Guard 2: filename match with different content = update available
+    const byFile = vendorSessions.find(s => s.raw_filename === filename);
+    if (byFile) {
+      const { data: existingLines } = await supabase
+        .from('po_receiving_lines')
+        .select('upc, manufact_sku, order_qty, received_qty')
+        .eq('session_id', byFile.id);
 
-      let changed = 0, unchanged = 0, brandNew = 0;
-      for (const inc of incomingLines) {
-        const key = inc.upc || inc.manufact_sku || '';
-        const existing = key ? existingByUPC.get(key) : undefined;
-        if (!existing) { brandNew++; continue; }
-        if (existing.received_qty !== inc.received_qty || existing.order_qty !== inc.order_qty) {
-          changed++;
-        } else {
-          unchanged++;
+      if (existingLines) {
+        const existingByUPC = new Map<string, typeof existingLines[0]>();
+        for (const l of existingLines) {
+          const key = l.upc || l.manufact_sku || '';
+          if (key) existingByUPC.set(key, l);
+        }
+
+        let changed = 0, unchanged = 0, brandNew = 0;
+        for (const inc of incomingLines) {
+          const key = inc.upc || inc.manufact_sku || '';
+          const existing = key ? existingByUPC.get(key) : undefined;
+          if (!existing) { brandNew++; continue; }
+          if (existing.received_qty !== inc.received_qty || existing.order_qty !== inc.order_qty) {
+            changed++;
+          } else {
+            unchanged++;
+          }
+        }
+
+        if (changed > 0 || brandNew > 0) {
+          return {
+            type: 'update_available',
+            existingSessionId: byFile.id,
+            sessionName: byFile.session_name,
+            changedLines: changed,
+            unchangedLines: unchanged,
+            newLines: brandNew,
+          };
         }
       }
-
-      return {
-        type: 'update_available',
-        existingSessionId: existingSession.id,
-        sessionName: existingSession.session_name,
-        changedLines: changed,
-        unchangedLines: unchanged,
-        newLines: brandNew,
-      };
     }
-  }
-
-  // Guard 2: same vendor, check for UPC overlap with any session
-  const incomingUPCs = incomingLines.map(l => l.upc).filter(Boolean);
-  if (incomingUPCs.length > 0) {
-    const { data: overlapping } = await supabase
-      .from('po_receiving_lines')
-      .select('session_id, upc')
-      .eq('session_id', (await supabase
-        .from('po_receiving_sessions')
-        .select('id')
-        .eq('vendor', vendor)
-        .limit(50)).data?.map(s => s.id)[0] ?? '')
-      .in('upc', incomingUPCs.slice(0, 50))
-      .limit(1);
-    // This is a soft check — the filename guard above is the primary safeguard
   }
 
   return { type: 'new' };
