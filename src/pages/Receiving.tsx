@@ -135,6 +135,11 @@ export default function ReceivingPage() {
     enabled: !!reconciling,
   });
 
+  // ── Final Bill Ledger Query ──
+  const { data: finalBillEntries = [], isLoading: finalBillLoading } = useQuery({
+    queryKey: ['final-bill-ledger'],
+    queryFn: fetchFinalBillLedger,
+  });
   // ── Invoice filtering by vendor mapping ──
   // For EOL sessions, resolve real vendors from session lines instead of using static map
   const reconSession = reconciling ? sessions.find(s => s.id === reconciling) : null;
