@@ -262,6 +262,8 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
         {/* Match Report */}
         <MatchReportSection invoice={inv} />
 
+        {/* Reconciliation Status */}
+        <ReconSection invoiceId={inv.id} reconStatus={(inv as any).recon_status} lastReconciled={(inv as any).last_reconciled_at} />
         {/* Payment schedule */}
         {hasTermsEngine(inv.vendor) && (
           <div className="mb-4">
