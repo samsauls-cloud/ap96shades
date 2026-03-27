@@ -130,8 +130,8 @@ export default function MatchReportPage() {
                         <TableHead className="text-[10px] font-semibold">Model</TableHead>
                         <TableHead className="text-[10px] font-semibold">Brand</TableHead>
                         <TableHead className="text-[10px] font-semibold">Assortment</TableHead>
-                        <TableHead className="text-[10px] font-semibold">Go Out</TableHead>
                         <TableHead className="text-[10px] font-semibold">Backstock</TableHead>
+                        <TableHead className="text-[10px] font-semibold">Go Out</TableHead>
                         <TableHead className="text-[10px] font-semibold text-right">Wholesale</TableHead>
                         <TableHead className="text-[10px] font-semibold text-right">Invoice Price</TableHead>
                         <TableHead className="text-[10px] font-semibold text-right">Qty</TableHead>
@@ -147,7 +147,7 @@ export default function MatchReportPage() {
                           <TableCell className="text-[10px]">{r.lineItem.brand ?? "—"}</TableCell>
                           <TableCell className="text-[10px]">{r.assortmentRecord?.assortment ?? "—"}</TableCell>
                           <TableCell className="text-[10px]">{r.assortmentRecord?.backstock_location ?? "—"}</TableCell>
-                          <TableCell className="text-[10px]">{r.assortmentRecord?.backstock_location ?? "—"}</TableCell>
+                          <TableCell className="text-[10px]">{r.assortmentRecord?.go_out_location ?? "—"}</TableCell>
                           <TableCell className="text-[10px] text-right tabular-nums">{formatCurrency(r.assortmentRecord?.wholesale)}</TableCell>
                           <TableCell className={`text-[10px] text-right tabular-nums ${r.priceFlag ? "text-status-unpaid font-bold" : ""}`}>
                             {formatCurrency(r.lineItem.unit_price)}{r.priceFlag && " ⚠"}
