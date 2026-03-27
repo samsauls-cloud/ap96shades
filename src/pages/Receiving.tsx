@@ -622,10 +622,10 @@ export default function ReceivingPage() {
     }
   };
 
-  // ── Reconcile All Unreconciled Sessions ──
+  // ── Reconcile All — includes unreconciled, partial, and discrepancy sessions ──
   const reconAllEligible = useMemo(() => {
     return sessions.filter(s =>
-      s.reconciliation_status === 'unreconciled' &&
+      ['unreconciled', 'partial_reconciled', 'discrepancy'].includes(s.reconciliation_status) &&
       !((s as any).child_session_ids?.length > 0) // exclude parent split sessions
     );
   }, [sessions]);
