@@ -102,6 +102,12 @@ export default function ReceivingPage() {
   const [reconciling, setReconciling] = useState<string | null>(null);
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string>('');
   const [invoiceSearch, setInvoiceSearch] = useState('');
+  const [mathChecks, setMathChecks] = useState<MathCheck[] | null>(null);
+  const [reconTotals, setReconTotals] = useState<ReconciliationTotals | null>(null);
+  const [activeTab, setActiveTab] = useState<'receiving' | 'final-bill'>('receiving');
+  const [creditConfirmOpen, setCreditConfirmOpen] = useState<string | null>(null);
+  const [creditAmount, setCreditAmount] = useState('');
+  const [creditApprover, setCreditApprover] = useState('');
 
   // ── Queries ──
   const { data: sessions = [], isLoading: sessionsLoading } = useQuery({
