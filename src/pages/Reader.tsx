@@ -56,15 +56,18 @@ export default function ReaderPage() {
     localStorage.setItem("anthropic_api_key", cleanKey);
   };
 
+  const isAcceptedFile = (f: File) =>
+    f.type === "application/pdf" || f.name.toLowerCase().endsWith(".csv") || f.type === "text/csv";
+
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
-    const files = Array.from(e.dataTransfer.files).filter(f => f.type === "application/pdf");
-    if (files.length === 0) { toast.error("Only PDF files are supported"); return; }
+    const files = Array.from(e.dataTransfer.files).filter(isAcceptedFile);
+    if (files.length === 0) { toast.error("Only PDF and CSV files are supported"); return; }
     setQueue(prev => [...prev, ...files]);
   }, []);
 
   const handleFileInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []).filter(f => f.type === "application/pdf");
+    const files = Array.from(e.target.files ?? []).filter(isAcceptedFile);
     if (files.length === 0) return;
     setQueue(prev => [...prev, ...files]);
     e.target.value = "";
