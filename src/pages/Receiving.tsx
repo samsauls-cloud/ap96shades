@@ -135,7 +135,27 @@ export default function ReceivingPage() {
     if (file) handleFile(file);
   }, [handleFile]);
 
-  // ── Import ──
+  // ── Pre-Import Dedup Check ──
+  const runDedupCheck = async () => {
+    if (!preview) return;
+    setCheckingDedup(true);
+    try {
+      const result = await checkReceivingDuplicate(preview.vendor, preview.filename, preview.lines);
+      setDedupResult(result);
+      if (result.type === 'exact_duplicate') {
+        toast.warning('This exact CSV has already been imported — no changes needed.');
+      } else if (result.type === 'update_available') {
+        toast.info(`Updated CSV detected: ${result.changedLines} changed, ${result.newLines} new lines. Review below.`);
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Dedup check failed');
+      setDedupResult({ type: 'new' }); // fallback to allow import
+    } finally {
+      setCheckingDedup(false);
+    }
+  };
+
+  // ── Import (new session) ──
   const doImport = async () => {
     if (!preview) return;
     setImporting(true);
@@ -152,10 +172,34 @@ export default function ReceivingPage() {
       toast.success(`Imported ${preview.lines.length} lines`);
       setPreview(null);
       setSessionName('');
+      setDedupResult(null);
       setSelectedSessionId(session.id);
       qc.invalidateQueries({ queryKey: ['receiving-sessions'] });
     } catch (err: any) {
       toast.error(err.message || 'Import failed');
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  // ── Merge Update (existing session) ──
+  const doMergeUpdate = async () => {
+    if (!preview || !dedupResult || dedupResult.type !== 'update_available') return;
+    setImporting(true);
+    try {
+      const { updatedCount, insertedCount } = await mergeReceivingUpdate(
+        dedupResult.existingSessionId,
+        preview.lines
+      );
+      toast.success(`Merged: ${updatedCount} lines updated, ${insertedCount} new lines added. Unchanged lines were preserved.`);
+      setPreview(null);
+      setSessionName('');
+      setDedupResult(null);
+      setSelectedSessionId(dedupResult.existingSessionId);
+      qc.invalidateQueries({ queryKey: ['receiving-sessions'] });
+      qc.invalidateQueries({ queryKey: ['receiving-lines', dedupResult.existingSessionId] });
+    } catch (err: any) {
+      toast.error(err.message || 'Merge failed');
     } finally {
       setImporting(false);
     }
