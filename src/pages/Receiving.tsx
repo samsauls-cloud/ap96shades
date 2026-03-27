@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from "react";
+import React, { useState, useCallback, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { InvoiceNav } from "@/components/invoices/InvoiceNav";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -481,13 +481,17 @@ export default function ReceivingPage() {
     try {
       const skipPriceCheck = selectedSession.vendor === 'EOL';
 
+      // CREDIT ISOLATION GUARD: Each invoice group is processed independently.
+      // Credits from Invoice A's lines NEVER bleed to Invoice B or C.
+      // Each group gets its own computeReconciliationTotals, its own final_bill_ledger entry,
+      // and its own applyCreditToPayments call — completely isolated.
       for (const group of multiMatchResult.groups) {
         const invoice = vendorInvoices.find(v => v.id === group.invoiceId);
         if (!invoice) continue;
 
         const invoiceLines = getLineItems(invoice);
 
-        // Match and reconcile each line in this group
+        // Match and reconcile each line in this group — ONLY against this group's invoice
         let hasDiscrepancy = false;
         for (const line of group.lines) {
           const lineUpc = line.upc ? String(line.upc).replace(/\D/g, '') : '';
@@ -507,7 +511,7 @@ export default function ReceivingPage() {
           if (disc) hasDiscrepancy = true;
         }
 
-        // Compute totals for this group
+        // Compute totals ONLY for this invoice group's lines — isolated credit calculation
         const { data: freshGroupLines } = await supabase
           .from('po_receiving_lines')
           .select('*')
@@ -515,11 +519,11 @@ export default function ReceivingPage() {
         const gLines = freshGroupLines ?? group.lines;
         const totals = computeReconciliationTotals(gLines, invoice.total);
 
-        // Update vendor_invoices
+        // This credit applies ONLY to this invoice — never aggregate across invoices
         const reconStatus = totals.totalCreditDue > 0 ? 'credit_pending' : 'reconciled';
         await updateInvoiceReconciliation(group.invoiceId, selectedSessionId, totals.totalCreditDue, totals.finalBillAmount, reconStatus);
 
-        // Create final bill ledger
+        // Create independent final bill ledger entry per invoice
         await upsertFinalBillEntry(
           group.invoiceId, selectedSessionId, invoice,
           {
@@ -529,6 +533,7 @@ export default function ReceivingPage() {
           totals
         );
 
+        // Apply credits independently per invoice — isolated from other invoice groups
         if (totals.totalCreditDue > 0) {
           await applyCreditToPayments(group.invoiceId, totals.totalCreditDue);
         }
@@ -837,10 +842,24 @@ export default function ReceivingPage() {
                     {' '}· {new Date(selectedSession.created_at).toLocaleDateString()}
                   </CardDescription>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <Badge className={reconStatusColor(selectedSession.reconciliation_status)}>
-                    {selectedSession.reconciliation_status}
+                    {selectedSession.reconciliation_status === 'partial_reconciled' ? '⚠ Partially Reconciled' : selectedSession.reconciliation_status}
                   </Badge>
+                  {selectedSession.reconciliation_status === 'partial_reconciled' && (() => {
+                    const totalLines = Number(selectedSession.total_lines || 0);
+                    const unmatchedCount = sessionLines.filter((l: any) => l.match_status === 'INVOICE_NOT_UPLOADED').length;
+                    const matchedCount = totalLines - unmatchedCount;
+                    const pctReconciled = totalLines > 0 ? Math.round((matchedCount / totalLines) * 100) : 0;
+                    return (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-amber-600">{matchedCount} of {totalLines} lines reconciled ({pctReconciled}%)</span>
+                        <div className="w-24 h-1.5 bg-muted rounded-full overflow-hidden">
+                          <div className="h-full bg-amber-500 rounded-full transition-all" style={{ width: `${pctReconciled}%` }} />
+                        </div>
+                      </div>
+                    );
+                  })()}
                   {selectedSession.reconciliation_status === 'unreconciled' && (
                     <>
                       <Button size="sm" variant="outline" onClick={() => setReconciling(selectedSessionId)} className="gap-1">
@@ -1423,29 +1442,58 @@ export default function ReceivingPage() {
                   <TableBody>
                     {filteredSessions.map(s => {
                       const pct = s.total_ordered_qty ? Math.round((Number(s.total_received_qty) / Number(s.total_ordered_qty)) * 100) : 0;
+                      const isParent = s.reconciliation_status === 'split';
+                      const isChild = !!(s as any).parent_session_id;
+                      const childSessions = isParent
+                        ? filteredSessions.filter(c => (c as any).parent_session_id === s.id)
+                        : [];
+
                       return (
-                        <TableRow key={s.id} className={selectedSessionId === s.id ? 'bg-accent' : 'cursor-pointer hover:bg-muted/50'} onClick={() => setSelectedSessionId(s.id)}>
-                          <TableCell className="text-xs font-medium">{s.session_name}</TableCell>
-                          <TableCell className="text-xs flex items-center gap-1">
-                            {s.vendor}
-                            {VENDOR_TOOLTIPS[s.vendor] && (
-                              <TooltipProvider>
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Info className="h-3 w-3 text-amber-500 cursor-help" />
-                                  </TooltipTrigger>
-                                  <TooltipContent className="max-w-xs text-xs">{VENDOR_TOOLTIPS[s.vendor]}</TooltipContent>
-                                </Tooltip>
-                              </TooltipProvider>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-xs">{new Date(s.created_at).toLocaleDateString()}</TableCell>
-                          <TableCell className="text-xs text-right">{s.total_lines}</TableCell>
-                          <TableCell className="text-xs text-right">{pct}%</TableCell>
-                          <TableCell className="text-xs text-right">{formatCurrency(Number(s.total_ordered_cost))}</TableCell>
-                          <TableCell><Badge className={`text-xs ${reconStatusColor(s.reconciliation_status)}`}>{s.reconciliation_status}</Badge></TableCell>
-                          <TableCell><Eye className="h-3.5 w-3.5 text-muted-foreground" /></TableCell>
-                        </TableRow>
+                        <React.Fragment key={s.id}>
+                          <TableRow
+                            className={`${selectedSessionId === s.id ? 'bg-accent' : 'cursor-pointer hover:bg-muted/50'} ${isChild ? 'bg-muted/20' : ''}`}
+                            onClick={() => setSelectedSessionId(s.id)}
+                          >
+                            <TableCell className="text-xs font-medium">
+                              <div className="flex items-center gap-1">
+                                {isChild && <span className="text-muted-foreground">└</span>}
+                                {isParent && <span>📦</span>}
+                                {s.session_name}
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-xs flex items-center gap-1">
+                              {s.vendor}
+                              {VENDOR_TOOLTIPS[s.vendor] && (
+                                <TooltipProvider>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Info className="h-3 w-3 text-amber-500 cursor-help" />
+                                    </TooltipTrigger>
+                                    <TooltipContent className="max-w-xs text-xs">{VENDOR_TOOLTIPS[s.vendor]}</TooltipContent>
+                                  </Tooltip>
+                                </TooltipProvider>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-xs">{new Date(s.created_at).toLocaleDateString()}</TableCell>
+                            <TableCell className="text-xs text-right">{s.total_lines}</TableCell>
+                            <TableCell className="text-xs text-right">{pct}%</TableCell>
+                            <TableCell className="text-xs text-right">{formatCurrency(Number(s.total_ordered_cost))}</TableCell>
+                            <TableCell>
+                              <div className="flex flex-col gap-1">
+                                <Badge className={`text-xs ${reconStatusColor(s.reconciliation_status)}`}>
+                                  {s.reconciliation_status === 'partial_reconciled' ? '⚠ Partial' : s.reconciliation_status}
+                                </Badge>
+                                {s.reconciliation_status === 'partial_reconciled' && (
+                                  <span className="text-[10px] text-amber-600">Upload missing invoices</span>
+                                )}
+                                {isParent && childSessions.length > 0 && (
+                                  <span className="text-[10px] text-muted-foreground">{childSessions.length} sub-sessions</span>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell><Eye className="h-3.5 w-3.5 text-muted-foreground" /></TableCell>
+                          </TableRow>
+                        </React.Fragment>
                       );
                     })}
                   </TableBody>
@@ -1454,11 +1502,17 @@ export default function ReceivingPage() {
                 <div className="md:hidden divide-y">
                   {filteredSessions.map(s => {
                     const pct = s.total_ordered_qty ? Math.round((Number(s.total_received_qty) / Number(s.total_ordered_qty)) * 100) : 0;
+                    const isChild = !!(s as any).parent_session_id;
                     return (
-                      <div key={s.id} className={`p-3 space-y-1 cursor-pointer ${selectedSessionId === s.id ? 'bg-accent' : ''}`} onClick={() => setSelectedSessionId(s.id)}>
+                      <div key={s.id} className={`p-3 space-y-1 cursor-pointer ${selectedSessionId === s.id ? 'bg-accent' : ''} ${isChild ? 'pl-6' : ''}`} onClick={() => setSelectedSessionId(s.id)}>
                         <div className="flex items-center justify-between">
-                          <span className="text-sm font-medium">{s.session_name}</span>
-                          <Badge className={`text-xs ${reconStatusColor(s.reconciliation_status)}`}>{s.reconciliation_status}</Badge>
+                          <span className="text-sm font-medium">
+                            {isChild && <span className="text-muted-foreground mr-1">└</span>}
+                            {s.session_name}
+                          </span>
+                          <Badge className={`text-xs ${reconStatusColor(s.reconciliation_status)}`}>
+                            {s.reconciliation_status === 'partial_reconciled' ? '⚠ Partial' : s.reconciliation_status}
+                          </Badge>
                         </div>
                         <div className="flex items-center gap-3 text-xs text-muted-foreground">
                           <span>{s.vendor}</span>

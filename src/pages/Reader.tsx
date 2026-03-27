@@ -10,7 +10,8 @@ import { Switch } from "@/components/ui/switch";
 import { Link } from "react-router-dom";
 import { InvoiceNav } from "@/components/invoices/InvoiceNav";
 import { DocTypeBadge } from "@/components/invoices/Badges";
-import { insertInvoice, formatCurrency, type VendorInvoiceInsert } from "@/lib/supabase-queries";
+import { insertInvoice, formatCurrency, type VendorInvoiceInsert, getLineItems } from "@/lib/supabase-queries";
+import { checkPendingMatches } from "@/lib/pending-match";
 import { generatePaymentsForInvoice } from "@/lib/payment-queries";
 import {
   CONCURRENCY, RETRY_CONCURRENCY, STAGGER_DELAY, RETRY_STAGGER_DELAY,
@@ -255,6 +256,19 @@ export default function ReaderPage() {
             saved.id, invoice.invoice_date, invoice.total || 0, invoice.vendor, invoice.invoice_number, invoice.po_number ?? null
           );
         } catch { /* silent — payments are secondary */ }
+
+        // Auto-check for pending matches against partially reconciled sessions
+        try {
+          const pendingMatches = await checkPendingMatches(saved.id, invoice.invoice_number, lineItems);
+          if (pendingMatches.length > 0) {
+            for (const pm of pendingMatches) {
+              toast(`📥 Invoice ${pm.invoiceNumber} matches ${pm.matchedLineCount} unmatched lines from "${pm.sessionName}"`, {
+                description: 'Go to Receiving to reconcile',
+                duration: 8000,
+              });
+            }
+          }
+        } catch { /* silent — pending match is advisory */ }
 
         // PO linkage
         if (invoice.po_number) {
