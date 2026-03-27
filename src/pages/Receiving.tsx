@@ -630,6 +630,64 @@ export default function ReceivingPage() {
                       </div>
                     ) : null;
                   })()}
+
+                  {/* ── Auto-Suggestions ── */}
+                  {invoiceSuggestions.length > 0 ? (
+                    <div className="space-y-2">
+                      <p className="text-xs text-muted-foreground flex items-center gap-1">
+                        🔍 Suggested matches based on UPC overlap:
+                      </p>
+                      {invoiceSuggestions.map((s, i) => {
+                        const badge = matchStrengthBadge(s.matchPercent, s.poMatch);
+                        const isBest = i === 0;
+                        return (
+                          <button
+                            key={s.invoice.id}
+                            onClick={() => setSelectedInvoiceId(s.invoice.id)}
+                            className={`w-full text-left rounded-md border p-3 transition-colors ${
+                              selectedInvoiceId === s.invoice.id
+                                ? 'border-primary bg-primary/5 ring-1 ring-primary'
+                                : isBest
+                                ? 'border-emerald-500/40 bg-emerald-500/5 hover:bg-emerald-500/10'
+                                : 'border-border hover:bg-accent/50'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between mb-1">
+                              <div className="flex items-center gap-2">
+                                {isBest && <span className="text-xs">⭐</span>}
+                                <Badge className={`text-[10px] ${badge.className}`}>{badge.label}</Badge>
+                                <span className="text-xs font-semibold">
+                                  {s.matchPercent > 0 ? `${s.matchPercent}% UPC overlap` : `Score: ${s.score}`}
+                                </span>
+                              </div>
+                              <span className="text-xs font-semibold tabular-nums">{formatCurrency(s.invoice.total)}</span>
+                            </div>
+                            <div className="flex items-center gap-1 text-xs">
+                              <span className="text-muted-foreground">{s.invoice.vendor}</span>
+                              <span className="text-muted-foreground">·</span>
+                              <span className="font-mono font-medium">Invoice {s.invoice.invoice_number}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-[11px] text-muted-foreground mt-0.5">
+                              {s.invoice.po_number && <span>PO: {s.invoice.po_number}</span>}
+                              <span>{s.invoice.invoice_date}</span>
+                              {s.upcMatches > 0 && <span>· {s.upcMatches} UPCs matched</span>}
+                              {s.skuMatches > 0 && <span>· {s.skuMatches} SKUs matched</span>}
+                            </div>
+                            {selectedInvoiceId !== s.invoice.id && (
+                              <p className="text-[10px] text-primary mt-1">Select This Invoice</p>
+                            )}
+                          </button>
+                        );
+                      })}
+                      <p className="text-[10px] text-muted-foreground">Or search manually below ↓</p>
+                    </div>
+                  ) : vendorFilteredInvoices.length > 0 ? (
+                    <div className="bg-amber-500/10 border border-amber-500/20 rounded-md px-3 py-2 text-xs text-amber-700 dark:text-amber-400 flex items-start gap-1.5">
+                      <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                      <span>No invoice UPC matches found for this CSV. This may be a PO not yet invoiced, or the invoice hasn't been uploaded yet. Search manually or upload the invoice PDF first.</span>
+                    </div>
+                  ) : null}
+
                   <Input
                     placeholder="Search by invoice #, PO #, or vendor…"
                     value={invoiceSearch}
