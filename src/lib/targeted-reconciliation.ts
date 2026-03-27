@@ -1,6 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { VendorInvoice } from "@/lib/supabase-queries";
 import { getLineItems } from "@/lib/supabase-queries";
+import { fetchAllRows } from "@/lib/supabase-fetch-all";
 import type { ReconciliationProgress } from "@/lib/reconciliation-engine";
 
 const VENDOR_BRAND_MAP: Record<string, string[]> = {
@@ -140,17 +141,13 @@ export async function runTargetedReconciliation(
 
   // 3. Fetch PO receiving lines
   report("Loading receiving data…", "Cross-referencing procurement");
-  const { data: allRecLines, error: rlErr } = await supabase
-    .from("po_receiving_lines")
-    .select("*");
-  if (rlErr) throw rlErr;
-  const recLines = allRecLines ?? [];
+  const recLines = await fetchAllRows("po_receiving_lines");
 
   // 4. Item master + assortment UPCs
-  const { data: itemMasterData } = await supabase.from("item_master").select("upc");
-  const itemMasterUPCs = new Set((itemMasterData ?? []).map(r => r.upc).filter(Boolean));
-  const { data: assortmentData } = await supabase.from("master_assortment").select("upc");
-  const assortmentUPCs = new Set((assortmentData ?? []).map(r => r.upc).filter(Boolean));
+  const itemMasterData = await fetchAllRows("item_master", { select: "upc" });
+  const itemMasterUPCs = new Set(itemMasterData.map(r => r.upc).filter(Boolean));
+  const assortmentData = await fetchAllRows("master_assortment", { select: "upc" });
+  const assortmentUPCs = new Set(assortmentData.map(r => r.upc).filter(Boolean));
 
   const recLinesByUPC = new Map<string, typeof recLines>();
   for (const rl of recLines) {

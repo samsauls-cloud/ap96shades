@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { StatusBadge, DocTypeBadge } from "./Badges";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchAllRows } from "@/lib/supabase-fetch-all";
 import { formatCurrency, formatDate, getTotalUnits, type VendorInvoice } from "@/lib/supabase-queries";
 
 interface POGroup {
@@ -21,14 +22,12 @@ export function POView({ onRowClick }: { onRowClick: (inv: VendorInvoice) => voi
   const { data: invoices = [], isLoading } = useQuery({
     queryKey: ["vendor_invoices_po_view"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("vendor_invoices")
-        .select("*")
-        .not("po_number", "is", null)
-        .neq("po_number", "")
-        .order("invoice_date", { ascending: false });
-      if (error) throw error;
-      return data as VendorInvoice[];
+      const all = await fetchAllRows<VendorInvoice>("vendor_invoices", {
+        orderBy: "invoice_date",
+        ascending: false,
+        filters: (q: any) => q.not("po_number", "is", null).neq("po_number", ""),
+      });
+      return all;
     },
   });
 

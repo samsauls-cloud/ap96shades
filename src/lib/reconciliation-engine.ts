@@ -1,6 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { VendorInvoice, LineItem } from "@/lib/supabase-queries";
 import { getLineItems } from "@/lib/supabase-queries";
+import { fetchAllRows } from "@/lib/supabase-fetch-all";
 
 // Vendor → Brand mapping
 const VENDOR_BRAND_MAP: Record<string, string[]> = {
@@ -60,32 +61,22 @@ export async function runFullReconciliation(
 
   // 1. Fetch all invoices
   report("Scanning invoices…", "Loading all vendor invoices");
-  const { data: allInvoices, error: invErr } = await supabase
-    .from("vendor_invoices")
-    .select("*")
-    .order("invoice_date", { ascending: false });
-  if (invErr) throw invErr;
-  const invoices = allInvoices ?? [];
+  const invoices = await fetchAllRows<VendorInvoice>("vendor_invoices", {
+    orderBy: "invoice_date",
+    ascending: false,
+  });
 
   // 2. Fetch PO receiving lines
   report("Checking procurement orders…", "Loading receiving data");
-  const { data: allRecLines, error: rlErr } = await supabase
-    .from("po_receiving_lines")
-    .select("*");
-  if (rlErr) throw rlErr;
-  const recLines = allRecLines ?? [];
+  const recLines = await fetchAllRows("po_receiving_lines");
 
   // 3. Fetch item master for UPC validation
-  const { data: itemMasterData } = await supabase
-    .from("item_master")
-    .select("upc");
-  const itemMasterUPCs = new Set((itemMasterData ?? []).map(r => r.upc).filter(Boolean));
+  const itemMasterData = await fetchAllRows("item_master", { select: "upc" });
+  const itemMasterUPCs = new Set(itemMasterData.map(r => r.upc).filter(Boolean));
 
   // 4. Fetch master assortment UPCs
-  const { data: assortmentData } = await supabase
-    .from("master_assortment")
-    .select("upc");
-  const assortmentUPCs = new Set((assortmentData ?? []).map(r => r.upc).filter(Boolean));
+  const assortmentData = await fetchAllRows("master_assortment", { select: "upc" });
+  const assortmentUPCs = new Set(assortmentData.map(r => r.upc).filter(Boolean));
 
   // Build lookup maps
   const recLinesByUPC = new Map<string, typeof recLines>();
