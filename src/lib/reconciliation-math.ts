@@ -156,6 +156,34 @@ export function verifyReconciliationMath(
   return checks;
 }
 
+/**
+ * EOL-aware variance check.
+ * In single-invoice mode for EOL sessions, variance is expected to fail and is skipped.
+ * In multi-invoice mode, variance is checked per invoice group.
+ */
+export function checkVariance(
+  sessionTotalOrderedCost: number,
+  invoiceTotal: number,
+  isEOLSession: boolean,
+  mode: 'SINGLE' | 'MULTI'
+): { pass: boolean; skipped: boolean; variance: number; reason?: string } {
+  if (isEOLSession && mode === 'SINGLE') {
+    return {
+      pass: true,
+      skipped: true,
+      variance: Math.abs(invoiceTotal - sessionTotalOrderedCost),
+      reason: 'EOL session — variance check not applicable for single-invoice mode',
+    };
+  }
+
+  const variance = Math.abs(invoiceTotal - sessionTotalOrderedCost);
+  return {
+    pass: variance <= 1.0,
+    skipped: false,
+    variance,
+  };
+}
+
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }

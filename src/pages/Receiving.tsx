@@ -12,7 +12,7 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   Upload, FileText, CheckCircle2, AlertTriangle, XCircle, Minus, Package,
   ArrowRight, Download, Eye, Filter, ChevronDown, ChevronUp, Info, ShieldCheck,
-  Send, CheckCheck, FileDown, DollarSign
+  Send, CheckCheck, FileDown, DollarSign, Split, Layers
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
@@ -21,11 +21,13 @@ import {
   fetchSessionLines, matchReceivingToInvoice, calcDiscrepancy,
   updateSessionReconciliation, updateLineReconciliation, exportReconciliationCSV,
   checkReceivingDuplicate, mergeReceivingUpdate, resolveEOLVendor,
-  type ExportFormat, type ParsedLine, type ReceivingStatus, type ReceivingDedupAction, type EOLResolution
+  multiInvoiceMatch, detectPOGroups, splitSessionByPO,
+  type ExportFormat, type ParsedLine, type ReceivingStatus, type ReceivingDedupAction, type EOLResolution,
+  type MultiInvoiceGroup, type MultiInvoiceMatchResult, type POGroup
 } from "@/lib/receiving-engine";
 import { getLineItems, formatCurrency } from "@/lib/supabase-queries";
 import { suggestMatchingInvoices, matchStrengthBadge, type InvoiceSuggestion } from "@/lib/invoice-suggestions";
-import { computeReconciliationTotals, verifyReconciliationMath, type MathCheck, type ReconciliationTotals } from "@/lib/reconciliation-math";
+import { computeReconciliationTotals, verifyReconciliationMath, checkVariance, type MathCheck, type ReconciliationTotals } from "@/lib/reconciliation-math";
 import {
   upsertFinalBillEntry, updateInvoiceReconciliation, applyCreditToPayments,
   fetchFinalBillLedger, markCreditRequestSent, confirmCreditReceived,
@@ -34,7 +36,7 @@ import {
 
 // ── Receiving-to-Invoice Vendor Mapping ──
 const RECEIVING_TO_INVOICE_VENDOR: Record<string, string[]> = {
-  'EOL':       ['Luxottica', 'Kering', 'Maui Jim', 'Safilo', 'Marcolin'], // EOL can be any real vendor
+  'EOL':       ['Luxottica', 'Kering', 'Maui Jim', 'Safilo', 'Marcolin'],
   'Luxottica': ['Luxottica'],
   'Kering':    ['Kering'],
   'Marcolin':  ['Marcolin'],
@@ -47,6 +49,8 @@ const VENDOR_TOOLTIPS: Record<string, string> = {
   'EOL': 'EOL is a discount classification — these frames belong to real vendors (Luxottica, Kering, etc.). The system auto-resolves the real vendor from item descriptions.',
   'Marchon': 'Marchon frames may appear on Safilo or Marcolin invoices.',
 };
+
+type ReconMode = 'SINGLE' | 'MULTI';
 
 // ── Status Badge ──
 function ReceivingStatusBadge({ status, ordered, received }: { status: ReceivingStatus; ordered?: number; received?: number | null }) {
@@ -69,8 +73,9 @@ function MatchBadge({ status }: { status?: string }) {
     UPC_ONLY: 'bg-emerald-500 text-white',
     SKU_ONLY: 'bg-amber-500 text-white',
     NO_MATCH: 'bg-red-500 text-white',
+    INVOICE_NOT_UPLOADED: 'bg-gray-500 text-white',
   };
-  return <Badge className={`text-xs ${colors[status] ?? ''}`}>{status.replace('_', ' ')}</Badge>;
+  return <Badge className={`text-xs ${colors[status] ?? ''}`}>{status.replace(/_/g, ' ')}</Badge>;
 }
 
 function DiscrepancyBadge({ type }: { type?: string }) {
@@ -93,7 +98,7 @@ function FinalBillStatusBadge({ status, creditDue, creditApproved }: { status: s
   return <Badge className="bg-amber-500/80 text-white text-[10px]">⚠ Credit Pending</Badge>;
 }
 
-function MathVerificationBlock({ checks }: { checks: MathCheck[] }) {
+function MathVerificationBlock({ checks, varianceOverride }: { checks: MathCheck[]; varianceOverride?: { skipped: boolean; reason?: string } }) {
   const allPassed = checks.every(c => c.pass);
   return (
     <div className={`border rounded-lg p-3 space-y-2 ${allPassed ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-red-500/5 border-red-500/20'}`}>
@@ -113,6 +118,12 @@ function MathVerificationBlock({ checks }: { checks: MathCheck[] }) {
             )}
           </div>
         ))}
+        {varianceOverride?.skipped && (
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-blue-600">⊘</span>
+            <span className="text-blue-600">{varianceOverride.reason}</span>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -137,10 +148,20 @@ export default function ReceivingPage() {
   const [invoiceSearch, setInvoiceSearch] = useState('');
   const [mathChecks, setMathChecks] = useState<MathCheck[] | null>(null);
   const [reconTotals, setReconTotals] = useState<ReconciliationTotals | null>(null);
+  const [varianceOverride, setVarianceOverride] = useState<{ skipped: boolean; reason?: string } | null>(null);
   const [activeTab, setActiveTab] = useState<'receiving' | 'final-bill'>('receiving');
   const [creditConfirmOpen, setCreditConfirmOpen] = useState<string | null>(null);
   const [creditAmount, setCreditAmount] = useState('');
   const [creditApprover, setCreditApprover] = useState('');
+
+  // Multi-invoice reconciliation state
+  const [reconMode, setReconMode] = useState<ReconMode>('SINGLE');
+  const [multiMatchResult, setMultiMatchResult] = useState<MultiInvoiceMatchResult | null>(null);
+  const [multiReconRunning, setMultiReconRunning] = useState(false);
+
+  // PO split state
+  const [poGroups, setPOGroups] = useState<POGroup[] | null>(null);
+  const [splitting, setSplitting] = useState(false);
 
   // ── Queries ──
   const { data: sessions = [], isLoading: sessionsLoading } = useQuery({
@@ -173,8 +194,8 @@ export default function ReceivingPage() {
     queryKey: ['final-bill-ledger'],
     queryFn: fetchFinalBillLedger,
   });
-  // ── Invoice filtering by vendor mapping ──
-  // For EOL sessions, resolve real vendors from session lines instead of using static map
+
+  // ── Invoice filtering ──
   const reconSession = reconciling ? sessions.find(s => s.id === reconciling) : null;
   const isEOLSession = reconSession?.vendor === 'EOL';
   const eolSessionResolution = useMemo(() => {
@@ -185,7 +206,6 @@ export default function ReceivingPage() {
   const allowedVendors = useMemo(() => {
     if (!reconSession) return null;
     if (isEOLSession && eolSessionResolution) {
-      // Use only the resolved real vendors for EOL
       return eolSessionResolution.realVendors.length > 0 ? eolSessionResolution.realVendors : ['Luxottica'];
     }
     return RECEIVING_TO_INVOICE_VENDOR[reconSession.vendor] ?? null;
@@ -196,6 +216,18 @@ export default function ReceivingPage() {
       ? vendorInvoices.filter(inv => allowedVendors.some(v => inv.vendor?.toLowerCase() === v.toLowerCase()))
       : vendorInvoices;
   }, [vendorInvoices, allowedVendors]);
+
+  // ── Should offer multi-invoice mode? ──
+  const shouldOfferMultiMode = useMemo(() => {
+    if (!reconSession) return false;
+    if (isEOLSession) return true;
+    // If session total > 1.5x any single invoice
+    if (vendorFilteredInvoices.length > 0) {
+      const maxInv = Math.max(...vendorFilteredInvoices.map(i => i.total));
+      return Number(reconSession.total_ordered_cost || 0) > maxInv * 1.5;
+    }
+    return false;
+  }, [reconSession, isEOLSession, vendorFilteredInvoices]);
 
   // ── Auto-suggestions ──
   const invoiceSuggestions = useMemo((): InvoiceSuggestion[] => {
@@ -234,12 +266,10 @@ export default function ReceivingPage() {
         return;
       }
       const lines = parseLines(headers, rows, format);
-      // Detect vendor from first line with a vendor_id
       const firstVendorId = lines.find(l => l.vendor_id)?.vendor_id ?? '';
       const firstDesc = lines[0]?.item_description ?? '';
       const vendor = vendorFromLightspeed(firstVendorId, firstDesc);
 
-      // EOL resolution: determine real vendor(s) from item descriptions
       let eolResolution: EOLResolution | undefined;
       if (vendor === 'EOL') {
         eolResolution = resolveEOLVendor(lines);
@@ -278,7 +308,7 @@ export default function ReceivingPage() {
       }
     } catch (err: any) {
       toast.error(err.message || 'Dedup check failed');
-      setDedupResult({ type: 'new' }); // fallback to allow import
+      setDedupResult({ type: 'new' });
     } finally {
       setCheckingDedup(false);
     }
@@ -320,7 +350,7 @@ export default function ReceivingPage() {
         dedupResult.existingSessionId,
         preview.lines
       );
-      toast.success(`Merged: ${updatedCount} lines updated, ${insertedCount} new lines added. Unchanged lines were preserved.`);
+      toast.success(`Merged: ${updatedCount} lines updated, ${insertedCount} new lines added.`);
       setPreview(null);
       setSessionName('');
       setDedupResult(null);
@@ -334,7 +364,7 @@ export default function ReceivingPage() {
     }
   };
 
-  // ── Reconciliation ──
+  // ── Single Invoice Reconciliation ──
   const runReconciliation = async () => {
     if (!selectedSessionId || !selectedInvoiceId) return;
     try {
@@ -347,74 +377,87 @@ export default function ReceivingPage() {
       let hasDiscrepancy = false;
       for (const r of results) {
         const disc = calcDiscrepancy(r.line, r.matched_invoice_line, skipPriceCheck);
+        const matchStatusVal = r.match_status === 'NO_MATCH' && isEOLSession
+          ? 'INVOICE_NOT_UPLOADED' : r.match_status;
         const update: any = {
           matched_invoice_line: r.matched_invoice_line as any,
-          match_status: r.match_status,
-          billing_discrepancy: !!disc,
-          discrepancy_type: disc?.type ?? null,
-          discrepancy_amount: disc?.amount ?? 0,
+          match_status: matchStatusVal,
+          billing_discrepancy: !!disc && matchStatusVal !== 'INVOICE_NOT_UPLOADED',
+          discrepancy_type: matchStatusVal === 'INVOICE_NOT_UPLOADED' ? null : (disc?.type ?? null),
+          discrepancy_amount: matchStatusVal === 'INVOICE_NOT_UPLOADED' ? 0 : (disc?.amount ?? 0),
         };
-        if (disc) hasDiscrepancy = true;
+        if (disc && matchStatusVal !== 'INVOICE_NOT_UPLOADED') hasDiscrepancy = true;
         await updateLineReconciliation(r.line.id, update);
       }
 
       const status = hasDiscrepancy ? 'discrepancy' : 'reconciled';
       await updateSessionReconciliation(selectedSessionId, selectedInvoiceId, status);
 
-      // ── Refresh lines to get updated discrepancy data ──
+      // Refresh lines
       const { data: updatedLines } = await supabase
         .from('po_receiving_lines')
         .select('*')
         .eq('session_id', selectedSessionId);
       const freshLines = updatedLines ?? sessionLines;
 
-      // ── Compute reconciliation totals ──
-      const totals = computeReconciliationTotals(freshLines, invoice.total);
+      // Only compute totals on matched lines (exclude INVOICE_NOT_UPLOADED)
+      const matchedLines = freshLines.filter((l: any) => l.match_status !== 'INVOICE_NOT_UPLOADED');
+      const totals = computeReconciliationTotals(matchedLines, invoice.total);
       setReconTotals(totals);
 
-      // ── Math verification ──
+      // Math verification with EOL variance override
       const checks = verifyReconciliationMath(
-        freshLines,
-        Number(selectedSession?.total_ordered_cost || 0),
-        Number(selectedSession?.total_ordered_qty || 0),
+        matchedLines,
+        matchedLines.reduce((s: number, l: any) => s + Number(l.ordered_cost || 0), 0),
+        matchedLines.reduce((s: number, l: any) => s + Number(l.order_qty || 0), 0),
         invoice.total,
         totals
       );
+
+      // Override variance check for EOL single mode
+      const vCheck = checkVariance(
+        Number(selectedSession?.total_ordered_cost || 0),
+        invoice.total,
+        isEOLSession,
+        'SINGLE'
+      );
+      if (vCheck.skipped) {
+        const varIdx = checks.findIndex(c => c.name === 'Variance within tolerance');
+        if (varIdx >= 0) checks[varIdx] = { ...checks[varIdx], pass: true };
+        setVarianceOverride({ skipped: true, reason: vCheck.reason });
+      } else {
+        setVarianceOverride(null);
+      }
       setMathChecks(checks);
 
-      // ── Update vendor_invoices with reconciliation data ──
+      // Update vendor_invoices
       const reconStatus = totals.totalCreditDue > 0 ? 'credit_pending' : 'reconciled';
-      await updateInvoiceReconciliation(
-        selectedInvoiceId,
-        selectedSessionId,
-        totals.totalCreditDue,
-        totals.finalBillAmount,
-        reconStatus
-      );
+      await updateInvoiceReconciliation(selectedInvoiceId, selectedSessionId, totals.totalCreditDue, totals.finalBillAmount, reconStatus);
 
-      // ── Create/update final bill ledger entry ──
+      // Create final bill ledger entry
       await upsertFinalBillEntry(
-        selectedInvoiceId,
-        selectedSessionId,
-        invoice,
+        selectedInvoiceId, selectedSessionId, invoice,
         {
-          total_ordered_qty: Number(selectedSession?.total_ordered_qty || 0),
-          total_received_qty: Number(selectedSession?.total_received_qty || 0),
+          total_ordered_qty: matchedLines.reduce((s: number, l: any) => s + Number(l.order_qty || 0), 0),
+          total_received_qty: matchedLines.reduce((s: number, l: any) => s + Number(l.received_qty ?? 0), 0),
         },
         totals
       );
 
-      // ── Apply credits to payment installments ──
+      // Apply credits
       if (totals.totalCreditDue > 0) {
         await applyCreditToPayments(selectedInvoiceId, totals.totalCreditDue);
       }
 
+      const unmatchedCount = freshLines.filter((l: any) => l.match_status === 'INVOICE_NOT_UPLOADED').length;
       const allPassed = checks.every(c => c.pass);
-      toast.success(allPassed
-        ? 'Reconciliation complete — all math checks passed ✓'
-        : 'Reconciliation complete — ⚠ math discrepancies detected'
-      );
+      let msg = allPassed ? 'Reconciliation complete — all math checks passed ✓' : 'Reconciliation complete — ⚠ math discrepancies detected';
+      if (unmatchedCount > 0) msg += ` · ${unmatchedCount} lines unmatched (may belong to other invoices)`;
+      toast.success(msg);
+
       setReconciling(null);
+      setReconMode('SINGLE');
+      setMultiMatchResult(null);
       qc.invalidateQueries({ queryKey: ['receiving-lines', selectedSessionId] });
       qc.invalidateQueries({ queryKey: ['receiving-sessions'] });
       qc.invalidateQueries({ queryKey: ['final-bill-ledger'] });
@@ -422,6 +465,132 @@ export default function ReceivingPage() {
       qc.invalidateQueries({ queryKey: ['invoice_payments'] });
     } catch (err: any) {
       toast.error(err.message);
+    }
+  };
+
+  // ── Multi-Invoice Reconciliation ──
+  const runMultiInvoicePreview = () => {
+    if (vendorFilteredInvoices.length === 0 || sessionLines.length === 0) return;
+    const result = multiInvoiceMatch(sessionLines, vendorFilteredInvoices, getLineItems);
+    setMultiMatchResult(result);
+  };
+
+  const runMultiInvoiceReconciliation = async () => {
+    if (!multiMatchResult || !selectedSessionId || !selectedSession) return;
+    setMultiReconRunning(true);
+    try {
+      const skipPriceCheck = selectedSession.vendor === 'EOL';
+
+      for (const group of multiMatchResult.groups) {
+        const invoice = vendorInvoices.find(v => v.id === group.invoiceId);
+        if (!invoice) continue;
+
+        const invoiceLines = getLineItems(invoice);
+
+        // Match and reconcile each line in this group
+        let hasDiscrepancy = false;
+        for (const line of group.lines) {
+          const lineUpc = line.upc ? String(line.upc).replace(/\D/g, '') : '';
+          const lineSku = line.manufact_sku ? line.manufact_sku.toLowerCase().replace(/[\s\-]/g, '') : '';
+
+          let matchedInvLine = invoiceLines.find(il => il.upc && lineUpc && String(il.upc).replace(/\D/g, '') === lineUpc);
+          if (!matchedInvLine) matchedInvLine = invoiceLines.find(il => il.model && lineSku && il.model.toLowerCase().replace(/[\s\-]/g, '') === lineSku) || null;
+
+          const disc = calcDiscrepancy(line, matchedInvLine, skipPriceCheck);
+          await updateLineReconciliation(line.id, {
+            matched_invoice_line: matchedInvLine as any,
+            match_status: matchedInvLine ? 'MATCHED' : 'NO_MATCH',
+            billing_discrepancy: !!disc,
+            discrepancy_type: disc?.type ?? null,
+            discrepancy_amount: disc?.amount ?? 0,
+          });
+          if (disc) hasDiscrepancy = true;
+        }
+
+        // Compute totals for this group
+        const { data: freshGroupLines } = await supabase
+          .from('po_receiving_lines')
+          .select('*')
+          .in('id', group.lines.map((l: any) => l.id));
+        const gLines = freshGroupLines ?? group.lines;
+        const totals = computeReconciliationTotals(gLines, invoice.total);
+
+        // Update vendor_invoices
+        const reconStatus = totals.totalCreditDue > 0 ? 'credit_pending' : 'reconciled';
+        await updateInvoiceReconciliation(group.invoiceId, selectedSessionId, totals.totalCreditDue, totals.finalBillAmount, reconStatus);
+
+        // Create final bill ledger
+        await upsertFinalBillEntry(
+          group.invoiceId, selectedSessionId, invoice,
+          {
+            total_ordered_qty: gLines.reduce((s: number, l: any) => s + Number(l.order_qty || 0), 0),
+            total_received_qty: gLines.reduce((s: number, l: any) => s + Number(l.received_qty ?? 0), 0),
+          },
+          totals
+        );
+
+        if (totals.totalCreditDue > 0) {
+          await applyCreditToPayments(group.invoiceId, totals.totalCreditDue);
+        }
+      }
+
+      // Mark unmatched lines
+      for (const line of multiMatchResult.unmatchedLines) {
+        await updateLineReconciliation(line.id, {
+          match_status: 'INVOICE_NOT_UPLOADED',
+          billing_discrepancy: false,
+          discrepancy_type: null,
+          discrepancy_amount: 0,
+        });
+      }
+
+      // Update session
+      const mainInvoiceId = multiMatchResult.groups[0]?.invoiceId || '';
+      const status = multiMatchResult.unmatchedLines.length > 0 ? 'partial_reconciled' : 'reconciled';
+      await updateSessionReconciliation(selectedSessionId, mainInvoiceId, status);
+
+      toast.success(`Multi-invoice reconciliation complete — ${multiMatchResult.groups.length} invoices matched, ${multiMatchResult.unmatchedLines.length} lines unmatched`);
+
+      setReconciling(null);
+      setReconMode('SINGLE');
+      setMultiMatchResult(null);
+      qc.invalidateQueries({ queryKey: ['receiving-lines', selectedSessionId] });
+      qc.invalidateQueries({ queryKey: ['receiving-sessions'] });
+      qc.invalidateQueries({ queryKey: ['final-bill-ledger'] });
+      qc.invalidateQueries({ queryKey: ['vendor-invoices-for-recon'] });
+      qc.invalidateQueries({ queryKey: ['invoice_payments'] });
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setMultiReconRunning(false);
+    }
+  };
+
+  // ── PO Split ──
+  const detectPOSplit = () => {
+    if (sessionLines.length === 0) return;
+    const groups = detectPOGroups(sessionLines);
+    if (groups.length > 1) {
+      setPOGroups(groups);
+    } else {
+      toast.info('All lines belong to the same brand group — no split needed.');
+    }
+  };
+
+  const doSplitSession = async () => {
+    if (!poGroups || !selectedSessionId || !selectedSession) return;
+    setSplitting(true);
+    try {
+      const childIds = await splitSessionByPO(selectedSessionId, selectedSession, poGroups);
+      toast.success(`Split into ${childIds.length} sub-sessions`);
+      setPOGroups(null);
+      setSelectedSessionId(null);
+      qc.invalidateQueries({ queryKey: ['receiving-sessions'] });
+      qc.invalidateQueries({ queryKey: ['receiving-lines'] });
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setSplitting(false);
     }
   };
 
@@ -453,8 +622,9 @@ export default function ReceivingPage() {
     const qtyMismatch = sessionLines.filter((l: any) => l.discrepancy_type === 'QTY_MISMATCH');
     const priceMismatch = sessionLines.filter((l: any) => l.discrepancy_type === 'PRICE_MISMATCH');
     const notOnInvoice = sessionLines.filter((l: any) => l.discrepancy_type === 'NOT_ON_INVOICE');
-    const cleanMatches = sessionLines.filter((l: any) => l.match_status && !l.billing_discrepancy);
-    return { invoiceTotal, receivedCost, notReceivedCost, variance: Number(invoiceTotal) - receivedCost, overbilled, qtyMismatch, priceMismatch, notOnInvoice, cleanMatches };
+    const invoiceNotUploaded = sessionLines.filter((l: any) => l.match_status === 'INVOICE_NOT_UPLOADED');
+    const cleanMatches = sessionLines.filter((l: any) => l.match_status && !l.billing_discrepancy && l.match_status !== 'INVOICE_NOT_UPLOADED');
+    return { invoiceTotal, receivedCost, notReceivedCost, variance: Number(invoiceTotal) - receivedCost, overbilled, qtyMismatch, priceMismatch, notOnInvoice, invoiceNotUploaded, cleanMatches };
   }, [selectedSession, sessionLines, vendorInvoices]);
 
   const exportCSV = () => {
@@ -470,8 +640,10 @@ export default function ReceivingPage() {
   const reconStatusColor = (s: string) => {
     switch (s) {
       case 'reconciled': return 'bg-emerald-600 text-white';
+      case 'partial_reconciled': return 'bg-blue-600 text-white';
       case 'discrepancy': return 'bg-amber-500 text-white';
       case 'reviewed': return 'bg-blue-600 text-white';
+      case 'split': return 'bg-purple-600 text-white';
       default: return 'bg-muted text-muted-foreground';
     }
   };
@@ -501,7 +673,6 @@ export default function ReceivingPage() {
         </div>
 
         {activeTab === 'receiving' ? (<>
-
 
         {/* ── Import Section ── */}
         <Card>
@@ -560,10 +731,9 @@ export default function ReceivingPage() {
                 </div>
                 {preview.format === 'ITEMS_C_NO_RECEIVING' && (
                   <div className="bg-amber-500/10 border border-amber-500/30 rounded-md p-3 text-sm text-amber-700 dark:text-amber-400">
-                    ⚠ This export has no receiving data — it shows what was ordered but not what arrived. Use a Check-In export for receiving reconciliation.
+                    ⚠ This export has no receiving data — it shows what was ordered but not what arrived.
                   </div>
                 )}
-                {/* Preview table: first 5 rows */}
                 <div className="overflow-auto max-h-48 border rounded-md">
                   <Table>
                     <TableHeader>
@@ -590,13 +760,11 @@ export default function ReceivingPage() {
                     </TableBody>
                   </Table>
                 </div>
-                {/* Dedup Check + Import Buttons */}
                 {!dedupResult && (
                   <Button onClick={runDedupCheck} disabled={checkingDedup}>
                     {checkingDedup ? 'Checking for duplicates…' : `Check & Import ${preview.lines.length} rows`}
                   </Button>
                 )}
-
                 {dedupResult?.type === 'exact_duplicate' && (
                   <div className="bg-amber-500/10 border border-amber-500/30 rounded-md p-3 space-y-2">
                     <div className="flex items-center gap-2">
@@ -605,13 +773,9 @@ export default function ReceivingPage() {
                         Exact duplicate — this CSV was already imported as "{dedupResult.sessionName}"
                       </p>
                     </div>
-                    <p className="text-xs text-muted-foreground">All lines match the existing session. No import needed.</p>
-                    <Button size="sm" variant="outline" onClick={() => { setPreview(null); setDedupResult(null); }}>
-                      Dismiss
-                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => { setPreview(null); setDedupResult(null); }}>Dismiss</Button>
                   </div>
                 )}
-
                 {dedupResult?.type === 'update_available' && (
                   <div className="bg-blue-500/10 border border-blue-500/30 rounded-md p-3 space-y-2">
                     <div className="flex items-center gap-2">
@@ -631,27 +795,19 @@ export default function ReceivingPage() {
                       </div>
                       <div className="bg-background rounded p-2">
                         <p className="text-lg font-bold text-muted-foreground">{dedupResult.unchangedLines}</p>
-                        <p className="text-[10px] text-muted-foreground">Unchanged (kept)</p>
+                        <p className="text-[10px] text-muted-foreground">Unchanged</p>
                       </div>
                     </div>
-                    <p className="text-xs text-muted-foreground">Only changed and new lines will be updated. Previously received items stay untouched.</p>
                     <div className="flex gap-2">
-                      <Button size="sm" onClick={doMergeUpdate} disabled={importing}>
-                        {importing ? 'Merging…' : 'Merge Updates'}
-                      </Button>
-                      <Button size="sm" variant="outline" onClick={() => { setPreview(null); setDedupResult(null); }}>
-                        Cancel
-                      </Button>
+                      <Button size="sm" onClick={doMergeUpdate} disabled={importing}>{importing ? 'Merging…' : 'Merge Updates'}</Button>
+                      <Button size="sm" variant="outline" onClick={() => { setPreview(null); setDedupResult(null); }}>Cancel</Button>
                     </div>
                   </div>
                 )}
-
                 {dedupResult?.type === 'new' && (
                   <div className="flex items-center gap-3">
                     <Badge className="bg-emerald-600 text-white gap-1"><CheckCircle2 className="h-3 w-3" />No duplicates found</Badge>
-                    <Button onClick={doImport} disabled={importing}>
-                      {importing ? 'Importing…' : `Import ${preview.lines.length} rows`}
-                    </Button>
+                    <Button onClick={doImport} disabled={importing}>{importing ? 'Importing…' : `Import ${preview.lines.length} rows`}</Button>
                   </div>
                 )}
               </div>
@@ -686,9 +842,16 @@ export default function ReceivingPage() {
                     {selectedSession.reconciliation_status}
                   </Badge>
                   {selectedSession.reconciliation_status === 'unreconciled' && (
-                    <Button size="sm" variant="outline" onClick={() => setReconciling(selectedSessionId)} className="gap-1">
-                      <ArrowRight className="h-3 w-3" />Reconcile
-                    </Button>
+                    <>
+                      <Button size="sm" variant="outline" onClick={() => setReconciling(selectedSessionId)} className="gap-1">
+                        <ArrowRight className="h-3 w-3" />Reconcile
+                      </Button>
+                      {selectedSession.vendor === 'EOL' && (
+                        <Button size="sm" variant="outline" onClick={detectPOSplit} className="gap-1">
+                          <Split className="h-3 w-3" />Split by Brand
+                        </Button>
+                      )}
+                    </>
                   )}
                   <Button size="sm" variant="ghost" onClick={exportCSV} className="gap-1">
                     <Download className="h-3 w-3" />CSV
@@ -721,6 +884,38 @@ export default function ReceivingPage() {
                 </div>
               </div>
 
+              {/* ── PO Split Panel ── */}
+              {poGroups && poGroups.length > 1 && (
+                <div className="border border-purple-500/30 bg-purple-500/5 rounded-lg p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Split className="h-4 w-4 text-purple-600" />
+                    <p className="text-sm font-semibold text-purple-700 dark:text-purple-400">
+                      Detected {poGroups.length} brand groups — split into separate sessions?
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {poGroups.map((g, i) => (
+                      <div key={i} className="bg-background border rounded-md p-3">
+                        <div className="flex items-center justify-between mb-1">
+                          <Badge variant="outline" className="text-xs">{g.poRef}</Badge>
+                          <span className="text-xs font-semibold tabular-nums">{formatCurrency(g.orderedValue)}</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground">{g.lineCount} lines</p>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Splitting creates independent sessions per brand group for cleaner per-invoice reconciliation.
+                  </p>
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={doSplitSession} disabled={splitting} className="gap-1">
+                      <Split className="h-3 w-3" />{splitting ? 'Splitting…' : `Split into ${poGroups.length} Sessions`}
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => setPOGroups(null)}>Keep as One Session</Button>
+                  </div>
+                </div>
+              )}
+
               {/* Reconciliation Summary */}
               {reconSummary && selectedSession.reconciliation_status !== 'unreconciled' && (
                 <div className="space-y-3">
@@ -745,7 +940,6 @@ export default function ReceivingPage() {
                     </div>
                   </div>
 
-                  {/* Discrepancy panels */}
                   {reconSummary.overbilled.length > 0 && (
                     <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3">
                       <p className="text-sm font-semibold text-red-600 mb-1">🔴 OVERBILLED — charged for items not received ({reconSummary.overbilled.length})</p>
@@ -760,6 +954,29 @@ export default function ReceivingPage() {
                   {reconSummary.notOnInvoice.length > 0 && (
                     <div className="bg-muted border rounded-lg p-3">
                       <p className="text-sm font-semibold text-muted-foreground mb-1">⚪ NOT ON INVOICE ({reconSummary.notOnInvoice.length})</p>
+                    </div>
+                  )}
+                  {/* Unmatched / Invoice Not Uploaded */}
+                  {reconSummary.invoiceNotUploaded && reconSummary.invoiceNotUploaded.length > 0 && (
+                    <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 space-y-2">
+                      <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">
+                        ⚠ {reconSummary.invoiceNotUploaded.length} lines ({formatCurrency(reconSummary.invoiceNotUploaded.reduce((s: number, l: any) => s + Number(l.ordered_cost || 0), 0))}) could not be matched to any invoice in the system
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        These frames may belong to invoices not yet uploaded via the PDF Reader.
+                      </p>
+                      <div className="max-h-32 overflow-auto text-xs space-y-1">
+                        {reconSummary.invoiceNotUploaded.slice(0, 10).map((l: any, i: number) => (
+                          <div key={i} className="flex items-center gap-2 text-muted-foreground">
+                            <span className="font-mono">{l.upc || '—'}</span>
+                            <span className="truncate max-w-[200px]">{l.item_description}</span>
+                            <span>×{l.order_qty}</span>
+                          </div>
+                        ))}
+                        {reconSummary.invoiceNotUploaded.length > 10 && (
+                          <p className="text-muted-foreground">… and {reconSummary.invoiceNotUploaded.length - 10} more</p>
+                        )}
+                      </div>
                     </div>
                   )}
                   {reconSummary.cleanMatches.length > 0 && (
@@ -779,7 +996,6 @@ export default function ReceivingPage() {
                     )}
                   </div>
 
-                  {/* Reconciliation Totals */}
                   {reconTotals && selectedSession.reconciliation_status !== 'unreconciled' && (
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                       <div className="border rounded-lg p-3 text-center">
@@ -799,28 +1015,27 @@ export default function ReceivingPage() {
                     </div>
                   )}
 
-                  {/* Math Verification */}
-                  {mathChecks && <MathVerificationBlock checks={mathChecks} />}
+                  {mathChecks && <MathVerificationBlock checks={mathChecks} varianceOverride={varianceOverride || undefined} />}
                 </div>
               )}
 
-              {/* Reconcile Modal */}
+              {/* ── Reconcile Panel ── */}
               {reconciling === selectedSessionId && (
                 <div className="border rounded-lg p-4 bg-muted/30 space-y-3">
-                  <p className="text-sm font-medium">Select the invoice this PO receiving belongs to:</p>
+                  {/* EOL Info Banner */}
                   {isEOLSession && eolSessionResolution ? (
                     <div className="bg-amber-500/10 border border-amber-500/20 rounded-md px-3 py-2 text-xs text-amber-700 dark:text-amber-400 space-y-1">
                       <div className="flex items-center gap-1.5">
                         <Info className="h-3.5 w-3.5 shrink-0" />
                         <span>
-                          <strong>EOL Session</strong> — End-of-Line discount frames. Real vendor{eolSessionResolution.isMultiVendor ? 's' : ''}:{' '}
+                          <strong>EOL Session</strong> — Real vendor{eolSessionResolution.isMultiVendor ? 's' : ''}:{' '}
                           <strong>{eolSessionResolution.realVendors.join(', ')}</strong>
                         </span>
                       </div>
                       {eolSessionResolution.isMultiVendor && (
-                        <p className="text-[11px]">⚠ Multi-vendor EOL session — contains frames from {eolSessionResolution.realVendors.map(v =>
+                        <p className="text-[11px]">⚠ Multi-vendor EOL — contains {eolSessionResolution.realVendors.map(v =>
                           `${v} (${eolSessionResolution.vendorCounts[v]} items)`
-                        ).join(', ')}. You may need to reconcile against multiple invoices.</p>
+                        ).join(', ')}.</p>
                       )}
                       <p className="text-[11px]">Price differences between EOL cost and invoice price are expected and will not be flagged.</p>
                     </div>
@@ -835,114 +1050,235 @@ export default function ReceivingPage() {
                     ) : null;
                   })()}
 
-                  {/* ── Auto-Suggestions ── */}
-                  {invoiceSuggestions.length > 0 ? (
-                    <div className="space-y-2">
-                      <p className="text-xs text-muted-foreground flex items-center gap-1">
-                        🔍 Suggested matches based on UPC overlap:
-                      </p>
-                      {invoiceSuggestions.map((s, i) => {
-                        const badge = matchStrengthBadge(s.matchPercent, s.poMatch);
-                        const isBest = i === 0;
-                        return (
-                          <button
-                            key={s.invoice.id}
-                            onClick={() => setSelectedInvoiceId(s.invoice.id)}
-                            className={`w-full text-left rounded-md border p-3 transition-colors ${
-                              selectedInvoiceId === s.invoice.id
-                                ? 'border-primary bg-primary/5 ring-1 ring-primary'
-                                : isBest
-                                ? 'border-emerald-500/40 bg-emerald-500/5 hover:bg-emerald-500/10'
-                                : 'border-border hover:bg-accent/50'
-                            }`}
-                          >
-                            <div className="flex items-center justify-between mb-1">
-                              <div className="flex items-center gap-2">
-                                {isBest && <span className="text-xs">⭐</span>}
-                                <Badge className={`text-[10px] ${badge.className}`}>{badge.label}</Badge>
-                                <span className="text-xs font-semibold">
-                                  {s.matchPercent > 0 ? `${s.matchPercent}% UPC overlap` : `Score: ${s.score}`}
-                                </span>
-                              </div>
-                              <span className="text-xs font-semibold tabular-nums">{formatCurrency(s.invoice.total)}</span>
-                            </div>
-                            <div className="flex items-center gap-1 text-xs">
-                              <span className="text-muted-foreground">{s.invoice.vendor}</span>
-                              <span className="text-muted-foreground">·</span>
-                              <span className="font-mono font-medium">Invoice {s.invoice.invoice_number}</span>
-                            </div>
-                            <div className="flex items-center gap-2 text-[11px] text-muted-foreground mt-0.5">
-                              {s.invoice.po_number && <span>PO: {s.invoice.po_number}</span>}
-                              <span>{s.invoice.invoice_date}</span>
-                              {s.upcMatches > 0 && <span>· {s.upcMatches} UPCs matched</span>}
-                              {s.skuMatches > 0 && <span>· {s.skuMatches} SKUs matched</span>}
-                            </div>
-                            {selectedInvoiceId !== s.invoice.id && (
-                              <p className="text-[10px] text-primary mt-1">Select This Invoice</p>
-                            )}
-                          </button>
-                        );
-                      })}
-                      <p className="text-[10px] text-muted-foreground">Or search manually below ↓</p>
+                  {/* ── Mode Selector ── */}
+                  {shouldOfferMultiMode && (
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => { setReconMode('SINGLE'); setMultiMatchResult(null); }}
+                        className={`rounded-md border p-3 text-left transition-colors ${
+                          reconMode === 'SINGLE' ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'border-border hover:bg-accent/50'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 mb-1">
+                          <FileText className="h-4 w-4" />
+                          <span className="text-sm font-semibold">Single Invoice</span>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground">Reconcile only lines matching one invoice. Unmatched lines stay for later.</p>
+                      </button>
+                      <button
+                        onClick={() => { setReconMode('MULTI'); runMultiInvoicePreview(); }}
+                        className={`rounded-md border p-3 text-left transition-colors ${
+                          reconMode === 'MULTI' ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'border-border hover:bg-accent/50'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 mb-1">
+                          <Layers className="h-4 w-4" />
+                          <span className="text-sm font-semibold">Multi-Invoice</span>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground">Match all lines across multiple invoices simultaneously.</p>
+                      </button>
                     </div>
-                  ) : vendorFilteredInvoices.length > 0 ? (
-                    <div className="bg-amber-500/10 border border-amber-500/20 rounded-md px-3 py-2 text-xs text-amber-700 dark:text-amber-400 flex items-start gap-1.5">
-                      <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                      <span>No invoice UPC matches found for this CSV. This may be a PO not yet invoiced, or the invoice hasn't been uploaded yet. Search manually or upload the invoice PDF first.</span>
-                    </div>
-                  ) : null}
-
-                  <Input
-                    placeholder="Search by invoice #, PO #, or vendor…"
-                    value={invoiceSearch}
-                    onChange={e => setInvoiceSearch(e.target.value)}
-                    className="max-w-md"
-                  />
-                  <div className="max-h-48 overflow-auto border rounded-md bg-background">
-                    {filteredInvoices.length === 0 ? (
-                      <p className="text-xs text-muted-foreground text-center py-4">
-                        {vendorInvoices.length === 0 ? 'No invoices found in system' : 'No invoices match your search'}
-                      </p>
-                    ) : (
-                      filteredInvoices.map(inv => (
-                        <button
-                          key={inv.id}
-                          className={`w-full text-left px-3 py-2 text-xs border-b last:border-b-0 transition-colors hover:bg-accent/50 ${
-                            selectedInvoiceId === inv.id ? 'bg-accent' : ''
-                          }`}
-                          onClick={() => setSelectedInvoiceId(inv.id)}
-                        >
-                          <div className="flex items-center justify-between">
-                            <span className="font-mono font-medium">{inv.invoice_number}</span>
-                            <span className="font-semibold tabular-nums">{formatCurrency(inv.total)}</span>
-                          </div>
-                          <div className="flex items-center gap-2 text-muted-foreground mt-0.5">
-                            <span>{inv.vendor}</span>
-                            {inv.po_number && <span>· PO {inv.po_number}</span>}
-                            <span>· {inv.invoice_date}</span>
-                          </div>
-                        </button>
-                      ))
-                    )}
-                  </div>
-                  {selectedInvoiceId && (
-                    <p className="text-xs text-muted-foreground">
-                      Selected: <span className="font-mono font-medium text-foreground">{vendorInvoices.find(v => v.id === selectedInvoiceId)?.invoice_number}</span>
-                    </p>
                   )}
-                  <div className="flex gap-2">
-                    <Button size="sm" onClick={runReconciliation} disabled={!selectedInvoiceId}>Run Reconciliation</Button>
-                    <Button size="sm" variant="ghost" onClick={() => { setReconciling(null); setInvoiceSearch(''); }}>Cancel</Button>
-                  </div>
+
+                  {/* ── MULTI-INVOICE MODE ── */}
+                  {reconMode === 'MULTI' && multiMatchResult && (
+                    <div className="space-y-3">
+                      <p className="text-sm font-medium flex items-center gap-2">
+                        <Layers className="h-4 w-4" />
+                        Multi-Invoice Match Results
+                      </p>
+
+                      {/* Matched Groups */}
+                      {multiMatchResult.groups.map((group, i) => (
+                        <div key={group.invoiceId} className="border border-emerald-500/30 bg-emerald-500/5 rounded-md p-3 space-y-1">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <Badge className="bg-emerald-600 text-white text-[10px]">Group {i + 1}</Badge>
+                              <span className="text-xs font-mono font-medium">Invoice {group.invoiceNumber}</span>
+                              <span className="text-xs text-muted-foreground">{group.vendor}</span>
+                            </div>
+                            <span className="text-xs font-semibold tabular-nums">{formatCurrency(group.invoiceTotal)}</span>
+                          </div>
+                          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                            <span>{group.matchedLineCount} lines</span>
+                            <span>Ordered: {formatCurrency(group.orderedValue)}</span>
+                            <span>Received: {formatCurrency(group.receivedValue)}</span>
+                            {group.poNumber && <span>PO: {group.poNumber}</span>}
+                          </div>
+                        </div>
+                      ))}
+
+                      {/* Unmatched Lines */}
+                      {multiMatchResult.unmatchedLines.length > 0 && (
+                        <div className="border border-amber-500/30 bg-amber-500/5 rounded-md p-3 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">
+                              ⚠ Unmatched Lines ({multiMatchResult.unmatchedLines.length})
+                            </p>
+                            <span className="text-xs font-semibold tabular-nums text-amber-600">
+                              {formatCurrency(multiMatchResult.unmatchedValue)}
+                            </span>
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            UPCs not found in any uploaded invoice. These may belong to invoices not yet uploaded via the PDF Reader.
+                          </p>
+                          <div className="max-h-32 overflow-auto text-xs space-y-1">
+                            {multiMatchResult.unmatchedLines.slice(0, 8).map((l: any, i: number) => (
+                              <div key={i} className="flex items-center gap-2 text-muted-foreground">
+                                <span className="font-mono">{l.upc || '—'}</span>
+                                <span className="truncate max-w-[200px]">{l.item_description}</span>
+                                <span>×{l.order_qty}</span>
+                                <span>{formatCurrency(Number(l.ordered_cost || 0))}</span>
+                              </div>
+                            ))}
+                            {multiMatchResult.unmatchedLines.length > 8 && (
+                              <p className="text-muted-foreground">… and {multiMatchResult.unmatchedLines.length - 8} more</p>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Summary */}
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="bg-background border rounded-md p-2 text-center">
+                          <p className="text-xs text-muted-foreground">Invoices Matched</p>
+                          <p className="text-lg font-bold text-emerald-600">{multiMatchResult.groups.length}</p>
+                        </div>
+                        <div className="bg-background border rounded-md p-2 text-center">
+                          <p className="text-xs text-muted-foreground">Lines Matched</p>
+                          <p className="text-lg font-bold">{multiMatchResult.groups.reduce((s, g) => s + g.matchedLineCount, 0)}</p>
+                        </div>
+                        <div className="bg-background border rounded-md p-2 text-center">
+                          <p className="text-xs text-muted-foreground">Unmatched</p>
+                          <p className="text-lg font-bold text-amber-600">{multiMatchResult.unmatchedLines.length}</p>
+                        </div>
+                      </div>
+
+                      <div className="flex gap-2">
+                        <Button size="sm" onClick={runMultiInvoiceReconciliation} disabled={multiReconRunning || multiMatchResult.groups.length === 0}>
+                          {multiReconRunning ? 'Reconciling…' : `Reconcile ${multiMatchResult.groups.length} Invoice Groups`}
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => runMultiInvoicePreview()}>
+                          Refresh Matching
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => { setReconciling(null); setReconMode('SINGLE'); setMultiMatchResult(null); }}>
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── SINGLE INVOICE MODE ── */}
+                  {reconMode === 'SINGLE' && (
+                    <>
+                      <p className="text-sm font-medium">Select the invoice this PO receiving belongs to:</p>
+
+                      {/* Auto-Suggestions */}
+                      {invoiceSuggestions.length > 0 ? (
+                        <div className="space-y-2">
+                          <p className="text-xs text-muted-foreground flex items-center gap-1">🔍 Suggested matches based on UPC overlap:</p>
+                          {invoiceSuggestions.map((s, i) => {
+                            const badge = matchStrengthBadge(s.matchPercent, s.poMatch);
+                            const isBest = i === 0;
+                            return (
+                              <button
+                                key={s.invoice.id}
+                                onClick={() => setSelectedInvoiceId(s.invoice.id)}
+                                className={`w-full text-left rounded-md border p-3 transition-colors ${
+                                  selectedInvoiceId === s.invoice.id
+                                    ? 'border-primary bg-primary/5 ring-1 ring-primary'
+                                    : isBest
+                                    ? 'border-emerald-500/40 bg-emerald-500/5 hover:bg-emerald-500/10'
+                                    : 'border-border hover:bg-accent/50'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between mb-1">
+                                  <div className="flex items-center gap-2">
+                                    {isBest && <span className="text-xs">⭐</span>}
+                                    <Badge className={`text-[10px] ${badge.className}`}>{badge.label}</Badge>
+                                    <span className="text-xs font-semibold">
+                                      {s.matchPercent > 0 ? `${s.matchPercent}% UPC overlap` : `Score: ${s.score}`}
+                                    </span>
+                                  </div>
+                                  <span className="text-xs font-semibold tabular-nums">{formatCurrency(s.invoice.total)}</span>
+                                </div>
+                                <div className="flex items-center gap-1 text-xs">
+                                  <span className="text-muted-foreground">{s.invoice.vendor}</span>
+                                  <span className="text-muted-foreground">·</span>
+                                  <span className="font-mono font-medium">Invoice {s.invoice.invoice_number}</span>
+                                </div>
+                                <div className="flex items-center gap-2 text-[11px] text-muted-foreground mt-0.5">
+                                  {s.invoice.po_number && <span>PO: {s.invoice.po_number}</span>}
+                                  <span>{s.invoice.invoice_date}</span>
+                                  {s.upcMatches > 0 && <span>· {s.upcMatches} UPCs matched</span>}
+                                  {s.skuMatches > 0 && <span>· {s.skuMatches} SKUs matched</span>}
+                                </div>
+                                {selectedInvoiceId !== s.invoice.id && (
+                                  <p className="text-[10px] text-primary mt-1">Select This Invoice</p>
+                                )}
+                              </button>
+                            );
+                          })}
+                          <p className="text-[10px] text-muted-foreground">Or search manually below ↓</p>
+                        </div>
+                      ) : vendorFilteredInvoices.length > 0 ? (
+                        <div className="bg-amber-500/10 border border-amber-500/20 rounded-md px-3 py-2 text-xs text-amber-700 dark:text-amber-400 flex items-start gap-1.5">
+                          <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                          <span>No invoice UPC matches found. Search manually or upload the invoice PDF first.</span>
+                        </div>
+                      ) : null}
+
+                      <Input
+                        placeholder="Search by invoice #, PO #, or vendor…"
+                        value={invoiceSearch}
+                        onChange={e => setInvoiceSearch(e.target.value)}
+                        className="max-w-md"
+                      />
+                      <div className="max-h-48 overflow-auto border rounded-md bg-background">
+                        {filteredInvoices.length === 0 ? (
+                          <p className="text-xs text-muted-foreground text-center py-4">
+                            {vendorInvoices.length === 0 ? 'No invoices found' : 'No invoices match your search'}
+                          </p>
+                        ) : (
+                          filteredInvoices.map(inv => (
+                            <button
+                              key={inv.id}
+                              className={`w-full text-left px-3 py-2 text-xs border-b last:border-b-0 transition-colors hover:bg-accent/50 ${
+                                selectedInvoiceId === inv.id ? 'bg-accent' : ''
+                              }`}
+                              onClick={() => setSelectedInvoiceId(inv.id)}
+                            >
+                              <div className="flex items-center justify-between">
+                                <span className="font-mono font-medium">{inv.invoice_number}</span>
+                                <span className="font-semibold tabular-nums">{formatCurrency(inv.total)}</span>
+                              </div>
+                              <div className="flex items-center gap-2 text-muted-foreground mt-0.5">
+                                <span>{inv.vendor}</span>
+                                {inv.po_number && <span>· PO {inv.po_number}</span>}
+                                <span>· {inv.invoice_date}</span>
+                              </div>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                      {selectedInvoiceId && (
+                        <p className="text-xs text-muted-foreground">
+                          Selected: <span className="font-mono font-medium text-foreground">{vendorInvoices.find(v => v.id === selectedInvoiceId)?.invoice_number}</span>
+                        </p>
+                      )}
+                      <div className="flex gap-2">
+                        <Button size="sm" onClick={runReconciliation} disabled={!selectedInvoiceId}>Run Reconciliation</Button>
+                        <Button size="sm" variant="ghost" onClick={() => { setReconciling(null); setInvoiceSearch(''); setReconMode('SINGLE'); setMultiMatchResult(null); }}>Cancel</Button>
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
 
               {/* Filters */}
               <div className="flex flex-wrap items-center gap-2">
                 <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger className="w-[180px] h-8 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
+                  <SelectTrigger className="w-[180px] h-8 text-xs"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Statuses</SelectItem>
                     <SelectItem value="FULLY_RECEIVED">Fully Received</SelectItem>
@@ -963,7 +1299,6 @@ export default function ReceivingPage() {
 
               {/* Line Items Table */}
               <div className="overflow-auto border rounded-md">
-                {/* Desktop table */}
                 <Table className="hidden md:table">
                   <TableHeader>
                     <TableRow>
@@ -984,7 +1319,7 @@ export default function ReceivingPage() {
                   </TableHeader>
                   <TableBody>
                     {filteredLines.map((l: any, i: number) => (
-                      <TableRow key={l.id} className={l.billing_discrepancy ? 'bg-amber-500/5' : ''}>
+                      <TableRow key={l.id} className={l.billing_discrepancy ? 'bg-amber-500/5' : l.match_status === 'INVOICE_NOT_UPLOADED' ? 'bg-gray-500/5' : ''}>
                         <TableCell className="text-xs text-muted-foreground">{i + 1}</TableCell>
                         <TableCell className="text-xs font-mono">{l.upc || '—'}</TableCell>
                         <TableCell className="text-xs font-mono">{l.manufact_sku || '—'}</TableCell>
@@ -1006,7 +1341,6 @@ export default function ReceivingPage() {
                   </TableBody>
                 </Table>
 
-                {/* Mobile cards */}
                 <div className="md:hidden divide-y">
                   {filteredLines.map((l: any, i: number) => (
                     <div key={l.id} className={`p-3 space-y-1 ${l.billing_discrepancy ? 'bg-amber-500/5' : ''}`}>
@@ -1048,6 +1382,7 @@ export default function ReceivingPage() {
                     <SelectItem value="Maui Jim">Maui Jim</SelectItem>
                     <SelectItem value="Safilo">Safilo</SelectItem>
                     <SelectItem value="Marcolin">Marcolin</SelectItem>
+                    <SelectItem value="EOL">EOL</SelectItem>
                   </SelectContent>
                 </Select>
                 <Select value={historyStatus} onValueChange={setHistoryStatus}>
@@ -1056,7 +1391,9 @@ export default function ReceivingPage() {
                     <SelectItem value="all">All Statuses</SelectItem>
                     <SelectItem value="unreconciled">Unreconciled</SelectItem>
                     <SelectItem value="reconciled">Reconciled</SelectItem>
+                    <SelectItem value="partial_reconciled">Partial</SelectItem>
                     <SelectItem value="discrepancy">Discrepancy</SelectItem>
+                    <SelectItem value="split">Split</SelectItem>
                     <SelectItem value="reviewed">Reviewed</SelectItem>
                   </SelectContent>
                 </Select>
@@ -1070,7 +1407,6 @@ export default function ReceivingPage() {
               <p className="text-sm text-muted-foreground text-center py-4">No receiving sessions yet</p>
             ) : (
               <>
-                {/* Desktop table */}
                 <Table className="hidden md:table">
                   <TableHeader>
                     <TableRow>
@@ -1115,7 +1451,6 @@ export default function ReceivingPage() {
                   </TableBody>
                 </Table>
 
-                {/* Mobile cards */}
                 <div className="md:hidden divide-y">
                   {filteredSessions.map(s => {
                     const pct = s.total_ordered_qty ? Math.round((Number(s.total_received_qty) / Number(s.total_ordered_qty)) * 100) : 0;
@@ -1142,7 +1477,6 @@ export default function ReceivingPage() {
         </>) : (
           /* ── FINAL BILL LEDGER TAB ── */
           <div className="space-y-6">
-            {/* Summary Bar */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <Card className="bg-card border-border">
                 <CardContent className="p-4 text-center">
@@ -1164,7 +1498,6 @@ export default function ReceivingPage() {
               </Card>
             </div>
 
-            {/* Ledger Table */}
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base">Final Bill Ledger</CardTitle>
@@ -1251,7 +1584,6 @@ export default function ReceivingPage() {
               </CardContent>
             </Card>
 
-            {/* Credit Confirmation Modal */}
             {creditConfirmOpen && (
               <Card className="border-primary">
                 <CardHeader className="pb-3">
@@ -1260,22 +1592,11 @@ export default function ReceivingPage() {
                 <CardContent className="space-y-3">
                   <div className="space-y-2">
                     <label className="text-xs font-medium">Credit Amount Confirmed by Vendor</label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      value={creditAmount}
-                      onChange={e => setCreditAmount(e.target.value)}
-                      className="max-w-xs"
-                    />
+                    <Input type="number" step="0.01" value={creditAmount} onChange={e => setCreditAmount(e.target.value)} className="max-w-xs" />
                   </div>
                   <div className="space-y-2">
                     <label className="text-xs font-medium">Approved By</label>
-                    <Input
-                      value={creditApprover}
-                      onChange={e => setCreditApprover(e.target.value)}
-                      placeholder="Your name"
-                      className="max-w-xs"
-                    />
+                    <Input value={creditApprover} onChange={e => setCreditApprover(e.target.value)} placeholder="Your name" className="max-w-xs" />
                   </div>
                   <div className="flex gap-2">
                     <Button size="sm" onClick={async () => {
