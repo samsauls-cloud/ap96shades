@@ -118,12 +118,12 @@ export default function APDashboard() {
     queryFn: fetchPayments,
   });
 
-  const { data: audit } = useAuditData();
+  const { data: audit, isLoading: auditLoading } = useAuditData();
 
   // ── Realtime subscriptions ──────────────────────────
   const refreshAll = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["invoice_payments"] });
-    queryClient.invalidateQueries({ queryKey: ["ap_audit"] });
+    queryClient.invalidateQueries({ queryKey: ["ap_full_audit"] });
     queryClient.invalidateQueries({ queryKey: ["server_date"] });
   }, [queryClient]);
 
