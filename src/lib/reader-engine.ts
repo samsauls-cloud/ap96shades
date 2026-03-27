@@ -1,6 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { VendorInvoiceInsert } from "@/lib/supabase-queries";
 import { normalizeVendor } from "@/lib/invoice-dedup";
+import { applyVendorDiscount } from "@/lib/vendor-pricing-rules";
 
 const SYSTEM_PROMPT = `You are a document data extractor for an optical retail business (NinetySix Shades). Extract data from vendor invoices AND purchase orders from: Maui Jim, Kering (Gucci, Saint Laurent, Balenciaga, Bottega Veneta, Alexander McQueen), Safilo (Carrera, Fossil, Hugo Boss, Jimmy Choo), Marcolin (Tom Ford, Guess, Swarovski, Montblanc), Luxottica (Ray-Ban, Oakley, Prada, Versace, Persol, Coach, DKNY, Dolce & Gabbana, Emporio Armani, Giorgio Armani, Burberry, Michael Kors, Tiffany, Vogue), Marchon (Nike, Columbia, Dragon, Flexon, Calvin Klein, Donna Karan, Lacoste, Salvatore Ferragamo, MCM, Nautica, Nine West, Skaga). Luxottica POs use fields: Order Number, Account Number, Carrier, Terms, Item Number, Color Code, Temple, Quantity Ordered, Quantity Shipped, Unit Cost, Extended Cost. Detect INVOICE vs PO. Return ONLY valid JSON: { doc_type, vendor, vendor_brands[], invoice_number, invoice_date (YYYY-MM-DD), po_number, account_number, ship_to, carrier, payment_terms, subtotal, tax, freight, total, currency, line_items[{upc, item_number, sku, description, brand, model, color_code, color_desc, size, temple, qty_ordered, qty_shipped, qty, unit_price, line_total}], notes }. CRITICAL: Return ONLY raw JSON. No markdown, no code fences, no backticks, no preamble, no explanation. Your response must start with { and end with }. Nothing before {. Nothing after }.`;
 
@@ -146,8 +147,25 @@ export async function callAnthropicAPI(
 }
 
 export function parsedToInvoice(parsed: any, filename: string): VendorInvoiceInsert {
+  const vendor = normalizeVendor(parsed.vendor);
+  const rawLineItems = parsed.line_items || [];
+
+  // Apply vendor-specific pricing rules (e.g. Marchon 10% discount)
+  const { lineItems, subtotal, total, discountApplied, discountPercent } =
+    applyVendorDiscount(vendor, rawLineItems, parsed.subtotal, parsed.total);
+
+  const discountNote = discountApplied
+    ? `${discountPercent}% vendor discount applied automatically.`
+    : null;
+  const existingNotes = parsed.notes ? String(parsed.notes) : "";
+  const combinedNotes = discountNote
+    ? existingNotes
+      ? `${existingNotes} | ${discountNote}`
+      : discountNote
+    : existingNotes || null;
+
   return {
-    vendor: normalizeVendor(parsed.vendor),
+    vendor,
     doc_type: parsed.doc_type || "INVOICE",
     invoice_number: parsed.invoice_number || filename,
     invoice_date: parsed.invoice_date || new Date().toISOString().split("T")[0],
@@ -156,15 +174,15 @@ export function parsedToInvoice(parsed: any, filename: string): VendorInvoiceIns
     ship_to: parsed.ship_to,
     carrier: parsed.carrier,
     payment_terms: parsed.payment_terms,
-    subtotal: parsed.subtotal,
+    subtotal: subtotal ?? parsed.subtotal,
     tax: parsed.tax,
     freight: parsed.freight,
-    total: parsed.total || 0,
+    total: total ?? parsed.total ?? 0,
     currency: parsed.currency || "USD",
     vendor_brands: parsed.vendor_brands,
-    notes: parsed.notes,
+    notes: combinedNotes,
     filename,
-    line_items: parsed.line_items || [],
+    line_items: lineItems,
   };
 }
 
