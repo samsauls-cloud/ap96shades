@@ -626,12 +626,8 @@ export default function ReceivingPage() {
   const reconAllEligible = useMemo(() => {
     return sessions.filter(s =>
       s.reconciliation_status === 'unreconciled' &&
-      !(s as any).parent_session_id?.startsWith?.('') && // include children
-      s.reconciliation_status !== 'split'
-    ).filter(s => {
-      // Exclude parent split sessions
-      return s.reconciliation_status !== 'split';
-    });
+      !((s as any).child_session_ids?.length > 0) // exclude parent split sessions
+    );
   }, [sessions]);
 
   const runReconcileAll = async () => {
