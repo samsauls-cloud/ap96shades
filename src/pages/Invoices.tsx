@@ -92,7 +92,7 @@ export default function InvoicesPage() {
     <div className="min-h-screen bg-background">
       <InvoiceNav />
       <main className="max-w-[1600px] mx-auto px-4 sm:px-6 py-6 space-y-5">
-        <StatsBar invoices={invoices} totalCount={totalCount} />
+        <StatsBar stats={stats} />
         <InvoiceFiltersBar filters={filters} onChange={setFilters} vendors={vendors} tags={allTags} />
 
         <div className="flex flex-wrap gap-2 items-center">
