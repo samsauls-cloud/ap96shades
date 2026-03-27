@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
@@ -347,5 +348,60 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
         </div>
       </SheetContent>
     </Sheet>
+  );
+}
+
+function ReconSection({ invoiceId, reconStatus, lastReconciled }: { invoiceId: string; reconStatus?: string; lastReconciled?: string }) {
+  const navigate = useNavigate();
+  const { data: discrepancies = [] } = useQuery({
+    queryKey: ["invoice_recon_discrepancies", invoiceId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("reconciliation_discrepancies")
+        .select("*")
+        .eq("invoice_id", invoiceId)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  if (!reconStatus || reconStatus === "pending") return null;
+
+  return (
+    <div className="mb-4">
+      <Separator className="mb-4" />
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-xs font-semibold text-muted-foreground">Reconciliation Status</h3>
+        {lastReconciled && <span className="text-[9px] text-muted-foreground">Last: {formatDate(lastReconciled)}</span>}
+      </div>
+      {reconStatus === "clean" ? (
+        <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+          <p className="text-xs text-emerald-600 font-medium">✅ Clean — no discrepancies found</p>
+        </div>
+      ) : discrepancies.length > 0 ? (
+        <div className="space-y-1">
+          {discrepancies.slice(0, 5).map(d => (
+            <div key={d.id} className="flex items-center justify-between text-[10px] p-2 rounded border border-border">
+              <span className="font-mono">{(d.discrepancy_type ?? "").replace(/_/g, " ")}</span>
+              <span className={d.severity === "critical" ? "text-destructive font-bold" : "text-amber-600"}>
+                {d.severity}
+              </span>
+              <span className="text-muted-foreground">{d.resolution_status}</span>
+            </div>
+          ))}
+          {discrepancies.length > 5 && (
+            <p className="text-[9px] text-muted-foreground">+ {discrepancies.length - 5} more</p>
+          )}
+          <Button variant="outline" size="sm" className="text-xs h-7 w-full mt-1" onClick={() => navigate(`/reconciliation?invoice=${invoiceId}`)}>
+            View All in Reconciliation Center
+          </Button>
+        </div>
+      ) : (
+        <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20">
+          <p className="text-xs text-destructive font-medium">⚠ Discrepancies found</p>
+        </div>
+      )}
+    </div>
   );
 }
