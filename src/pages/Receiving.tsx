@@ -739,7 +739,7 @@ export default function ReceivingPage() {
                     ⚠ This export has no receiving data — it shows what was ordered but not what arrived.
                   </div>
                 )}
-                <div className="overflow-auto max-h-48 border rounded-md">
+                <div className="overflow-auto max-h-[420px] border rounded-md">
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -752,7 +752,7 @@ export default function ReceivingPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {preview.lines.slice(0, 5).map((l, i) => (
+                      {preview.lines.slice(0, 20).map((l, i) => (
                         <TableRow key={i}>
                           <TableCell className="text-xs font-mono">{l.upc || '—'}</TableCell>
                           <TableCell className="text-xs font-mono">{l.manufact_sku || '—'}</TableCell>
