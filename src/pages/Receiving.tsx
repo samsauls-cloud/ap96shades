@@ -465,7 +465,13 @@ export default function ReceivingPage() {
       const unmatchedCount = freshLines.filter((l: any) => l.match_status === 'INVOICE_NOT_UPLOADED').length;
       const allPassed = checks.every(c => c.pass);
       let msg = allPassed ? 'Reconciliation complete — all math checks passed ✓' : 'Reconciliation complete — ⚠ math discrepancies detected';
-      if (unmatchedCount > 0) msg += ` · ${unmatchedCount} lines unmatched (may belong to other invoices)`;
+      if (unmatchedCount > 0) msg += ` · ${unmatchedCount} receiving lines unmatched`;
+      if (coverage.unmatchedInvoiceLines.length > 0) {
+        msg += ` · ⚠ ${coverage.unmatchedInvoiceLines.length} invoice line(s) not found in receiving data`;
+      }
+      if (coverage.coveragePct === 100 && allPassed) {
+        msg += ' · 📋 100% invoice coverage';
+      }
       toast.success(msg);
 
       setReconciling(null);
