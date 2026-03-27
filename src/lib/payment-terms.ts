@@ -180,5 +180,5 @@ export function calculateInstallments(
 }
 
 export function hasTermsEngine(vendor: string): boolean {
-  return vendor === "Luxottica";
+  return vendor in VENDOR_TERMS;
 }
