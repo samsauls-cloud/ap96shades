@@ -486,7 +486,20 @@ export default function ReceivingPage() {
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                 <div>
                   <CardTitle className="text-base">{selectedSession.session_name}</CardTitle>
-                  <CardDescription className="text-xs">{selectedSession.raw_filename} · {selectedSession.vendor} · {new Date(selectedSession.created_at).toLocaleDateString()}</CardDescription>
+                  <CardDescription className="text-xs flex items-center gap-1">
+                    {selectedSession.raw_filename} · {selectedSession.vendor}
+                    {VENDOR_TOOLTIPS[selectedSession.vendor] && (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Info className="h-3 w-3 text-amber-500 cursor-help inline" />
+                          </TooltipTrigger>
+                          <TooltipContent className="max-w-xs text-xs">{VENDOR_TOOLTIPS[selectedSession.vendor]}</TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    )}
+                    {' '}· {new Date(selectedSession.created_at).toLocaleDateString()}
+                  </CardDescription>
                 </div>
                 <div className="flex items-center gap-2">
                   <Badge className={reconStatusColor(selectedSession.reconciliation_status)}>
@@ -790,7 +803,19 @@ export default function ReceivingPage() {
                       return (
                         <TableRow key={s.id} className={selectedSessionId === s.id ? 'bg-accent' : 'cursor-pointer hover:bg-muted/50'} onClick={() => setSelectedSessionId(s.id)}>
                           <TableCell className="text-xs font-medium">{s.session_name}</TableCell>
-                          <TableCell className="text-xs">{s.vendor}</TableCell>
+                          <TableCell className="text-xs flex items-center gap-1">
+                            {s.vendor}
+                            {VENDOR_TOOLTIPS[s.vendor] && (
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Info className="h-3 w-3 text-amber-500 cursor-help" />
+                                  </TooltipTrigger>
+                                  <TooltipContent className="max-w-xs text-xs">{VENDOR_TOOLTIPS[s.vendor]}</TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            )}
+                          </TableCell>
                           <TableCell className="text-xs">{new Date(s.created_at).toLocaleDateString()}</TableCell>
                           <TableCell className="text-xs text-right">{s.total_lines}</TableCell>
                           <TableCell className="text-xs text-right">{pct}%</TableCell>
