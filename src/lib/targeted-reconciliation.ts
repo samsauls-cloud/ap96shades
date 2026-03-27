@@ -144,10 +144,10 @@ export async function runTargetedReconciliation(
   const recLines = await fetchAllRows("po_receiving_lines");
 
   // 4. Item master + assortment UPCs
-  const { data: itemMasterData } = await supabase.from("item_master").select("upc");
-  const itemMasterUPCs = new Set((itemMasterData ?? []).map(r => r.upc).filter(Boolean));
-  const { data: assortmentData } = await supabase.from("master_assortment").select("upc");
-  const assortmentUPCs = new Set((assortmentData ?? []).map(r => r.upc).filter(Boolean));
+  const itemMasterData = await fetchAllRows("item_master", { select: "upc" });
+  const itemMasterUPCs = new Set(itemMasterData.map(r => r.upc).filter(Boolean));
+  const assortmentData = await fetchAllRows("master_assortment", { select: "upc" });
+  const assortmentUPCs = new Set(assortmentData.map(r => r.upc).filter(Boolean));
 
   const recLinesByUPC = new Map<string, typeof recLines>();
   for (const rl of recLines) {

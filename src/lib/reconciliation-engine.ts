@@ -71,16 +71,12 @@ export async function runFullReconciliation(
   const recLines = await fetchAllRows("po_receiving_lines");
 
   // 3. Fetch item master for UPC validation
-  const { data: itemMasterData } = await supabase
-    .from("item_master")
-    .select("upc");
-  const itemMasterUPCs = new Set((itemMasterData ?? []).map(r => r.upc).filter(Boolean));
+  const itemMasterData = await fetchAllRows("item_master", { select: "upc" });
+  const itemMasterUPCs = new Set(itemMasterData.map(r => r.upc).filter(Boolean));
 
   // 4. Fetch master assortment UPCs
-  const { data: assortmentData } = await supabase
-    .from("master_assortment")
-    .select("upc");
-  const assortmentUPCs = new Set((assortmentData ?? []).map(r => r.upc).filter(Boolean));
+  const assortmentData = await fetchAllRows("master_assortment", { select: "upc" });
+  const assortmentUPCs = new Set(assortmentData.map(r => r.upc).filter(Boolean));
 
   // Build lookup maps
   const recLinesByUPC = new Map<string, typeof recLines>();
