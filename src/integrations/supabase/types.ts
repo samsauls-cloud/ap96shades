@@ -56,6 +56,114 @@ export type Database = {
         }
         Relationships: []
       }
+      final_bill_ledger: {
+        Row: {
+          amount_paid_toward_final: number | null
+          approved_by: string | null
+          created_at: string
+          credit_approved: boolean | null
+          credit_approved_amount: number | null
+          credit_approved_at: string | null
+          credit_due_overbilled: number | null
+          credit_request_sent: boolean | null
+          credit_request_sent_at: string | null
+          discrepancy_line_count: number | null
+          final_balance_remaining: number | null
+          final_bill_amount: number
+          final_bill_status: string | null
+          id: string
+          invoice_date: string | null
+          invoice_id: string | null
+          invoice_number: string
+          not_on_invoice_amount: number | null
+          notes: string | null
+          original_invoice_total: number
+          po_number: string | null
+          qty_mismatch_amount: number | null
+          session_id: string | null
+          total_credit_due: number | null
+          total_not_received_qty: number | null
+          total_ordered_qty: number | null
+          total_received_qty: number | null
+          vendor: string
+        }
+        Insert: {
+          amount_paid_toward_final?: number | null
+          approved_by?: string | null
+          created_at?: string
+          credit_approved?: boolean | null
+          credit_approved_amount?: number | null
+          credit_approved_at?: string | null
+          credit_due_overbilled?: number | null
+          credit_request_sent?: boolean | null
+          credit_request_sent_at?: string | null
+          discrepancy_line_count?: number | null
+          final_balance_remaining?: number | null
+          final_bill_amount?: number
+          final_bill_status?: string | null
+          id?: string
+          invoice_date?: string | null
+          invoice_id?: string | null
+          invoice_number: string
+          not_on_invoice_amount?: number | null
+          notes?: string | null
+          original_invoice_total?: number
+          po_number?: string | null
+          qty_mismatch_amount?: number | null
+          session_id?: string | null
+          total_credit_due?: number | null
+          total_not_received_qty?: number | null
+          total_ordered_qty?: number | null
+          total_received_qty?: number | null
+          vendor: string
+        }
+        Update: {
+          amount_paid_toward_final?: number | null
+          approved_by?: string | null
+          created_at?: string
+          credit_approved?: boolean | null
+          credit_approved_amount?: number | null
+          credit_approved_at?: string | null
+          credit_due_overbilled?: number | null
+          credit_request_sent?: boolean | null
+          credit_request_sent_at?: string | null
+          discrepancy_line_count?: number | null
+          final_balance_remaining?: number | null
+          final_bill_amount?: number
+          final_bill_status?: string | null
+          id?: string
+          invoice_date?: string | null
+          invoice_id?: string | null
+          invoice_number?: string
+          not_on_invoice_amount?: number | null
+          notes?: string | null
+          original_invoice_total?: number
+          po_number?: string | null
+          qty_mismatch_amount?: number | null
+          session_id?: string | null
+          total_credit_due?: number | null
+          total_not_received_qty?: number | null
+          total_ordered_qty?: number | null
+          total_received_qty?: number | null
+          vendor?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "final_bill_ledger_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "vendor_invoices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "final_bill_ledger_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "po_receiving_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       invoice_payments: {
         Row: {
           amount_due: number
@@ -448,9 +556,11 @@ export type Database = {
           account_number: string | null
           carrier: string | null
           created_at: string
+          credit_due: number | null
           currency: string
           doc_type: string
           filename: string | null
+          final_bill_amount: number | null
           freight: number | null
           id: string
           imported_at: string
@@ -465,6 +575,9 @@ export type Database = {
           payment_terms: string | null
           po_number: string | null
           po_total_invoiced: number | null
+          reconciled_at: string | null
+          reconciled_session_id: string | null
+          reconciliation_status: string | null
           ship_to: string | null
           shipment_count: number
           status: string
@@ -479,9 +592,11 @@ export type Database = {
           account_number?: string | null
           carrier?: string | null
           created_at?: string
+          credit_due?: number | null
           currency?: string
           doc_type?: string
           filename?: string | null
+          final_bill_amount?: number | null
           freight?: number | null
           id?: string
           imported_at?: string
@@ -496,6 +611,9 @@ export type Database = {
           payment_terms?: string | null
           po_number?: string | null
           po_total_invoiced?: number | null
+          reconciled_at?: string | null
+          reconciled_session_id?: string | null
+          reconciliation_status?: string | null
           ship_to?: string | null
           shipment_count?: number
           status?: string
@@ -510,9 +628,11 @@ export type Database = {
           account_number?: string | null
           carrier?: string | null
           created_at?: string
+          credit_due?: number | null
           currency?: string
           doc_type?: string
           filename?: string | null
+          final_bill_amount?: number | null
           freight?: number | null
           id?: string
           imported_at?: string
@@ -527,6 +647,9 @@ export type Database = {
           payment_terms?: string | null
           po_number?: string | null
           po_total_invoiced?: number | null
+          reconciled_at?: string | null
+          reconciled_session_id?: string | null
+          reconciliation_status?: string | null
           ship_to?: string | null
           shipment_count?: number
           status?: string
@@ -537,7 +660,15 @@ export type Database = {
           vendor?: string
           vendor_brands?: string[] | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "vendor_invoices_reconciled_session_id_fkey"
+            columns: ["reconciled_session_id"]
+            isOneToOne: false
+            referencedRelation: "po_receiving_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {
