@@ -294,7 +294,7 @@ export default function ReconciliationPage() {
         {/* Filters */}
         <div className="flex flex-wrap gap-2 items-center">
           <Filter className="h-3.5 w-3.5 text-muted-foreground" />
-          <Select value={vendorFilter} onValueChange={setVendorFilter}>
+          <Select value={vendorFilter || "__all__"} onValueChange={v => setVendorFilter(v === "__all__" ? "" : v)}>
             <SelectTrigger className="h-8 w-[160px] text-xs"><SelectValue placeholder="All Vendors" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="__all__">All Vendors</SelectItem>
