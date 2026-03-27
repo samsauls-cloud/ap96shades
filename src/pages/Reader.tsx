@@ -334,6 +334,7 @@ export default function ReaderPage() {
     setProcessing(false);
     setBatchTotal(0);
     queryClient.invalidateQueries({ queryKey: ["vendor_invoices"] });
+    queryClient.invalidateQueries({ queryKey: ["invoice_stats"] });
     queryClient.invalidateQueries({ queryKey: ["distinct_vendors"] });
     if (!cancelRef.current && !atomicMode) toast.success("Processing complete");
   };
@@ -435,6 +436,7 @@ export default function ReaderPage() {
     setIsRetrying(false);
     setBatchTotal(0);
     queryClient.invalidateQueries({ queryKey: ["vendor_invoices"] });
+    queryClient.invalidateQueries({ queryKey: ["invoice_stats"] });
     queryClient.invalidateQueries({ queryKey: ["distinct_vendors"] });
     toast.success(`Retry complete. ${completed} file(s) reprocessed.`);
   };
