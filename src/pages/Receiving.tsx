@@ -11,7 +11,8 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import {
   Upload, FileText, CheckCircle2, AlertTriangle, XCircle, Minus, Package,
-  ArrowRight, Download, Eye, Filter, ChevronDown, ChevronUp, Info
+  ArrowRight, Download, Eye, Filter, ChevronDown, ChevronUp, Info, ShieldCheck,
+  Send, CheckCheck, FileDown, DollarSign
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
@@ -24,6 +25,12 @@ import {
 } from "@/lib/receiving-engine";
 import { getLineItems, formatCurrency } from "@/lib/supabase-queries";
 import { suggestMatchingInvoices, matchStrengthBadge, type InvoiceSuggestion } from "@/lib/invoice-suggestions";
+import { computeReconciliationTotals, verifyReconciliationMath, type MathCheck, type ReconciliationTotals } from "@/lib/reconciliation-math";
+import {
+  upsertFinalBillEntry, updateInvoiceReconciliation, applyCreditToPayments,
+  fetchFinalBillLedger, markCreditRequestSent, confirmCreditReceived,
+  generateCreditRequestCSV, type FinalBillLedgerEntry
+} from "@/lib/final-bill-queries";
 
 // ── Receiving-to-Invoice Vendor Mapping ──
 const RECEIVING_TO_INVOICE_VENDOR: Record<string, string[]> = {
