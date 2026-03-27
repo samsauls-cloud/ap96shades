@@ -1657,6 +1657,7 @@ export default function ReceivingPage() {
                 </div>
               </div>
             )}
+          </CardHeader>
           <CardContent>
             {sessionsLoading ? (
               <p className="text-sm text-muted-foreground text-center py-4">Loading…</p>
