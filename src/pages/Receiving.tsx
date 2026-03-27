@@ -150,6 +150,7 @@ export default function ReceivingPage() {
   const [mathChecks, setMathChecks] = useState<MathCheck[] | null>(null);
   const [reconTotals, setReconTotals] = useState<ReconciliationTotals | null>(null);
   const [varianceOverride, setVarianceOverride] = useState<{ skipped: boolean; reason?: string } | null>(null);
+  const [invoiceCoverage, setInvoiceCoverage] = useState<InvoiceCoverageResult | null>(null);
   const [activeTab, setActiveTab] = useState<'receiving' | 'final-bill'>('receiving');
   const [creditConfirmOpen, setCreditConfirmOpen] = useState<string | null>(null);
   const [creditAmount, setCreditAmount] = useState('');
