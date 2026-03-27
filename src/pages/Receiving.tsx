@@ -18,7 +18,8 @@ import {
   vendorFromLightspeed, createSession, insertReceivingLines, fetchSessions,
   fetchSessionLines, matchReceivingToInvoice, calcDiscrepancy,
   updateSessionReconciliation, updateLineReconciliation, exportReconciliationCSV,
-  type ExportFormat, type ParsedLine, type ReceivingStatus
+  checkReceivingDuplicate, mergeReceivingUpdate,
+  type ExportFormat, type ParsedLine, type ReceivingStatus, type ReceivingDedupAction
 } from "@/lib/receiving-engine";
 import { getLineItems, formatCurrency } from "@/lib/supabase-queries";
 
