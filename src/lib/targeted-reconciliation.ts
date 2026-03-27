@@ -1,6 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { VendorInvoice } from "@/lib/supabase-queries";
 import { getLineItems } from "@/lib/supabase-queries";
+import { fetchAllRows } from "@/lib/supabase-fetch-all";
 import type { ReconciliationProgress } from "@/lib/reconciliation-engine";
 
 const VENDOR_BRAND_MAP: Record<string, string[]> = {

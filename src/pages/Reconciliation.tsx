@@ -27,6 +27,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { InvoiceNav } from "@/components/invoices/InvoiceNav";
 import { StaleQueuePanel } from "@/components/invoices/StaleQueuePanel";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchAllRows } from "@/lib/supabase-fetch-all";
 import { runFullReconciliation, type ReconciliationProgress } from "@/lib/reconciliation-engine";
 import { runTargetedReconciliation } from "@/lib/targeted-reconciliation";
 import { fetchStaleCount } from "@/lib/stale-queue-queries";
@@ -56,26 +57,18 @@ export default function ReconciliationPage() {
   // Queries
   const { data: discrepancies = [], isLoading: loadingDisc } = useQuery({
     queryKey: ["recon_discrepancies"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("reconciliation_discrepancies")
-        .select("*")
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return data ?? [];
-    },
+    queryFn: () => fetchAllRows("reconciliation_discrepancies", {
+      orderBy: "created_at",
+      ascending: false,
+    }),
   });
 
   const { data: runs = [] } = useQuery({
     queryKey: ["recon_runs"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("reconciliation_runs")
-        .select("*")
-        .order("run_at", { ascending: false });
-      if (error) throw error;
-      return data ?? [];
-    },
+    queryFn: () => fetchAllRows("reconciliation_runs", {
+      orderBy: "run_at",
+      ascending: false,
+    }),
   });
 
   const { data: vendors = [] } = useQuery({
