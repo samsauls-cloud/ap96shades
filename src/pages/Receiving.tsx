@@ -84,7 +84,7 @@ export default function ReceivingPage() {
   const [sessionName, setSessionName] = useState('');
   const [dragOver, setDragOver] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [preview, setPreview] = useState<{ format: ExportFormat; headers: string[]; rows: string[][]; lines: ParsedLine[]; vendor: string; filename: string } | null>(null);
+  const [preview, setPreview] = useState<{ format: ExportFormat; headers: string[]; rows: string[][]; lines: ParsedLine[]; vendor: string; filename: string; eolResolution?: EOLResolution } | null>(null);
   const [dedupResult, setDedupResult] = useState<ReceivingDedupAction | null>(null);
   const [checkingDedup, setCheckingDedup] = useState(false);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
