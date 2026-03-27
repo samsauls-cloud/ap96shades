@@ -18,7 +18,8 @@ import {
   vendorFromLightspeed, createSession, insertReceivingLines, fetchSessions,
   fetchSessionLines, matchReceivingToInvoice, calcDiscrepancy,
   updateSessionReconciliation, updateLineReconciliation, exportReconciliationCSV,
-  type ExportFormat, type ParsedLine, type ReceivingStatus
+  checkReceivingDuplicate, mergeReceivingUpdate,
+  type ExportFormat, type ParsedLine, type ReceivingStatus, type ReceivingDedupAction
 } from "@/lib/receiving-engine";
 import { getLineItems, formatCurrency } from "@/lib/supabase-queries";
 
@@ -66,6 +67,8 @@ export default function ReceivingPage() {
   const [dragOver, setDragOver] = useState(false);
   const [importing, setImporting] = useState(false);
   const [preview, setPreview] = useState<{ format: ExportFormat; headers: string[]; rows: string[][]; lines: ParsedLine[]; vendor: string; filename: string } | null>(null);
+  const [dedupResult, setDedupResult] = useState<ReceivingDedupAction | null>(null);
+  const [checkingDedup, setCheckingDedup] = useState(false);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [discrepancyOnly, setDiscrepancyOnly] = useState(false);
@@ -132,7 +135,27 @@ export default function ReceivingPage() {
     if (file) handleFile(file);
   }, [handleFile]);
 
-  // ── Import ──
+  // ── Pre-Import Dedup Check ──
+  const runDedupCheck = async () => {
+    if (!preview) return;
+    setCheckingDedup(true);
+    try {
+      const result = await checkReceivingDuplicate(preview.vendor, preview.filename, preview.lines);
+      setDedupResult(result);
+      if (result.type === 'exact_duplicate') {
+        toast.warning('This exact CSV has already been imported — no changes needed.');
+      } else if (result.type === 'update_available') {
+        toast.info(`Updated CSV detected: ${result.changedLines} changed, ${result.newLines} new lines. Review below.`);
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Dedup check failed');
+      setDedupResult({ type: 'new' }); // fallback to allow import
+    } finally {
+      setCheckingDedup(false);
+    }
+  };
+
+  // ── Import (new session) ──
   const doImport = async () => {
     if (!preview) return;
     setImporting(true);
@@ -149,10 +172,34 @@ export default function ReceivingPage() {
       toast.success(`Imported ${preview.lines.length} lines`);
       setPreview(null);
       setSessionName('');
+      setDedupResult(null);
       setSelectedSessionId(session.id);
       qc.invalidateQueries({ queryKey: ['receiving-sessions'] });
     } catch (err: any) {
       toast.error(err.message || 'Import failed');
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  // ── Merge Update (existing session) ──
+  const doMergeUpdate = async () => {
+    if (!preview || !dedupResult || dedupResult.type !== 'update_available') return;
+    setImporting(true);
+    try {
+      const { updatedCount, insertedCount } = await mergeReceivingUpdate(
+        dedupResult.existingSessionId,
+        preview.lines
+      );
+      toast.success(`Merged: ${updatedCount} lines updated, ${insertedCount} new lines added. Unchanged lines were preserved.`);
+      setPreview(null);
+      setSessionName('');
+      setDedupResult(null);
+      setSelectedSessionId(dedupResult.existingSessionId);
+      qc.invalidateQueries({ queryKey: ['receiving-sessions'] });
+      qc.invalidateQueries({ queryKey: ['receiving-lines', dedupResult.existingSessionId] });
+    } catch (err: any) {
+      toast.error(err.message || 'Merge failed');
     } finally {
       setImporting(false);
     }
@@ -328,9 +375,70 @@ export default function ReceivingPage() {
                     </TableBody>
                   </Table>
                 </div>
-                <Button onClick={doImport} disabled={importing}>
-                  {importing ? 'Importing…' : `Import ${preview.lines.length} rows`}
-                </Button>
+                {/* Dedup Check + Import Buttons */}
+                {!dedupResult && (
+                  <Button onClick={runDedupCheck} disabled={checkingDedup}>
+                    {checkingDedup ? 'Checking for duplicates…' : `Check & Import ${preview.lines.length} rows`}
+                  </Button>
+                )}
+
+                {dedupResult?.type === 'exact_duplicate' && (
+                  <div className="bg-amber-500/10 border border-amber-500/30 rounded-md p-3 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle className="h-4 w-4 text-amber-600" />
+                      <p className="text-sm font-medium text-amber-700 dark:text-amber-400">
+                        Exact duplicate — this CSV was already imported as "{dedupResult.sessionName}"
+                      </p>
+                    </div>
+                    <p className="text-xs text-muted-foreground">All lines match the existing session. No import needed.</p>
+                    <Button size="sm" variant="outline" onClick={() => { setPreview(null); setDedupResult(null); }}>
+                      Dismiss
+                    </Button>
+                  </div>
+                )}
+
+                {dedupResult?.type === 'update_available' && (
+                  <div className="bg-blue-500/10 border border-blue-500/30 rounded-md p-3 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Package className="h-4 w-4 text-blue-600" />
+                      <p className="text-sm font-medium text-blue-700 dark:text-blue-400">
+                        Updated CSV detected — merging into "{dedupResult.sessionName}"
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-center">
+                      <div className="bg-background rounded p-2">
+                        <p className="text-lg font-bold text-blue-600">{dedupResult.changedLines}</p>
+                        <p className="text-[10px] text-muted-foreground">Lines Changed</p>
+                      </div>
+                      <div className="bg-background rounded p-2">
+                        <p className="text-lg font-bold text-emerald-600">{dedupResult.newLines}</p>
+                        <p className="text-[10px] text-muted-foreground">New Lines</p>
+                      </div>
+                      <div className="bg-background rounded p-2">
+                        <p className="text-lg font-bold text-muted-foreground">{dedupResult.unchangedLines}</p>
+                        <p className="text-[10px] text-muted-foreground">Unchanged (kept)</p>
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground">Only changed and new lines will be updated. Previously received items stay untouched.</p>
+                    <div className="flex gap-2">
+                      <Button size="sm" onClick={doMergeUpdate} disabled={importing}>
+                        {importing ? 'Merging…' : 'Merge Updates'}
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => { setPreview(null); setDedupResult(null); }}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {dedupResult?.type === 'new' && (
+                  <div className="flex items-center gap-3">
+                    <Badge className="bg-emerald-600 text-white gap-1"><CheckCircle2 className="h-3 w-3" />No duplicates found</Badge>
+                    <Button onClick={doImport} disabled={importing}>
+                      {importing ? 'Importing…' : `Import ${preview.lines.length} rows`}
+                    </Button>
+                  </div>
+                )}
               </div>
             )}
           </CardContent>
