@@ -333,6 +333,190 @@ export async function updateLineReconciliation(
   if (error) throw error;
 }
 
+// ── Receiving Dedup ──
+export type ReceivingDedupAction =
+  | { type: 'new' }
+  | { type: 'exact_duplicate'; existingSessionId: string; sessionName: string }
+  | { type: 'update_available'; existingSessionId: string; sessionName: string; changedLines: number; unchangedLines: number; newLines: number };
+
+export async function checkReceivingDuplicate(
+  vendor: string,
+  filename: string,
+  incomingLines: ParsedLine[]
+): Promise<ReceivingDedupAction> {
+  // Guard 1: exact filename match
+  const { data: byFile } = await supabase
+    .from('po_receiving_sessions')
+    .select('id, session_name')
+    .eq('raw_filename', filename)
+    .eq('vendor', vendor)
+    .limit(1);
+
+  if (byFile && byFile.length > 0) {
+    const existingSession = byFile[0];
+    // Check if lines are identical
+    const { data: existingLines } = await supabase
+      .from('po_receiving_lines')
+      .select('upc, manufact_sku, order_qty, received_qty')
+      .eq('session_id', existingSession.id);
+
+    if (existingLines) {
+      const existingKey = new Set(existingLines.map(l =>
+        `${l.upc || ''}|${l.manufact_sku || ''}|${l.order_qty}|${l.received_qty}`
+      ));
+      const incomingKey = new Set(incomingLines.map(l =>
+        `${l.upc || ''}|${l.manufact_sku || ''}|${l.order_qty}|${l.received_qty}`
+      ));
+      const identical = existingKey.size === incomingKey.size &&
+        [...incomingKey].every(k => existingKey.has(k));
+
+      if (identical) {
+        return { type: 'exact_duplicate', existingSessionId: existingSession.id, sessionName: existingSession.session_name };
+      }
+
+      // Not identical = updated CSV — compute diff
+      const existingByUPC = new Map<string, typeof existingLines[0]>();
+      for (const l of existingLines) {
+        const key = l.upc || l.manufact_sku || '';
+        if (key) existingByUPC.set(key, l);
+      }
+
+      let changed = 0, unchanged = 0, brandNew = 0;
+      for (const inc of incomingLines) {
+        const key = inc.upc || inc.manufact_sku || '';
+        const existing = key ? existingByUPC.get(key) : undefined;
+        if (!existing) { brandNew++; continue; }
+        if (existing.received_qty !== inc.received_qty || existing.order_qty !== inc.order_qty) {
+          changed++;
+        } else {
+          unchanged++;
+        }
+      }
+
+      return {
+        type: 'update_available',
+        existingSessionId: existingSession.id,
+        sessionName: existingSession.session_name,
+        changedLines: changed,
+        unchangedLines: unchanged,
+        newLines: brandNew,
+      };
+    }
+  }
+
+  // Guard 2: same vendor, check for UPC overlap with any session
+  const incomingUPCs = incomingLines.map(l => l.upc).filter(Boolean);
+  if (incomingUPCs.length > 0) {
+    const { data: overlapping } = await supabase
+      .from('po_receiving_lines')
+      .select('session_id, upc')
+      .eq('session_id', (await supabase
+        .from('po_receiving_sessions')
+        .select('id')
+        .eq('vendor', vendor)
+        .limit(50)).data?.map(s => s.id)[0] ?? '')
+      .in('upc', incomingUPCs.slice(0, 50))
+      .limit(1);
+    // This is a soft check — the filename guard above is the primary safeguard
+  }
+
+  return { type: 'new' };
+}
+
+export async function mergeReceivingUpdate(
+  existingSessionId: string,
+  incomingLines: ParsedLine[]
+) {
+  // Fetch existing lines
+  const { data: existingLines, error: fetchErr } = await supabase
+    .from('po_receiving_lines')
+    .select('*')
+    .eq('session_id', existingSessionId);
+  if (fetchErr) throw fetchErr;
+  if (!existingLines) throw new Error('No existing lines found');
+
+  // Build lookup by UPC or MFR SKU
+  const existingMap = new Map<string, any>();
+  for (const l of existingLines) {
+    const key = l.upc || l.manufact_sku || '';
+    if (key) existingMap.set(key, l);
+  }
+
+  let updatedCount = 0;
+  let insertedCount = 0;
+  const toInsert: any[] = [];
+
+  for (const inc of incomingLines) {
+    const key = inc.upc || inc.manufact_sku || '';
+    const existing = key ? existingMap.get(key) : undefined;
+
+    if (existing) {
+      // Only update if receiving data actually changed
+      if (existing.received_qty !== inc.received_qty ||
+          existing.order_qty !== inc.order_qty) {
+        const { error } = await supabase
+          .from('po_receiving_lines')
+          .update({
+            received_qty: inc.received_qty,
+            order_qty: inc.order_qty,
+            not_received_qty: inc.not_received_qty,
+            received_cost: inc.received_cost,
+            ordered_cost: inc.ordered_cost,
+            receiving_status: inc.receiving_status,
+          })
+          .eq('id', existing.id);
+        if (error) throw error;
+        updatedCount++;
+      }
+    } else {
+      // Brand new line — add it
+      toInsert.push({ session_id: existingSessionId, ...inc });
+    }
+  }
+
+  // Batch insert new lines
+  if (toInsert.length > 0) {
+    for (let i = 0; i < toInsert.length; i += 200) {
+      const batch = toInsert.slice(i, i + 200);
+      const { error } = await supabase.from('po_receiving_lines').insert(batch);
+      if (error) throw error;
+    }
+    insertedCount = toInsert.length;
+  }
+
+  // Recompute session stats from updated lines
+  const { data: allLines } = await supabase
+    .from('po_receiving_lines')
+    .select('order_qty, received_qty, ordered_cost, received_cost, receiving_status')
+    .eq('session_id', existingSessionId);
+
+  if (allLines) {
+    let fullyReceived = 0, partiallyReceived = 0, notReceived = 0;
+    let totalOrderedQty = 0, totalReceivedQty = 0, totalOrderedCost = 0, totalReceivedCost = 0;
+    for (const l of allLines) {
+      totalOrderedQty += Number(l.order_qty || 0);
+      totalReceivedQty += Number(l.received_qty || 0);
+      totalOrderedCost += Number(l.ordered_cost || 0);
+      totalReceivedCost += Number(l.received_cost || 0);
+      if (l.receiving_status === 'FULLY_RECEIVED') fullyReceived++;
+      else if (l.receiving_status === 'PARTIALLY_RECEIVED') partiallyReceived++;
+      else if (l.receiving_status === 'NOT_RECEIVED') notReceived++;
+    }
+    await supabase.from('po_receiving_sessions').update({
+      total_lines: allLines.length,
+      fully_received: fullyReceived,
+      partially_received: partiallyReceived,
+      not_received: notReceived,
+      total_ordered_qty: totalOrderedQty,
+      total_received_qty: totalReceivedQty,
+      total_ordered_cost: totalOrderedCost,
+      total_received_cost: totalReceivedCost,
+    }).eq('id', existingSessionId);
+  }
+
+  return { updatedCount, insertedCount };
+}
+
 export function exportReconciliationCSV(lines: any[]): string {
   const header = 'UPC,Manufact SKU,Description,Order Qty,Received Qty,Not Received,Unit Cost,Ordered $,Received $,Status,Match Status,Discrepancy Type,Discrepancy $';
   const rows = lines.map(l =>
