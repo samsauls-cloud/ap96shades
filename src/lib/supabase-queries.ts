@@ -149,6 +149,31 @@ export async function fetchDistinctVendors(): Promise<string[]> {
   return [...new Set(data.map((d) => d.vendor))];
 }
 
+export interface InvoiceStats {
+  total_documents: number;
+  total_invoices: number;
+  total_pos: number;
+  total_ap_value: number;
+  total_units: number;
+  unpaid_balance: number;
+}
+
+export async function fetchInvoiceStats(filters: InvoiceFilters): Promise<InvoiceStats> {
+  const { data, error } = await supabase.rpc("get_invoice_stats", {
+    p_vendor: filters.vendor || null,
+    p_doc_type: filters.docType || null,
+    p_status: filters.status || null,
+    p_date_from: filters.dateFrom || null,
+    p_date_to: filters.dateTo || null,
+    p_search: filters.search || null,
+    p_tag: filters.tag || null,
+    p_min_total: filters.minTotal ?? null,
+    p_max_total: filters.maxTotal ?? null,
+  });
+  if (error) throw error;
+  return data as unknown as InvoiceStats;
+}
+
 export function formatCurrency(n: number | null | undefined) {
   if (n == null) return "—";
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);

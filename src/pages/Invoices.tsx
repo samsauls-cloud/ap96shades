@@ -4,7 +4,8 @@ import { toast } from "sonner";
 import { Download, Package, List } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
-  fetchInvoices, fetchDistinctVendors, fetchDistinctTags, invoiceToCSVRow, lineItemsToCSV,
+  fetchInvoices, fetchDistinctVendors, fetchDistinctTags, fetchInvoiceStats,
+  invoiceToCSVRow, lineItemsToCSV,
   type InvoiceFilters, type VendorInvoice,
 } from "@/lib/supabase-queries";
 import { StatsBar } from "@/components/invoices/StatsBar";
