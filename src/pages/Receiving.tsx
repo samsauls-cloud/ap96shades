@@ -481,13 +481,17 @@ export default function ReceivingPage() {
     try {
       const skipPriceCheck = selectedSession.vendor === 'EOL';
 
+      // CREDIT ISOLATION GUARD: Each invoice group is processed independently.
+      // Credits from Invoice A's lines NEVER bleed to Invoice B or C.
+      // Each group gets its own computeReconciliationTotals, its own final_bill_ledger entry,
+      // and its own applyCreditToPayments call — completely isolated.
       for (const group of multiMatchResult.groups) {
         const invoice = vendorInvoices.find(v => v.id === group.invoiceId);
         if (!invoice) continue;
 
         const invoiceLines = getLineItems(invoice);
 
-        // Match and reconcile each line in this group
+        // Match and reconcile each line in this group — ONLY against this group's invoice
         let hasDiscrepancy = false;
         for (const line of group.lines) {
           const lineUpc = line.upc ? String(line.upc).replace(/\D/g, '') : '';
@@ -507,7 +511,7 @@ export default function ReceivingPage() {
           if (disc) hasDiscrepancy = true;
         }
 
-        // Compute totals for this group
+        // Compute totals ONLY for this invoice group's lines — isolated credit calculation
         const { data: freshGroupLines } = await supabase
           .from('po_receiving_lines')
           .select('*')
@@ -515,11 +519,11 @@ export default function ReceivingPage() {
         const gLines = freshGroupLines ?? group.lines;
         const totals = computeReconciliationTotals(gLines, invoice.total);
 
-        // Update vendor_invoices
+        // This credit applies ONLY to this invoice — never aggregate across invoices
         const reconStatus = totals.totalCreditDue > 0 ? 'credit_pending' : 'reconciled';
         await updateInvoiceReconciliation(group.invoiceId, selectedSessionId, totals.totalCreditDue, totals.finalBillAmount, reconStatus);
 
-        // Create final bill ledger
+        // Create independent final bill ledger entry per invoice
         await upsertFinalBillEntry(
           group.invoiceId, selectedSessionId, invoice,
           {
@@ -529,6 +533,7 @@ export default function ReceivingPage() {
           totals
         );
 
+        // Apply credits independently per invoice — isolated from other invoice groups
         if (totals.totalCreditDue > 0) {
           await applyCreditToPayments(group.invoiceId, totals.totalCreditDue);
         }
