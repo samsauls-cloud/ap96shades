@@ -1,122 +1,319 @@
 import { lastDayOfMonth, addDays, format } from "date-fns";
-import { normalizeVendor, isKnownVendor } from "@/lib/invoice-dedup";
+import { normalizeVendor } from "@/lib/invoice-dedup";
+
+// ── Structured payment terms (extracted from invoices) ────
+export interface ExtractedTerms {
+  raw_text: string | null;
+  type: TermType;
+  days: number[];
+  installments: number;
+  eom_based: boolean;
+  discount_pct: number | null;
+  discount_days: number | null;
+  net_days: number | null;
+  confidence: "high" | "medium" | "low";
+  shipping_terms: string | null;
+  extraction_notes: string | null;
+}
+
+export type TermType =
+  | "net_single"
+  | "eom_single"
+  | "eom_split"
+  | "net_split"
+  | "early_pay"
+  | "cod"
+  | "unknown";
 
 export interface PaymentInstallment {
   vendor: string;
   invoice_number: string;
   po_number: string | null;
   invoice_amount: number;
-  invoice_date: string; // YYYY-MM-DD
+  invoice_date: string;
   terms: string;
-  installment_label: string | null; // e.g. "1 of 3", null for single-payment
-  due_date: string; // YYYY-MM-DD
+  installment_label: string | null;
+  due_date: string;
   amount_due: number;
 }
 
-// ── Terms configuration — single source of truth ─────────
-export interface VendorTermsConfig {
-  type: "EOM_SPLIT" | "DAYS_SPLIT" | "EOM_SINGLE";
+// ── Vendor defaults (suggestion only — NEVER auto-applied) ──
+export interface VendorTermsDefault {
+  type: TermType;
+  days: number[];
   installments: number;
-  offsets: number[];
-  basis: "EOM" | "INVOICE_DATE";
-  label: string; // human-readable label
+  eom_based: boolean;
+  label: string;
 }
 
-export const VENDOR_TERMS: Record<string, VendorTermsConfig> = {
-  Luxottica: {
-    type: "EOM_SPLIT",
-    installments: 3,
-    offsets: [30, 60, 90],
-    basis: "EOM",
-    label: "EOM 30 / 60 / 90",
-  },
-  Kering: {
-    type: "DAYS_SPLIT",
-    installments: 3,
-    offsets: [30, 60, 90],
-    basis: "INVOICE_DATE",
-    label: "Days 30 / 60 / 90",
-  },
-  "Maui Jim": {
-    type: "EOM_SPLIT",
-    installments: 4,
-    offsets: [60, 90, 120, 150],
-    basis: "EOM",
-    label: "EOM 60 / 90 / 120 / 150",
-  },
-  Marcolin: {
-    type: "EOM_SINGLE",
-    installments: 1,
-    offsets: [20],
-    basis: "EOM",
-    label: "EOM 20",
-  },
-  Safilo: {
-    type: "EOM_SINGLE",
-    installments: 1,
-    offsets: [60],
-    basis: "EOM",
-    label: "EOM 60",
-  },
-  Marchon: {
-    type: "DAYS_SPLIT",
-    installments: 1,
-    offsets: [30],
-    basis: "INVOICE_DATE",
-    label: "Net 30",
-  },
+export const VENDOR_DEFAULTS: Record<string, VendorTermsDefault> = {
+  Luxottica: { type: "eom_split", days: [30, 60, 90], installments: 3, eom_based: true, label: "EOM 30 / 60 / 90" },
+  Kering: { type: "net_split", days: [30, 60, 90], installments: 3, eom_based: false, label: "Days 30 / 60 / 90" },
+  "Maui Jim": { type: "eom_split", days: [60, 90, 120, 150], installments: 4, eom_based: true, label: "EOM 60 / 90 / 120 / 150" },
+  Marcolin: { type: "eom_single", days: [20], installments: 1, eom_based: true, label: "EOM 20" },
+  Safilo: { type: "eom_single", days: [60], installments: 1, eom_based: true, label: "EOM 60" },
+  Marchon: { type: "net_single", days: [30], installments: 1, eom_based: false, label: "Net 30" },
 };
 
-// Maui Jim alternate terms for older POs
-const MAUI_JIM_ALT: VendorTermsConfig = {
-  type: "DAYS_SPLIT",
-  installments: 3,
-  offsets: [90, 120, 150],
-  basis: "INVOICE_DATE",
-  label: "Days 90 / 120 / 150",
-};
+/** Get vendor default terms as a suggestion hint (never auto-applied). */
+export function getVendorDefaultTerms(vendor: string): VendorTermsDefault | null {
+  return VENDOR_DEFAULTS[normalizeVendor(vendor)] ?? null;
+}
 
-// ── Due date calculation ──────────────────────────────────
-function calculateDueDate(invoiceDate: string, basis: "EOM" | "INVOICE_DATE", offsetDays: number): Date {
-  const d = new Date(invoiceDate + "T00:00:00");
-  if (basis === "EOM") {
-    const endOfMonth = lastDayOfMonth(d);
-    return addDays(endOfMonth, offsetDays);
+// ── Parse payment_terms text into structured terms ────────
+export function parsePaymentTermsText(rawText: string | null | undefined): ExtractedTerms {
+  const empty: ExtractedTerms = {
+    raw_text: rawText ?? null,
+    type: "unknown",
+    days: [],
+    installments: 1,
+    eom_based: false,
+    discount_pct: null,
+    discount_days: null,
+    net_days: null,
+    confidence: "low",
+    shipping_terms: null,
+    extraction_notes: null,
+  };
+
+  if (!rawText || rawText.trim() === "") return { ...empty, extraction_notes: "No terms text found" };
+
+  const text = rawText.trim();
+  const lower = text.toLowerCase();
+
+  // Check for FOB (shipping term, NOT payment term)
+  const fobMatch = lower.match(/\bfob\b/);
+  const shippingTerms = fobMatch ? "FOB" : null;
+
+  // If only FOB found, no payment terms
+  const withoutFOB = lower.replace(/\bfob\b[\s\w]*/gi, "").trim();
+  if (withoutFOB === "" || withoutFOB === "," || withoutFOB === "-") {
+    return { ...empty, shipping_terms: shippingTerms, extraction_notes: "Only FOB found — not a payment term" };
   }
-  // INVOICE_DATE
-  return addDays(d, offsetDays);
-}
 
-// ── Resolve terms config for vendor + payment_terms text ──
-function resolveTermsConfig(vendor: string, paymentTermsText?: string | null): VendorTermsConfig | null {
-  const normalized = normalizeVendor(vendor);
+  // Early pay discount: 2/10 Net 30
+  const earlyPayMatch = lower.match(/(\d+(?:\.\d+)?)\s*[/%]\s*(\d+)\s*(?:net|n)\s*(\d+)/);
+  if (earlyPayMatch) {
+    return {
+      raw_text: text,
+      type: "early_pay",
+      days: [Number(earlyPayMatch[3])],
+      installments: 1,
+      eom_based: false,
+      discount_pct: Number(earlyPayMatch[1]),
+      discount_days: Number(earlyPayMatch[2]),
+      net_days: Number(earlyPayMatch[3]),
+      confidence: "high",
+      shipping_terms: shippingTerms,
+      extraction_notes: "Early pay discount detected",
+    };
+  }
 
-  // Maui Jim special case: detect legacy terms from PDF text
-  if (normalized === "Maui Jim" && paymentTermsText) {
-    const lower = paymentTermsText.toLowerCase();
-    if (lower.includes("days") || lower.includes("net 90") || lower.includes("net 120")) {
-      return MAUI_JIM_ALT;
+  // COD
+  if (lower.match(/\bcod\b|cash on delivery|payment on delivery/)) {
+    return {
+      raw_text: text,
+      type: "cod",
+      days: [0],
+      installments: 1,
+      eom_based: false,
+      discount_pct: null,
+      discount_days: null,
+      net_days: null,
+      confidence: "high",
+      shipping_terms: shippingTerms,
+      extraction_notes: "COD detected",
+    };
+  }
+
+  // Due on receipt
+  if (lower.match(/due\s*(on|upon)\s*receipt/)) {
+    return {
+      raw_text: text,
+      type: "net_single",
+      days: [0],
+      installments: 1,
+      eom_based: false,
+      discount_pct: null,
+      discount_days: null,
+      net_days: 0,
+      confidence: "high",
+      shipping_terms: shippingTerms,
+      extraction_notes: "Due on receipt",
+    };
+  }
+
+  // EOM split: "EOM 30/60/90" or "EOM 60/90/120/150"
+  const eomSplitMatch = lower.match(/eom\s*([\d\s/,]+)/);
+  if (eomSplitMatch) {
+    const dayNums = eomSplitMatch[1].match(/\d+/g)?.map(Number) ?? [];
+    if (dayNums.length > 1) {
+      return {
+        raw_text: text,
+        type: "eom_split",
+        days: dayNums,
+        installments: dayNums.length,
+        eom_based: true,
+        discount_pct: null,
+        discount_days: null,
+        net_days: null,
+        confidence: "high",
+        shipping_terms: shippingTerms,
+        extraction_notes: `EOM split: ${dayNums.join("/")}`,
+      };
+    }
+    if (dayNums.length === 1) {
+      return {
+        raw_text: text,
+        type: "eom_single",
+        days: dayNums,
+        installments: 1,
+        eom_based: true,
+        discount_pct: null,
+        discount_days: null,
+        net_days: null,
+        confidence: "high",
+        shipping_terms: shippingTerms,
+        extraction_notes: `EOM single: ${dayNums[0]}`,
+      };
     }
   }
 
-  return VENDOR_TERMS[normalized] ?? null;
+  // Net split: "Net 30/60/90" or "Days 30/60/90" or "30/60/90"
+  const netSplitMatch = lower.match(/(?:net|days?|n)\s*([\d\s/,]+)/);
+  if (netSplitMatch) {
+    const dayNums = netSplitMatch[1].match(/\d+/g)?.map(Number) ?? [];
+    if (dayNums.length > 1) {
+      return {
+        raw_text: text,
+        type: "net_split",
+        days: dayNums,
+        installments: dayNums.length,
+        eom_based: false,
+        discount_pct: null,
+        discount_days: null,
+        net_days: null,
+        confidence: "high",
+        shipping_terms: shippingTerms,
+        extraction_notes: `Net split: ${dayNums.join("/")}`,
+      };
+    }
+    if (dayNums.length === 1) {
+      return {
+        raw_text: text,
+        type: "net_single",
+        days: dayNums,
+        installments: 1,
+        eom_based: false,
+        discount_pct: null,
+        discount_days: null,
+        net_days: dayNums[0],
+        confidence: "high",
+        shipping_terms: shippingTerms,
+        extraction_notes: `Net single: ${dayNums[0]}`,
+      };
+    }
+  }
+
+  // Bare number split: "30/60/90"
+  const bareSplitMatch = lower.match(/^(\d+)\s*[/,]\s*(\d+)(?:\s*[/,]\s*(\d+))?(?:\s*[/,]\s*(\d+))?$/);
+  if (bareSplitMatch) {
+    const dayNums = [bareSplitMatch[1], bareSplitMatch[2], bareSplitMatch[3], bareSplitMatch[4]]
+      .filter(Boolean).map(Number);
+    return {
+      raw_text: text,
+      type: dayNums.length > 1 ? "net_split" : "net_single",
+      days: dayNums,
+      installments: dayNums.length,
+      eom_based: false,
+      discount_pct: null,
+      discount_days: null,
+      net_days: null,
+      confidence: "medium",
+      shipping_terms: shippingTerms,
+      extraction_notes: `Bare number split interpreted as net: ${dayNums.join("/")}`,
+    };
+  }
+
+  return { ...empty, shipping_terms: shippingTerms, confidence: "low", extraction_notes: "Could not parse terms" };
 }
 
-// ── Public API ────────────────────────────────────────────
+// ── Generate human-readable label from terms ──────────────
+export function termsToLabel(terms: ExtractedTerms): string {
+  if (terms.type === "cod") return "COD";
+  if (terms.type === "early_pay") return `${terms.discount_pct}/${terms.discount_days} Net ${terms.net_days}`;
+  const prefix = terms.eom_based ? "EOM" : "Net";
+  if (terms.days.length === 0) return "Unknown";
+  if (terms.days.length === 1) return `${prefix} ${terms.days[0]}`;
+  return `${prefix} ${terms.days.join(" / ")}`;
+}
 
+// ── Due date calculation (any vendor, any term type) ──────
+function calculateDueDate(invoiceDate: string, eomBased: boolean, offsetDays: number): Date {
+  const d = new Date(invoiceDate + "T00:00:00");
+  if (eomBased) {
+    const endOfMonth = lastDayOfMonth(d);
+    return addDays(endOfMonth, offsetDays);
+  }
+  return addDays(d, offsetDays);
+}
+
+// ── Generate installments from structured terms ───────────
+export function calculateInstallmentsFromTerms(
+  invoiceDate: string,
+  total: number,
+  vendor: string,
+  invoiceNumber: string,
+  poNumber: string | null,
+  terms: ExtractedTerms,
+): PaymentInstallment[] {
+  const normalized = normalizeVendor(vendor);
+  const parsedTotal = typeof total === "number" ? total : parseFloat(String(total)) || 0;
+  if (parsedTotal <= 0) return [];
+  if (terms.type === "unknown" || terms.days.length === 0) return [];
+
+  const label = termsToLabel(terms);
+  const count = terms.installments || terms.days.length;
+  const baseAmount = parseFloat((parsedTotal / count).toFixed(2));
+  const lastAmount = parseFloat((parsedTotal - baseAmount * (count - 1)).toFixed(2));
+
+  return terms.days.map((offset, index) => {
+    const isLast = index === count - 1;
+    const amount = isLast ? lastAmount : baseAmount;
+    const dueDate = calculateDueDate(invoiceDate, terms.eom_based, offset);
+    return {
+      vendor: normalized,
+      invoice_number: invoiceNumber,
+      po_number: poNumber,
+      invoice_amount: parsedTotal,
+      invoice_date: invoiceDate,
+      terms: label,
+      installment_label: count > 1 ? `${index + 1} of ${count}` : null,
+      due_date: format(dueDate, "yyyy-MM-dd"),
+      amount_due: amount,
+    };
+  });
+}
+
+/** Verify that installments sum matches invoice total within tolerance. */
+export function verifyInstallmentMath(installments: PaymentInstallment[], invoiceTotal: number): number {
+  const sum = installments.reduce((s, inst) => s + inst.amount_due, 0);
+  return parseFloat((invoiceTotal - sum).toFixed(2));
+}
+
+// ── LEGACY compat — kept for existing code that calls these ──
+// These now just check vendor defaults (for suggestion hints), no auto-apply.
 export function getVendorTerms(vendor: string): string | null {
-  const config = VENDOR_TERMS[normalizeVendor(vendor)];
-  return config?.label ?? null;
+  const d = VENDOR_DEFAULTS[normalizeVendor(vendor)];
+  return d?.label ?? null;
 }
 
-export function hasTermsEngine(vendor: string): boolean {
-  return normalizeVendor(vendor) in VENDOR_TERMS;
+export function hasTermsEngine(_vendor: string): boolean {
+  // Now ALL vendors can have terms — engine is vendor-agnostic
+  return true;
 }
 
-/**
- * Calculate installments from config-driven terms engine.
- * Returns empty array if vendor has no terms config.
- */
+/** @deprecated Use calculateInstallmentsFromTerms with structured terms instead */
 export function calculateInstallments(
   invoiceDate: string,
   total: number,
@@ -125,46 +322,26 @@ export function calculateInstallments(
   poNumber: string | null,
   paymentTermsText?: string | null,
 ): PaymentInstallment[] {
-  const normalized = normalizeVendor(vendor);
-  const config = resolveTermsConfig(normalized, paymentTermsText);
-
-  if (!config) {
-    console.error(`No terms defined for vendor: ${normalized}`);
-    return [];
-  }
-
-  // Guard: total must be positive
-  const parsedTotal = typeof total === "number" ? total : parseFloat(String(total)) || 0;
-  if (parsedTotal <= 0) return [];
-
-  const baseAmount = parseFloat((parsedTotal / config.installments).toFixed(2));
-  // Last installment absorbs rounding
-  const lastAmount = parseFloat((parsedTotal - baseAmount * (config.installments - 1)).toFixed(2));
-
-  return config.offsets.map((offset, index) => {
-    const isLast = index === config.installments - 1;
-    const amount = isLast ? lastAmount : baseAmount;
-    const dueDate = calculateDueDate(invoiceDate, config.basis, offset);
-
-    return {
-      vendor: normalized,
-      invoice_number: invoiceNumber,
-      po_number: poNumber,
-      invoice_amount: parsedTotal,
-      invoice_date: invoiceDate,
-      terms: config.label,
-      installment_label: config.installments > 1 ? `${index + 1} of ${config.installments}` : null,
-      due_date: format(dueDate, "yyyy-MM-dd"),
-      amount_due: amount,
+  // Legacy path: parse text and generate
+  const terms = parsePaymentTermsText(paymentTermsText);
+  if (terms.type === "unknown" || terms.days.length === 0) {
+    // Fallback to vendor default for legacy compatibility
+    const def = VENDOR_DEFAULTS[normalizeVendor(vendor)];
+    if (!def) return [];
+    const fallbackTerms: ExtractedTerms = {
+      raw_text: paymentTermsText ?? null,
+      type: def.type,
+      days: def.days,
+      installments: def.installments,
+      eom_based: def.eom_based,
+      discount_pct: null,
+      discount_days: null,
+      net_days: null,
+      confidence: "medium",
+      shipping_terms: null,
+      extraction_notes: "Fallback to vendor default (legacy path)",
     };
-  });
-}
-
-/**
- * Verify that installments sum matches invoice total within tolerance.
- * Returns discrepancy (0 = perfect).
- */
-export function verifyInstallmentMath(installments: PaymentInstallment[], invoiceTotal: number): number {
-  const sum = installments.reduce((s, inst) => s + inst.amount_due, 0);
-  return parseFloat((invoiceTotal - sum).toFixed(2));
+    return calculateInstallmentsFromTerms(invoiceDate, total, vendor, invoiceNumber, poNumber, fallbackTerms);
+  }
+  return calculateInstallmentsFromTerms(invoiceDate, total, vendor, invoiceNumber, poNumber, terms);
 }
