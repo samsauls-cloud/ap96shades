@@ -12,8 +12,8 @@ export function NeedsReviewQueue({ onOpenInvoice }: Props) {
   const { data: invoices = [], isLoading } = useQuery({
     queryKey: ["needs_review_invoices"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("vendor_invoices")
+      const { data, error } = await (supabase
+        .from("vendor_invoices") as any)
         .select("*")
         .eq("terms_status" as any, "needs_review")
         .neq("doc_type", "proforma")
