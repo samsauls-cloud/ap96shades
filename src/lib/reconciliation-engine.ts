@@ -109,9 +109,9 @@ export async function runFullReconciliation(
       if (!matchedRecLines || matchedRecLines.length === 0) continue;
 
       const recLine = matchedRecLines[0];
-      const invoicedQty = li.qty_shipped ?? li.qty_ordered ?? li.qty ?? 0;
-      const orderedQty = recLine.order_qty ?? 0;
-      const receivedQty = recLine.received_qty ?? 0;
+      const invoicedQty = safeNum(li.qty_shipped) || safeNum(li.qty_ordered) || safeNum(li.qty);
+      const orderedQty = safeNum(recLine.order_qty);
+      const receivedQty = safeNum(recLine.received_qty);
 
       // CHECK 1 — QTY_MISMATCH
       if (invoicedQty !== orderedQty && orderedQty > 0) {
