@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Download, Package, List } from "lucide-react";
+import { Download, Package, List, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   fetchInvoices, fetchDistinctVendors, fetchDistinctTags, fetchInvoiceStats,
@@ -144,6 +144,20 @@ export default function InvoicesPage() {
               <Package className="h-3 w-3" /> PO View
             </Button>
           </div>
+          <Button
+            variant={filters.sortField === "imported_at" ? "default" : "outline"}
+            size="sm"
+            className="text-xs h-7 gap-1"
+            onClick={() => {
+              if (filters.sortField === "imported_at") {
+                setFilters(prev => ({ ...prev, sortField: "invoice_date", sortDir: "desc" }));
+              } else {
+                setFilters(prev => ({ ...prev, sortField: "imported_at", sortDir: "desc" }));
+              }
+            }}
+          >
+            <Clock className="h-3 w-3" /> Recently Uploaded
+          </Button>
           <div className="flex-1" />
           <Button variant="outline" size="sm" className="text-xs h-7" onClick={exportFilteredCSV}>
             <Download className="h-3 w-3 mr-1" /> <span className="hidden sm:inline">Export Filtered</span> CSV
