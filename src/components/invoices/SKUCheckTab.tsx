@@ -63,18 +63,19 @@ export function SKUCheckTab({ invoice }: Props) {
       return;
     }
 
-    // Fetch all three sources in parallel
-    const [assortmentData, planogramData, receivingData] = await Promise.all([
-      fetchAssortment(allCodes),
+    // Fetch all four sources in parallel
+    const [itemMasterData, planogramData, receivingData, inventoryData] = await Promise.all([
+      fetchItemMaster(allCodes),
       fetchPlanogram(allCodes),
       fetchReceiving(allCodes),
+      fetchInventory(allCodes),
     ]);
 
     // Build lookup maps
-    const assortmentMap = new Map<string, any>();
-    assortmentData.forEach(r => {
-      if (r.upc) assortmentMap.set(r.upc, r);
-      if (r.model) assortmentMap.set(r.model, r);
+    const itemMasterMap = new Map<string, any>();
+    itemMasterData.forEach(r => {
+      if (r.upc) itemMasterMap.set(r.upc, r);
+      if (r.model_number) itemMasterMap.set(r.model_number, r);
     });
 
     const planogramMap = new Map<string, any>();
@@ -87,6 +88,11 @@ export function SKUCheckTab({ invoice }: Props) {
     receivingData.forEach(r => {
       if (r.upc) receivingMap.set(r.upc, r);
       if (r.manufact_sku) receivingMap.set(r.manufact_sku, r);
+    });
+
+    const inventoryMap = new Map<string, any>();
+    inventoryData.forEach(r => {
+      if (r.upc) inventoryMap.set(r.upc, r);
     });
 
     // Process each line item
