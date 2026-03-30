@@ -712,16 +712,16 @@ export default function ReaderPage() {
           onDragOver={e => e.preventDefault()}
           onDrop={handleDrop}
         >
-          <CardContent className="p-8 flex flex-col items-center justify-center text-center">
+          <CardContent className="p-6 sm:p-8 flex flex-col items-center justify-center text-center">
             <div className="flex items-center gap-3 mb-3">
-              <Upload className="h-10 w-10 text-muted-foreground" />
-              <FileSpreadsheet className="h-8 w-8 text-muted-foreground" />
+              <Upload className="h-8 w-8 sm:h-10 sm:w-10 text-muted-foreground" />
+              <FileSpreadsheet className="h-6 w-6 sm:h-8 sm:w-8 text-muted-foreground" />
             </div>
             <p className="text-sm font-medium mb-1">Drop PDF invoices or CSV POs here</p>
             <p className="text-xs text-muted-foreground mb-3">PDFs are extracted via AI · CSVs are parsed as Lightspeed POs (Marchon 10% discount auto-applied)</p>
-            <label>
+            <label className="w-full sm:w-auto">
               <input type="file" accept=".pdf,.csv" multiple onChange={handleFileInput} className="hidden" />
-              <Button variant="outline" size="sm" className="text-xs" asChild>
+              <Button variant="outline" size="default" className="text-sm w-full sm:w-auto h-12 sm:h-10" asChild>
                 <span>Choose Files</span>
               </Button>
             </label>
@@ -729,7 +729,7 @@ export default function ReaderPage() {
               <div className="mt-4 space-y-1">
                 <p className="text-xs font-semibold">{queue.length} file(s) queued:</p>
                 {queue.map((f, i) => (
-                  <p key={i} className="text-xs text-muted-foreground">{f.name}</p>
+                  <p key={i} className="text-xs text-muted-foreground truncate max-w-[250px]">{f.name}</p>
                 ))}
               </div>
             )}
@@ -745,12 +745,12 @@ export default function ReaderPage() {
 
         {/* Photo Capture Zone */}
         <Card className="bg-card border-border border-dashed">
-          <CardContent className="p-8 flex flex-col items-center justify-center text-center">
-            <Camera className="h-10 w-10 text-muted-foreground mb-3" />
-            <p className="text-sm font-medium mb-1">📷 Photo Capture</p>
-            <p className="text-xs text-muted-foreground mb-3">Take a photo of a printed invoice or upload from photo library</p>
-            <div className="flex gap-2">
-              <label>
+          <CardContent className="p-6 sm:p-8 flex flex-col items-center justify-center text-center">
+            <Camera className="h-10 w-10 sm:h-10 sm:w-10 text-muted-foreground mb-3" />
+            <p className="text-sm sm:text-sm font-medium mb-1">📷 Photo Capture</p>
+            <p className="text-xs text-muted-foreground mb-4">Take a photo of a printed invoice or upload from photo library</p>
+            <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+              <label className="w-full sm:w-auto">
                 <input
                   type="file"
                   accept="image/*"
@@ -758,11 +758,11 @@ export default function ReaderPage() {
                   onChange={handlePhotoInput}
                   className="hidden"
                 />
-                <Button variant="default" size="sm" className="text-xs gap-1" asChild>
-                  <span><Camera className="h-3 w-3" /> Camera</span>
+                <Button variant="default" size="default" className="text-sm gap-2 w-full sm:w-auto h-12 sm:h-10" asChild>
+                  <span><Camera className="h-4 w-4" /> Open Camera</span>
                 </Button>
               </label>
-              <label>
+              <label className="w-full sm:w-auto">
                 <input
                   type="file"
                   accept="image/jpeg,image/png,image/heic,image/heif,image/webp"
@@ -770,12 +770,12 @@ export default function ReaderPage() {
                   onChange={handlePhotoInput}
                   className="hidden"
                 />
-                <Button variant="outline" size="sm" className="text-xs gap-1" asChild>
-                  <span><ImageIcon className="h-3 w-3" /> Upload Photo</span>
+                <Button variant="outline" size="default" className="text-sm gap-2 w-full sm:w-auto h-12 sm:h-10" asChild>
+                  <span><ImageIcon className="h-4 w-4" /> Upload Photo</span>
                 </Button>
               </label>
             </div>
-            <p className="text-[10px] text-muted-foreground mt-2">Supports JPG, PNG, HEIC, WEBP</p>
+            <p className="text-[10px] text-muted-foreground mt-3">Supports JPG, PNG, HEIC, WEBP</p>
           </CardContent>
         </Card>
 
@@ -929,12 +929,12 @@ export default function ReaderPage() {
                   }`}
                 >
                   <CardContent className="p-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        {statusIcon(d)}
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-medium">{d.filename}</span>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-start gap-2 sm:gap-3 min-w-0 flex-1">
+                        <div className="mt-0.5 shrink-0">{statusIcon(d)}</div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-1 sm:gap-2">
+                            <span className="text-sm font-medium truncate max-w-[180px] sm:max-w-none">{d.filename}</span>
                             {(d.status === "done" || d.status === "staged" || d.status === "extended") && <DocTypeBadge docType={d.doc_type} />}
                             {d.status === "staged" && (
                               <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-500 font-medium">STAGED</span>
@@ -944,33 +944,33 @@ export default function ReaderPage() {
                             )}
                           </div>
                           {(d.status === "done" || d.status === "staged") && (
-                            <p className="text-[10px] text-muted-foreground">
+                            <p className="text-[10px] text-muted-foreground break-words">
                               {d.vendor} — {d.invoice_number} — {formatCurrency(d.total)} — {d.line_items_count} items
                             </p>
                           )}
                           {d.status === "extended" && d.extendedInfo && (
-                            <p className="text-[10px] text-blue-500">{d.extendedInfo}</p>
+                            <p className="text-[10px] text-blue-500 break-words">{d.extendedInfo}</p>
                           )}
                           {d.status === "duplicate" && (
-                            <p className="text-[10px] text-muted-foreground">
-                              ✗ TRUE DUPLICATE SKIPPED — identical line items. Invoice {d.invoice_number} from {d.vendor} (DB id: {d.duplicateDbId}). File: {d.filename}
+                            <p className="text-[10px] text-muted-foreground break-words">
+                              ✗ TRUE DUPLICATE SKIPPED — identical line items. Invoice {d.invoice_number} from {d.vendor}
                             </p>
                           )}
                           {(d.status === "retrying" || d.status === "waiting-retry") && (
-                            <p className="text-[10px] text-amber-500">{d.error}</p>
+                            <p className="text-[10px] text-amber-500 break-words">{d.error}</p>
                           )}
                           {d.status === "error" && (
-                            <p className="text-[10px] text-status-unpaid">{d.error}</p>
+                            <p className="text-[10px] text-status-unpaid break-words">{d.error}</p>
                           )}
                           {d.poLinkInfo && (
-                            <p className="text-[10px] text-primary flex items-center gap-1 mt-0.5">
-                              <Package className="h-3 w-3" /> {d.poLinkInfo}
+                            <p className="text-[10px] text-primary flex items-center gap-1 mt-0.5 break-words">
+                              <Package className="h-3 w-3 shrink-0" /> {d.poLinkInfo}
                             </p>
                           )}
                         </div>
                       </div>
                       {(d.status === "done" || d.status === "extended") && d.dbId && (
-                        <Link to="/invoices" className="flex items-center gap-1 text-xs text-primary hover:underline">
+                        <Link to="/invoices" className="flex items-center gap-1 text-xs text-primary hover:underline shrink-0">
                           View <ExternalLink className="h-3 w-3" />
                         </Link>
                       )}
