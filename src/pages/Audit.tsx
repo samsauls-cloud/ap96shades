@@ -740,7 +740,7 @@ export default function AuditPage() {
                       <TableBody>
                         {invoiceStats.byVendor.map(([vendor, d]) => {
                           // Check if this vendor has ANY LS receiving data
-                          const aliases = VENDOR_ALIASES[vendor] ?? [vendor];
+                          const aliases = getVendorAliases(vendor);
                           const lsLineCount = aliases.reduce((sum, alias) => {
                             return sum + (recSessions as any[]).filter(s => s.vendor === alias)
                               .reduce((s2, session) => s2 + (recLines as any[]).filter(l => l.session_id === session.id).length, 0);
