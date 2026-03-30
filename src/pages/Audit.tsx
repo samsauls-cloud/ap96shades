@@ -401,6 +401,11 @@ export default function AuditPage() {
               recLines={recLines as any[]}
             />
 
+            {/* ── Two-Way Match Status ── */}
+            <Section title="Invoice ↔ Receipt Match Status" icon={Link2} defaultOpen>
+              <MatchStatusPanel />
+            </Section>
+
             {/* ── Vendor Receiving Coverage ── */}
             <Section title="Vendor Receiving Coverage" icon={PackageCheck}>
               <VendorCoveragePanel />
