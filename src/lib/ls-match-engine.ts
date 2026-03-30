@@ -2,12 +2,13 @@ import { getLineItems } from "@/lib/supabase-queries";
 
 /* ── Vendor alias map ── */
 const VENDOR_ALIASES: Record<string, string[]> = {
-  Luxottica: ["Luxottica", "EOL"],
+  Luxottica: ["Luxottica", "Chanel"],
   Kering: ["Kering"],
   "Maui Jim": ["Maui Jim"],
   Safilo: ["Safilo"],
   Marcolin: ["Marcolin"],
-  Marchon: ["Marchon"],
+  Marchon: ["Marchon", "Nike"],
+  "Blenders Eyewear": ["Blenders Eyewear", "Blenders"],
 };
 
 export function getVendorAliases(vendor: string): string[] {
