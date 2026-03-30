@@ -69,6 +69,7 @@ export function MatchStatusPanel() {
         vs.totalInvoices++;
         const ms = inv.match_status ?? "unmatched";
         if (ms === "matched") { vs.matched++; vs.matchedValue += Number(inv.total) || 0; }
+        else if (ms === "matched_exception") { vs.matchedException++; vs.exceptionValue += Number(inv.total) || 0; }
         else if (ms === "pending_review") { vs.pendingReview++; vs.waitingValue += Number(inv.total) || 0; }
         else { vs.waitingReceipt++; vs.waitingValue += Number(inv.total) || 0; waitingInvoices.push(inv); }
       }
