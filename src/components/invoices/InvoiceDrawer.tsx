@@ -126,6 +126,18 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
           </SheetTitle>
         </SheetHeader>
 
+        {/* Proforma banner */}
+        {isProforma(inv) && (
+          <div className="mb-4 p-3 rounded-lg bg-destructive/10 border border-destructive/30">
+            <p className="text-sm font-semibold text-destructive flex items-center gap-2">
+              🚫 PROFORMA — NOT INCLUDED IN AP TOTALS
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Real invoice expected. When received, upload the financial invoice to replace this.
+            </p>
+          </div>
+        )}
+
         {/* Status editor */}
         <div className="flex gap-2 mb-4">
           {statuses.map(s => (
@@ -135,6 +147,7 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
               variant={inv.status === s ? "default" : "outline"}
               className="text-xs h-7 capitalize"
               onClick={() => handleStatusChange(s)}
+              disabled={isProforma(inv)}
             >
               {s}
             </Button>
