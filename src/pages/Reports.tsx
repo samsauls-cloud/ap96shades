@@ -12,6 +12,7 @@ import type { VendorInvoice } from "@/lib/supabase-queries";
 import { fetchPayments, type InvoicePayment, isOverdue, getDaysOverdue } from "@/lib/payment-queries";
 import { PaymentStatusBadge } from "@/components/invoices/PaymentStatusBadge";
 import { fetchAllRows } from "@/lib/supabase-fetch-all";
+import { Badge } from "@/components/ui/badge";
 import { addDays, startOfWeek, format, subMonths, isWithinInterval } from "date-fns";
 
 type ReportTab = "aging" | "history" | "outstanding" | "cashflow" | "fulfillment" | "vendorspend" | "backorder";
