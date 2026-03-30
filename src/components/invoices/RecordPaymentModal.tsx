@@ -217,7 +217,12 @@ export function RecordPaymentModal({ payment, open, onOpenChange, onComplete }: 
             </div>
 
             {/* Quick Actions */}
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
+              {balance > 0 && (
+                <Button size="sm" className="text-xs h-8 bg-green-600 hover:bg-green-700 text-white" onClick={handleQuickMarkPaid} disabled={submitting}>
+                  <CheckCircle2 className="h-3 w-3 mr-1" /> Mark Paid
+                </Button>
+              )}
               {balance > 0 && parsedAmount !== balance && (
                 <Button variant="outline" size="sm" className="text-xs h-8" onClick={() => setAmount(balance.toFixed(2))}>
                   <CheckCircle2 className="h-3 w-3 mr-1" /> Pay Full Balance
