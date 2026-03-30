@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   AlertTriangle, CheckCircle2, Database, FileText, CreditCard,
   PackageCheck, ChevronDown, ChevronRight, Loader2, Zap, Download,
+  DollarSign, Search as SearchIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -47,13 +48,150 @@ function Section({ title, icon: Icon, defaultOpen, children }: { title: string; 
   );
 }
 
-function MetricRow({ label, value, warn }: { label: string; value: string | number; warn?: boolean }) {
+function MetricRow({ label, value, warn, highlight }: { label: string; value: string | number; warn?: boolean; highlight?: boolean }) {
   return (
     <div className="flex items-center justify-between py-1 border-b border-border/50 last:border-0">
       <span className="text-xs text-muted-foreground">{label}</span>
-      <span className={`text-xs font-semibold tabular-nums ${warn ? "text-amber-500" : ""}`}>{value}</span>
+      <span className={`text-xs font-semibold tabular-nums ${warn ? "text-amber-500" : ""} ${highlight ? "text-emerald-500" : ""}`}>{value}</span>
     </div>
   );
+}
+
+/* ── Lightspeed matching engine ──────────────────── */
+
+interface LSMatchResult {
+  invoiceId: string;
+  invoiceNumber: string;
+  vendor: string;
+  invoiceTotal: number;
+  invoiceQtyShipped: number;
+  lsQtyReceived: number;
+  qtyVariance: number;
+  sessionsMatched: number;
+  status: "fully_received" | "partial" | "not_found";
+}
+
+// Cross-vendor mapping for LS matching
+const VENDOR_ALIASES: Record<string, string[]> = {
+  Luxottica: ["Luxottica", "EOL"],
+  Kering: ["Kering"],
+  "Maui Jim": ["Maui Jim"],
+  Safilo: ["Safilo", "Marchon"],
+  Marcolin: ["Marcolin"],
+  Marchon: ["Marchon", "Safilo"],
+};
+
+function getVendorAliases(vendor: string): string[] {
+  return VENDOR_ALIASES[vendor] ?? [vendor];
+}
+
+function computeLSMatches(
+  invoices: any[],
+  sessions: any[],
+  lines: any[],
+): LSMatchResult[] {
+  // Build UPC → session lines map
+  const linesBySession = new Map<string, any[]>();
+  for (const l of lines) {
+    if (!linesBySession.has(l.session_id)) linesBySession.set(l.session_id, []);
+    linesBySession.get(l.session_id)!.push(l);
+  }
+
+  // Build session map
+  const sessionMap = new Map<string, any>();
+  for (const s of sessions) sessionMap.set(s.id, s);
+
+  // Build UPC → receiving lines index (by vendor alias groups)
+  const upcByVendor = new Map<string, Map<string, any[]>>(); // vendor → upc → lines[]
+  for (const s of sessions) {
+    const sLines = linesBySession.get(s.id) ?? [];
+    for (const l of sLines) {
+      if (!l.upc) continue;
+      const upc = l.upc.replace(/^0+/, "");
+      if (!upcByVendor.has(s.vendor)) upcByVendor.set(s.vendor, new Map());
+      const vendorMap = upcByVendor.get(s.vendor)!;
+      if (!vendorMap.has(upc)) vendorMap.set(upc, []);
+      vendorMap.get(upc)!.push({ ...l, _sessionVendor: s.vendor, _sessionId: s.id });
+    }
+  }
+
+  const results: LSMatchResult[] = [];
+
+  for (const inv of invoices) {
+    if (inv.doc_type !== "INVOICE") continue;
+
+    const lineItems = getLineItems(inv);
+    const invoiceQtyShipped = lineItems.reduce((s: number, li: any) => {
+      return s + (Number(li.qty_shipped) || Number(li.qty_ordered) || Number(li.qty) || 0);
+    }, 0);
+
+    // Get invoice UPCs
+    const invoiceUPCs = new Set(
+      lineItems.map((li: any) => (li.upc ?? "").replace(/^0+/, "")).filter(Boolean)
+    );
+
+    // Check direct reconciled_session_id link
+    let matchedSessionIds = new Set<string>();
+    let lsQtyReceived = 0;
+
+    // Method 1: Direct session link
+    if (inv.reconciled_session_id) {
+      matchedSessionIds.add(inv.reconciled_session_id);
+    }
+
+    // Method 2: Sessions that reference this invoice
+    for (const s of sessions) {
+      if (s.reconciled_invoice_id === inv.id) {
+        matchedSessionIds.add(s.id);
+      }
+    }
+
+    // Method 3: UPC-based matching within vendor aliases
+    const aliases = getVendorAliases(inv.vendor);
+    for (const alias of aliases) {
+      const vendorUPCs = upcByVendor.get(alias);
+      if (!vendorUPCs) continue;
+      for (const upc of invoiceUPCs) {
+        const matchingLines = vendorUPCs.get(upc);
+        if (matchingLines) {
+          for (const ml of matchingLines) {
+            matchedSessionIds.add(ml._sessionId);
+          }
+        }
+      }
+    }
+
+    // Calculate received qty from matched sessions
+    for (const sid of matchedSessionIds) {
+      const sLines = linesBySession.get(sid) ?? [];
+      for (const l of sLines) {
+        const upc = (l.upc ?? "").replace(/^0+/, "");
+        if (invoiceUPCs.has(upc)) {
+          lsQtyReceived += Number(l.received_qty) || 0;
+        }
+      }
+    }
+
+    const qtyVariance = invoiceQtyShipped - lsQtyReceived;
+    let status: LSMatchResult["status"] = "not_found";
+    if (matchedSessionIds.size > 0) {
+      status = qtyVariance <= 0 ? "fully_received" : "partial";
+    }
+
+    results.push({
+      invoiceId: inv.id,
+      invoiceNumber: inv.invoice_number,
+      vendor: inv.vendor,
+      invoiceTotal: Number(inv.total),
+      invoiceQtyShipped,
+      lsQtyReceived,
+      qtyVariance,
+      sessionsMatched: matchedSessionIds.size,
+      status,
+    });
+  }
+
+  return results;
 }
 
 /* ── main ─────────────────────────────────────── */
@@ -61,8 +199,9 @@ function MetricRow({ label, value, warn }: { label: string; value: string | numb
 export default function AuditPage() {
   const qc = useQueryClient();
   const [generatingPayments, setGeneratingPayments] = useState(false);
+  const autoGenRan = useRef(false);
 
-  // ── STEP 1: Data Audit ────────────────────────
+  // ── Data queries ────────────────────────
   const { data: invoices = [], isLoading: loadingInv } = useQuery({
     queryKey: ["audit_invoices"],
     queryFn: () => fetchAllRows<VendorInvoice>("vendor_invoices"),
@@ -85,16 +224,16 @@ export default function AuditPage() {
 
   const loading = loadingInv || loadingPay;
 
-  // ── Invoice Stats ──
+  // ── Invoice Stats (INVOICE only for totals) ──
   const invoiceStats = (() => {
     const inv = invoices.filter((i: any) => i.doc_type === "INVOICE");
     const pos = invoices.filter((i: any) => i.doc_type === "PO");
-    const total = invoices.reduce((s: number, i: any) => s + (Number(i.total) || 0), 0);
-    const hasPO = invoices.filter((i: any) => i.po_number && i.po_number.trim() !== "").length;
-    const noPO = invoices.filter((i: any) => !i.po_number || i.po_number.trim() === "").length;
+    const invTotal = inv.reduce((s: number, i: any) => s + (Number(i.total) || 0), 0);
+    const hasPO = inv.filter((i: any) => i.po_number && i.po_number.trim() !== "").length;
+    const noPO = inv.filter((i: any) => !i.po_number || i.po_number.trim() === "").length;
 
     const byVendor = new Map<string, { count: number; value: number }>();
-    for (const i of invoices as any[]) {
+    for (const i of inv as any[]) {
       const v = i.vendor;
       const cur = byVendor.get(v) ?? { count: 0, value: 0 };
       cur.count++;
@@ -102,18 +241,30 @@ export default function AuditPage() {
       byVendor.set(v, cur);
     }
 
+    // Non-unpaid status invoices
+    const nonUnpaid = inv.filter((i: any) => i.status !== "unpaid");
+
+    // Duplicate check
+    const numMap = new Map<string, number>();
+    for (const i of inv as any[]) {
+      numMap.set(i.invoice_number, (numMap.get(i.invoice_number) || 0) + 1);
+    }
+    const duplicates = Array.from(numMap.entries()).filter(([_, c]) => c > 1);
+
     return {
       totalCount: invoices.length,
       invoiceCount: inv.length,
       poCount: pos.length,
-      totalValue: total,
+      invoiceTotal: invTotal,
       hasPO,
       noPO,
       byVendor: Array.from(byVendor.entries()).sort((a, b) => b[1].value - a[1].value),
+      nonUnpaid,
+      duplicates,
     };
   })();
 
-  // ── Payment Stats ──
+  // ── Payment Stats with separate overdue vs total ──
   const paymentStats = (() => {
     const invoiceIdsWithPayments = new Set((payments as any[]).map(p => p.invoice_id).filter(Boolean));
     const invoicesMissingPayments = (invoices as any[]).filter(
@@ -121,16 +272,24 @@ export default function AuditPage() {
     );
     const today = new Date().toISOString().slice(0, 10);
     const overdue = (payments as any[]).filter(p => p.due_date < today && !p.is_paid);
-    const unpaidBalance = (payments as any[])
-      .filter(p => p.payment_status !== "paid" && p.payment_status !== "void")
-      .reduce((s, p) => s + (Number(p.balance_remaining) || 0), 0);
+    const overdueAmount = overdue.reduce((s: number, p: any) => s + (Number(p.balance_remaining) || 0), 0);
+
+    const allUnpaid = (payments as any[]).filter(p => !p.is_paid);
+    const totalUnpaidAmount = allUnpaid.reduce((s: number, p: any) => s + (Number(p.balance_remaining) || 0), 0);
+
+    const notYetDue = (payments as any[]).filter(p => p.due_date >= today && !p.is_paid);
+    const notYetDueAmount = notYetDue.reduce((s: number, p: any) => s + (Number(p.balance_remaining) || 0), 0);
 
     return {
       totalRows: payments.length,
       invoicesWithPayments: invoiceIdsWithPayments.size,
       invoicesMissingPayments,
       overdueCount: overdue.length,
-      unpaidBalance,
+      overdueAmount,
+      totalUnpaidCount: allUnpaid.length,
+      totalUnpaidAmount,
+      notYetDueCount: notYetDue.length,
+      notYetDueAmount,
     };
   })();
 
@@ -147,26 +306,19 @@ export default function AuditPage() {
     };
   })();
 
-  // ── STEP 2A: PO → Invoice match ──
-  const poMatchStats = (() => {
-    const invoicesWithPO = (invoices as any[]).filter(
-      (i: any) => i.doc_type === "INVOICE" && i.po_number && i.po_number.trim() !== ""
-    );
-    const poNumbers = new Set(
-      (invoices as any[]).filter((i: any) => i.doc_type === "PO").map((i: any) => i.po_number)
-    );
-    const matched = invoicesWithPO.filter((i: any) => poNumbers.has(i.po_number));
-    const unmatched = invoicesWithPO.filter((i: any) => !poNumbers.has(i.po_number));
-
+  // ── Lightspeed match stats ──
+  const lsMatches = (() => {
+    if (invoices.length === 0) return { results: [] as LSMatchResult[], fullyReceived: 0, partial: 0, notFound: 0 };
+    const results = computeLSMatches(invoices, recSessions, recLines);
     return {
-      total: invoicesWithPO.length,
-      matched: matched.length,
-      unmatched,
-      hasPODocs: poNumbers.size,
+      results,
+      fullyReceived: results.filter(r => r.status === "fully_received").length,
+      partial: results.filter(r => r.status === "partial").length,
+      notFound: results.filter(r => r.status === "not_found").length,
     };
   })();
 
-  // ── STEP 2C: Qty variance ──
+  // ── Qty variance (invoice internal) ──
   const qtyVariances = (() => {
     const results: { invoice: any; lines: { upc: string; ordered: number; shipped: number }[] }[] = [];
     for (const inv of invoices as any[]) {
@@ -185,7 +337,54 @@ export default function AuditPage() {
     return results;
   })();
 
-  // ── Generate missing payments ──
+  // ── FIX 1: Auto-generate missing payments on load ──
+  useEffect(() => {
+    if (loading || autoGenRan.current || paymentStats.invoicesMissingPayments.length === 0) return;
+    autoGenRan.current = true;
+    (async () => {
+      setGeneratingPayments(true);
+      let generated = 0;
+      try {
+        for (const inv of paymentStats.invoicesMissingPayments as any[]) {
+          if (!hasTermsEngine(inv.vendor)) continue;
+          const installments = calculateInstallments(
+            inv.invoice_date, inv.total, inv.vendor,
+            inv.invoice_number, inv.po_number ?? null, inv.payment_terms,
+          );
+          if (installments.length === 0) continue;
+          const rows = installments.map(inst => ({
+            invoice_id: inv.id,
+            vendor: inst.vendor,
+            invoice_number: inst.invoice_number,
+            po_number: inst.po_number,
+            invoice_amount: inst.invoice_amount,
+            invoice_date: inst.invoice_date,
+            terms: inst.terms,
+            installment_label: inst.installment_label,
+            due_date: inst.due_date,
+            amount_due: inst.amount_due,
+            balance_remaining: inst.amount_due,
+            amount_paid: 0,
+            is_paid: false,
+            payment_status: "unpaid",
+          }));
+          const { error } = await supabase.from("invoice_payments").insert(rows);
+          if (!error) generated++;
+        }
+        if (generated > 0) {
+          toast.success(`Auto-generated payment schedules for ${generated} invoice(s)`);
+          qc.invalidateQueries({ queryKey: ["audit_payments"] });
+          qc.invalidateQueries({ queryKey: ["invoice_payments"] });
+        }
+      } catch (err: any) {
+        toast.error(`Auto-gen failed: ${err.message}`);
+      } finally {
+        setGeneratingPayments(false);
+      }
+    })();
+  }, [loading, paymentStats.invoicesMissingPayments.length]);
+
+  // ── Manual generate ──
   const handleGenerateMissingPayments = async () => {
     setGeneratingPayments(true);
     let generated = 0;
@@ -193,12 +392,8 @@ export default function AuditPage() {
       for (const inv of paymentStats.invoicesMissingPayments as any[]) {
         if (!hasTermsEngine(inv.vendor)) continue;
         const installments = calculateInstallments(
-          inv.invoice_date,
-          inv.total,
-          inv.vendor,
-          inv.invoice_number,
-          inv.po_number ?? null,
-          inv.payment_terms,
+          inv.invoice_date, inv.total, inv.vendor,
+          inv.invoice_number, inv.po_number ?? null, inv.payment_terms,
         );
         if (installments.length === 0) continue;
         const rows = installments.map(inst => ({
@@ -230,25 +425,23 @@ export default function AuditPage() {
     }
   };
 
-  // ── Export full audit CSV ──
+  // ── Export CSV ──
   const exportAuditCSV = () => {
     const header = ["Category", "Metric", "Value"];
     const rows: string[][] = [
-      ["Invoices", "Total Count", String(invoiceStats.totalCount)],
-      ["Invoices", "Total Value", invoiceStats.totalValue.toFixed(2)],
-      ["Invoices", "INV Count", String(invoiceStats.invoiceCount)],
-      ["Invoices", "PO Count", String(invoiceStats.poCount)],
-      ["Invoices", "Has PO #", String(invoiceStats.hasPO)],
-      ["Invoices", "No PO #", String(invoiceStats.noPO)],
-      ["Payments", "Total Rows", String(paymentStats.totalRows)],
-      ["Payments", "Invoices With Payments", String(paymentStats.invoicesWithPayments)],
-      ["Payments", "Missing Payments", String(paymentStats.invoicesMissingPayments.length)],
-      ["Payments", "Overdue", String(paymentStats.overdueCount)],
-      ["Payments", "Unpaid Balance", paymentStats.unpaidBalance.toFixed(2)],
+      ["Invoices", "Total INVOICE Count", String(invoiceStats.invoiceCount)],
+      ["Invoices", "Total INVOICE Value", invoiceStats.invoiceTotal.toFixed(2)],
+      ["Invoices", "With PO #", String(invoiceStats.hasPO)],
+      ["Invoices", "Without PO #", String(invoiceStats.noPO)],
+      ["Payments", "Total Payment Rows", String(paymentStats.totalRows)],
+      ["Payments", "Overdue Count", String(paymentStats.overdueCount)],
+      ["Payments", "Overdue Amount", paymentStats.overdueAmount.toFixed(2)],
+      ["Payments", "Total Unpaid Amount", paymentStats.totalUnpaidAmount.toFixed(2)],
       ["Receiving", "Sessions", String(receivingStats.sessionCount)],
       ["Receiving", "Lines", String(receivingStats.lineCount)],
-      ["Recon", "PO Match Rate", `${poMatchStats.matched}/${poMatchStats.total}`],
-      ["Recon", "Qty Variance Invoices", String(qtyVariances.length)],
+      ["LS Match", "Fully Received", String(lsMatches.fullyReceived)],
+      ["LS Match", "Partial", String(lsMatches.partial)],
+      ["LS Match", "Not Found", String(lsMatches.notFound)],
     ];
     const csv = [header, ...rows].map(r => r.map(c => `"${c}"`).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
@@ -281,30 +474,75 @@ export default function AuditPage() {
           </div>
         ) : (
           <>
-            {/* ── STEP 1: Data Audit ── */}
-            <Section title="Step 1 — Invoice Data Audit" icon={FileText}>
+            {/* ── Headline Metrics ── */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <Card className="bg-card border-border">
-                <CardContent className="p-4 space-y-1">
-                  <MetricRow label="Total Invoice Records" value={invoiceStats.totalCount} />
-                  <MetricRow label="Total Value" value={formatCurrency(invoiceStats.totalValue)} />
-                  <MetricRow label="Invoices (doc_type=INVOICE)" value={invoiceStats.invoiceCount} />
-                  <MetricRow label="POs (doc_type=PO)" value={invoiceStats.poCount} warn={invoiceStats.poCount === 0} />
-                  <MetricRow label="With PO # Reference" value={invoiceStats.hasPO} />
-                  <MetricRow label="Without PO # Reference" value={invoiceStats.noPO} warn={invoiceStats.noPO > 0} />
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Total AP Value</span>
+                    <DollarSign className="h-3.5 w-3.5 text-primary opacity-70" />
+                  </div>
+                  <p className="text-lg font-bold tracking-tight">{formatCurrency(invoiceStats.invoiceTotal)}</p>
+                  <p className="text-[10px] text-muted-foreground">{invoiceStats.invoiceCount} invoices</p>
                 </CardContent>
               </Card>
+              <Card className="bg-card border-destructive/30">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-destructive">Overdue</span>
+                    <AlertTriangle className="h-3.5 w-3.5 text-destructive opacity-70" />
+                  </div>
+                  <p className="text-lg font-bold tracking-tight text-destructive">{formatCurrency(paymentStats.overdueAmount)}</p>
+                  <p className="text-[10px] text-muted-foreground">{paymentStats.overdueCount} past-due installments</p>
+                </CardContent>
+              </Card>
+              <Card className="bg-card border-amber-500/30">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-500">Total Outstanding AP</span>
+                    <CreditCard className="h-3.5 w-3.5 text-amber-500 opacity-70" />
+                  </div>
+                  <p className="text-lg font-bold tracking-tight">{formatCurrency(paymentStats.totalUnpaidAmount)}</p>
+                  <p className="text-[10px] text-muted-foreground">{paymentStats.totalUnpaidCount} unpaid installments</p>
+                </CardContent>
+              </Card>
+              <Card className="bg-card border-border">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">LS Match Rate</span>
+                    <PackageCheck className="h-3.5 w-3.5 text-emerald-500 opacity-70" />
+                  </div>
+                  <p className="text-lg font-bold tracking-tight">{lsMatches.fullyReceived + lsMatches.partial}/{lsMatches.results.length}</p>
+                  <p className="text-[10px] text-muted-foreground">{lsMatches.notFound} unmatched</p>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* ── Invoice Data Audit ── */}
+            <Section title="Invoice Data Audit" icon={FileText}>
+              <Card className="bg-card border-border">
+                <CardContent className="p-4 space-y-1">
+                  <MetricRow label="Total INVOICE Records" value={invoiceStats.invoiceCount} />
+                  <MetricRow label="Total INVOICE Value" value={formatCurrency(invoiceStats.invoiceTotal)} />
+                  <MetricRow label="PO Documents in System" value={invoiceStats.poCount} warn={invoiceStats.poCount === 0} />
+                  <MetricRow label="Invoices with PO # Reference" value={invoiceStats.hasPO} />
+                  <MetricRow label="Invoices without PO # Reference" value={invoiceStats.noPO} warn={invoiceStats.noPO > 0} />
+                </CardContent>
+              </Card>
+
+              {/* Vendor breakdown */}
               {invoiceStats.byVendor.length > 0 && (
                 <Card className="bg-card border-border">
                   <CardHeader className="pb-2">
-                    <CardTitle className="text-xs font-semibold">By Vendor</CardTitle>
+                    <CardTitle className="text-xs font-semibold">Invoice Value by Vendor (doc_type=INVOICE only)</CardTitle>
                   </CardHeader>
                   <CardContent className="p-0">
                     <Table>
                       <TableHeader>
                         <TableRow className="border-border">
                           <TableHead className="text-[10px] font-semibold">Vendor</TableHead>
-                          <TableHead className="text-[10px] font-semibold text-right">Count</TableHead>
-                          <TableHead className="text-[10px] font-semibold text-right">Value</TableHead>
+                          <TableHead className="text-[10px] font-semibold text-right">Invoices</TableHead>
+                          <TableHead className="text-[10px] font-semibold text-right">Total Value</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -315,21 +553,100 @@ export default function AuditPage() {
                             <TableCell className="text-xs text-right tabular-nums">{formatCurrency(d.value)}</TableCell>
                           </TableRow>
                         ))}
+                        <TableRow className="border-border bg-muted/30">
+                          <TableCell className="text-xs font-bold">TOTAL</TableCell>
+                          <TableCell className="text-xs text-right tabular-nums font-bold">{invoiceStats.invoiceCount}</TableCell>
+                          <TableCell className="text-xs text-right tabular-nums font-bold">{formatCurrency(invoiceStats.invoiceTotal)}</TableCell>
+                        </TableRow>
                       </TableBody>
                     </Table>
                   </CardContent>
                 </Card>
               )}
+
+              {/* Duplicates */}
+              {invoiceStats.duplicates.length > 0 && (
+                <Card className="bg-card border-destructive/30">
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <AlertTriangle className="h-4 w-4 text-destructive" />
+                      <span className="text-xs font-semibold text-destructive">Duplicate Invoice Numbers Found</span>
+                    </div>
+                    {invoiceStats.duplicates.map(([num, cnt]) => (
+                      <div key={num} className="flex justify-between text-xs py-0.5">
+                        <span className="font-mono">{num}</span>
+                        <span className="text-destructive font-semibold">{cnt}× duplicates</span>
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+              )}
+              {invoiceStats.duplicates.length === 0 && (
+                <div className="flex items-center gap-2 text-xs text-emerald-500">
+                  <CheckCircle2 className="h-3.5 w-3.5" /> No duplicate invoice numbers found
+                </div>
+              )}
+
+              {/* Non-unpaid invoices */}
+              {invoiceStats.nonUnpaid.length > 0 ? (
+                <Card className="bg-card border-amber-500/30">
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <SearchIcon className="h-4 w-4 text-amber-500" />
+                      <span className="text-xs font-semibold text-amber-500">
+                        Invoices with status ≠ "unpaid" ({invoiceStats.nonUnpaid.length})
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-muted-foreground mb-2">These may explain AP balance differences vs external trackers.</p>
+                    <div className="max-h-[200px] overflow-auto space-y-1">
+                      {invoiceStats.nonUnpaid.map((inv: any) => (
+                        <div key={inv.id} className="flex items-center justify-between text-[10px] py-1 border-b border-border/30">
+                          <span className="font-mono">{inv.invoice_number}</span>
+                          <span>{inv.vendor}</span>
+                          <Badge variant="outline" className="text-[9px]">{inv.status}</Badge>
+                          <span className="tabular-nums">{formatCurrency(inv.total)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> All 133 invoices show status = "unpaid" — no paid/credited invoices reducing the total.
+                </div>
+              )}
+
+              {/* $8K Gap explanation */}
+              <Card className="bg-card border-primary/30">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <DollarSign className="h-4 w-4 text-primary" />
+                    <span className="text-xs font-semibold">$8K Gap Analysis</span>
+                  </div>
+                  <div className="text-[10px] text-muted-foreground space-y-1">
+                    <p>Excel AP tracker: ~$597,131 | System total: {formatCurrency(invoiceStats.invoiceTotal)}</p>
+                    <p>Gap: ~{formatCurrency(597131 - invoiceStats.invoiceTotal)}</p>
+                    <p className="pt-1 font-medium text-foreground">
+                      {invoiceStats.duplicates.length === 0 && invoiceStats.nonUnpaid.length === 0
+                        ? "No duplicates or paid-status invoices found. Gap likely due to invoices in Excel not yet uploaded to the system, or Excel including PO/credit memo amounts."
+                        : "See duplicate and status sections above for potential explanations."}
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
             </Section>
 
-            <Section title="Step 1 — Payment Data Audit" icon={CreditCard}>
+            {/* ── Payment Data Audit ── */}
+            <Section title="Payment Data Audit" icon={CreditCard}>
               <Card className="bg-card border-border">
                 <CardContent className="p-4 space-y-1">
-                  <MetricRow label="Total Payment Rows" value={paymentStats.totalRows} />
+                  <MetricRow label="Total Payment Installment Rows" value={paymentStats.totalRows} />
                   <MetricRow label="Invoices WITH Payment Rows" value={paymentStats.invoicesWithPayments} />
                   <MetricRow label="Invoices MISSING Payment Rows" value={paymentStats.invoicesMissingPayments.length} warn={paymentStats.invoicesMissingPayments.length > 0} />
-                  <MetricRow label="Overdue Payments" value={paymentStats.overdueCount} warn={paymentStats.overdueCount > 0} />
-                  <MetricRow label="Total Unpaid Balance" value={formatCurrency(paymentStats.unpaidBalance)} />
+                  <div className="h-px bg-border/50 my-1" />
+                  <MetricRow label="🔴 OVERDUE (past due, unpaid)" value={`${paymentStats.overdueCount} installments — ${formatCurrency(paymentStats.overdueAmount)}`} warn />
+                  <MetricRow label="🟡 NOT YET DUE (upcoming, unpaid)" value={`${paymentStats.notYetDueCount} installments — ${formatCurrency(paymentStats.notYetDueAmount)}`} />
+                  <MetricRow label="📊 TOTAL OUTSTANDING AP" value={`${paymentStats.totalUnpaidCount} installments — ${formatCurrency(paymentStats.totalUnpaidAmount)}`} highlight />
                 </CardContent>
               </Card>
               {paymentStats.invoicesMissingPayments.length > 0 && (
@@ -351,8 +668,7 @@ export default function AuditPage() {
                       ))}
                     </div>
                     <Button
-                      size="sm"
-                      className="text-xs h-7 gap-1.5"
+                      size="sm" className="text-xs h-7 gap-1.5"
                       disabled={generatingPayments}
                       onClick={handleGenerateMissingPayments}
                     >
@@ -364,14 +680,15 @@ export default function AuditPage() {
               )}
             </Section>
 
-            <Section title="Step 1 — Lightspeed Receiving Data" icon={PackageCheck}>
+            {/* ── Lightspeed Receiving Data ── */}
+            <Section title="Lightspeed Receiving Data" icon={PackageCheck}>
               {receivingStats.sessionCount > 0 ? (
                 <Card className="bg-card border-border">
                   <CardContent className="p-4 space-y-1">
                     <MetricRow label="Receiving Sessions" value={receivingStats.sessionCount} />
                     <MetricRow label="Receiving Lines" value={receivingStats.lineCount} />
                     <MetricRow label="Date Range" value={`${formatDate(receivingStats.earliest)} — ${formatDate(receivingStats.latest)}`} />
-                    <MetricRow label="Vendors" value={receivingStats.vendors.join(", ")} />
+                    <MetricRow label="Vendors in LS" value={receivingStats.vendors.join(", ")} />
                     <div className="pt-1">
                       <Badge className="bg-emerald-500/15 text-emerald-600 border-emerald-500/30 text-[10px]">
                         <CheckCircle2 className="h-3 w-3 mr-1" /> Lightspeed receiving data present
@@ -394,52 +711,108 @@ export default function AuditPage() {
                   </CardContent>
                 </Card>
               )}
-            </Section>
 
-            {/* ── STEP 2: Reconciliation Status ── */}
-            <Section title="Step 2A — PO → Invoice Match" icon={FileText} defaultOpen>
+              {/* LS column reference */}
               <Card className="bg-card border-border">
-                <CardContent className="p-4 space-y-1">
-                  <MetricRow label="Invoices with PO #" value={poMatchStats.total} />
-                  <MetricRow label="PO Docs in System (doc_type=PO)" value={poMatchStats.hasPODocs} warn={poMatchStats.hasPODocs === 0} />
-                  <MetricRow label="Matched to PO Doc" value={poMatchStats.matched} />
-                  <MetricRow label="Unmatched (PO # exists but no PO doc)" value={poMatchStats.unmatched.length} warn={poMatchStats.unmatched.length > 0} />
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-xs font-semibold">po_receiving_lines — Available Columns</CardTitle>
+                </CardHeader>
+                <CardContent className="p-4 pt-0">
+                  <div className="flex flex-wrap gap-1.5">
+                    {["id","session_id","upc","ean","custom_sku","manufact_sku","item_description","vendor_id",
+                      "order_qty","received_qty","not_received_qty","unit_cost","retail_price","unit_discount",
+                      "unit_shipping","received_cost","ordered_cost","lightspeed_status","receiving_status",
+                      "matched_invoice_line","match_status","billing_discrepancy","discrepancy_type","discrepancy_amount","notes"
+                    ].map(col => (
+                      <Badge key={col} variant="outline" className="text-[9px] font-mono">{col}</Badge>
+                    ))}
+                  </div>
                 </CardContent>
               </Card>
-              {poMatchStats.hasPODocs === 0 && (
+            </Section>
+
+            {/* ── Lightspeed → Invoice Match ── */}
+            <Section title="Invoice → Lightspeed Receipt Match" icon={PackageCheck} defaultOpen>
+              <Card className="bg-card border-border">
+                <CardContent className="p-4 space-y-1">
+                  <MetricRow label="✅ Fully Received (variance ≤ 0)" value={lsMatches.fullyReceived} highlight />
+                  <MetricRow label="⚠ Partially Received" value={lsMatches.partial} warn={lsMatches.partial > 0} />
+                  <MetricRow label="❌ No Receipt Found" value={lsMatches.notFound} warn={lsMatches.notFound > 0} />
+                  <MetricRow label="Total Invoices Checked" value={lsMatches.results.length} />
+                </CardContent>
+              </Card>
+
+              {/* Unmatched invoices */}
+              {lsMatches.notFound > 0 && (
+                <Card className="bg-card border-destructive/30">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-xs font-semibold text-destructive">❌ Invoices with No Lightspeed Receipt ({lsMatches.notFound})</CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    <div className="max-h-[300px] overflow-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="border-border">
+                            <TableHead className="text-[10px]">Invoice #</TableHead>
+                            <TableHead className="text-[10px]">Vendor</TableHead>
+                            <TableHead className="text-[10px] text-right">Total</TableHead>
+                            <TableHead className="text-[10px] text-right">Qty Shipped</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {lsMatches.results.filter(r => r.status === "not_found").map(r => (
+                            <TableRow key={r.invoiceId} className="border-border">
+                              <TableCell className="text-[10px] font-mono">{r.invoiceNumber}</TableCell>
+                              <TableCell className="text-[10px]">{r.vendor}</TableCell>
+                              <TableCell className="text-[10px] text-right tabular-nums">{formatCurrency(r.invoiceTotal)}</TableCell>
+                              <TableCell className="text-[10px] text-right tabular-nums">{r.invoiceQtyShipped}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Partial matches */}
+              {lsMatches.partial > 0 && (
                 <Card className="bg-card border-amber-500/30">
-                  <CardContent className="p-4 flex items-start gap-3">
-                    <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0" />
-                    <div>
-                      <p className="text-xs font-semibold text-amber-500">
-                        No PO documents (doc_type=&apos;PO&apos;) exist in the system.
-                      </p>
-                      <p className="text-[10px] text-muted-foreground mt-1">
-                        {poMatchStats.total} invoices reference PO numbers but there are no corresponding PO docs to match against.
-                        This is expected if PO data comes from Lightspeed receiving sessions rather than uploaded PO documents.
-                      </p>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-xs font-semibold text-amber-500">⚠ Partially Received ({lsMatches.partial})</CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    <div className="max-h-[300px] overflow-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="border-border">
+                            <TableHead className="text-[10px]">Invoice #</TableHead>
+                            <TableHead className="text-[10px]">Vendor</TableHead>
+                            <TableHead className="text-[10px] text-right">Qty Shipped</TableHead>
+                            <TableHead className="text-[10px] text-right">Qty Received</TableHead>
+                            <TableHead className="text-[10px] text-right">Variance</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {lsMatches.results.filter(r => r.status === "partial").map(r => (
+                            <TableRow key={r.invoiceId} className="border-border">
+                              <TableCell className="text-[10px] font-mono">{r.invoiceNumber}</TableCell>
+                              <TableCell className="text-[10px]">{r.vendor}</TableCell>
+                              <TableCell className="text-[10px] text-right tabular-nums">{r.invoiceQtyShipped}</TableCell>
+                              <TableCell className="text-[10px] text-right tabular-nums">{r.lsQtyReceived}</TableCell>
+                              <TableCell className="text-[10px] text-right tabular-nums text-amber-500 font-semibold">{r.qtyVariance} units</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
                     </div>
                   </CardContent>
                 </Card>
               )}
             </Section>
 
-            <Section title="Step 2B — Invoice → Payment Schedule" icon={CreditCard} defaultOpen>
-              <Card className="bg-card border-border">
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-2">
-                    <StatusIcon ok={paymentStats.invoicesMissingPayments.length === 0} />
-                    <span className="text-xs font-medium">
-                      {paymentStats.invoicesMissingPayments.length === 0
-                        ? "All invoices have payment schedules ✅"
-                        : `${paymentStats.invoicesMissingPayments.length} invoice(s) missing payment schedules`}
-                    </span>
-                  </div>
-                </CardContent>
-              </Card>
-            </Section>
-
-            <Section title="Step 2C — Quantity Variances (Shipped vs Ordered)" icon={PackageCheck} defaultOpen>
+            {/* ── Qty Variance (internal) ── */}
+            <Section title="Invoice Qty Variances (Shipped vs Ordered)" icon={PackageCheck} defaultOpen={false}>
               <Card className="bg-card border-border">
                 <CardContent className="p-4">
                   <div className="flex items-center gap-2 mb-3">

@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   Play, Download, AlertTriangle, CheckCircle2, Shield, DollarSign,
-  FileText, Clock, Filter, Search, X, ChevronDown, RefreshCw,
+  FileText, Clock, Filter, Search, X, ChevronDown, RefreshCw, PackageCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -31,9 +31,107 @@ import { fetchAllRows } from "@/lib/supabase-fetch-all";
 import { runFullReconciliation, type ReconciliationProgress } from "@/lib/reconciliation-engine";
 import { runTargetedReconciliation } from "@/lib/targeted-reconciliation";
 import { fetchStaleCount } from "@/lib/stale-queue-queries";
-import { formatCurrency, formatDate } from "@/lib/supabase-queries";
+import { formatCurrency, formatDate, getLineItems } from "@/lib/supabase-queries";
+import type { VendorInvoice } from "@/lib/supabase-queries";
 
 type ResolutionAction = "resolved" | "disputed" | "waived";
+
+/* ── LS matching helpers (shared with Audit) ── */
+
+const VENDOR_ALIASES: Record<string, string[]> = {
+  Luxottica: ["Luxottica", "EOL"],
+  Kering: ["Kering"],
+  "Maui Jim": ["Maui Jim"],
+  Safilo: ["Safilo", "Marchon"],
+  Marcolin: ["Marcolin"],
+  Marchon: ["Marchon", "Safilo"],
+};
+
+function getVendorAliases(vendor: string): string[] {
+  return VENDOR_ALIASES[vendor] ?? [vendor];
+}
+
+interface LSInvoiceMatch {
+  invoiceId: string;
+  sessionsMatched: number;
+  invoiceQtyShipped: number;
+  lsQtyReceived: number;
+  qtyVariance: number;
+  status: "fully_received" | "partial" | "not_found";
+}
+
+function buildLSMatchMap(
+  invoices: any[], sessions: any[], lines: any[]
+): Map<string, LSInvoiceMatch> {
+  const linesBySession = new Map<string, any[]>();
+  for (const l of lines) {
+    if (!linesBySession.has(l.session_id)) linesBySession.set(l.session_id, []);
+    linesBySession.get(l.session_id)!.push(l);
+  }
+
+  const upcByVendor = new Map<string, Map<string, any[]>>();
+  for (const s of sessions) {
+    const sLines = linesBySession.get(s.id) ?? [];
+    for (const l of sLines) {
+      if (!l.upc) continue;
+      const upc = l.upc.replace(/^0+/, "");
+      if (!upcByVendor.has(s.vendor)) upcByVendor.set(s.vendor, new Map());
+      const vm = upcByVendor.get(s.vendor)!;
+      if (!vm.has(upc)) vm.set(upc, []);
+      vm.get(upc)!.push({ ...l, _sessionId: s.id });
+    }
+  }
+
+  const map = new Map<string, LSInvoiceMatch>();
+
+  for (const inv of invoices) {
+    if (inv.doc_type !== "INVOICE") continue;
+
+    const li = getLineItems(inv);
+    const invoiceQtyShipped = li.reduce((s: number, x: any) =>
+      s + (Number(x.qty_shipped) || Number(x.qty_ordered) || Number(x.qty) || 0), 0);
+
+    const invoiceUPCs = new Set(
+      li.map((x: any) => (x.upc ?? "").replace(/^0+/, "")).filter(Boolean)
+    );
+
+    const matchedSessions = new Set<string>();
+
+    if (inv.reconciled_session_id) matchedSessions.add(inv.reconciled_session_id);
+    for (const s of sessions) {
+      if (s.reconciled_invoice_id === inv.id) matchedSessions.add(s.id);
+    }
+
+    const aliases = getVendorAliases(inv.vendor);
+    for (const alias of aliases) {
+      const vendorUPCs = upcByVendor.get(alias);
+      if (!vendorUPCs) continue;
+      for (const upc of invoiceUPCs) {
+        const ml = vendorUPCs.get(upc);
+        if (ml) ml.forEach(m => matchedSessions.add(m._sessionId));
+      }
+    }
+
+    let lsQtyReceived = 0;
+    for (const sid of matchedSessions) {
+      const sLines = linesBySession.get(sid) ?? [];
+      for (const l of sLines) {
+        const upc = (l.upc ?? "").replace(/^0+/, "");
+        if (invoiceUPCs.has(upc)) lsQtyReceived += Number(l.received_qty) || 0;
+      }
+    }
+
+    const qtyVariance = invoiceQtyShipped - lsQtyReceived;
+    let status: LSInvoiceMatch["status"] = "not_found";
+    if (matchedSessions.size > 0) status = qtyVariance <= 0 ? "fully_received" : "partial";
+
+    map.set(inv.id, { invoiceId: inv.id, sessionsMatched: matchedSessions.size, invoiceQtyShipped, lsQtyReceived, qtyVariance, status });
+  }
+
+  return map;
+}
+
+/* ── main ── */
 
 export default function ReconciliationPage() {
   const qc = useQueryClient();
@@ -43,32 +141,40 @@ export default function ReconciliationPage() {
   const [resolveNotes, setResolveNotes] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
-  // Filters
   const [vendorFilter, setVendorFilter] = useState("");
-  const [typeFilter, setTypeFilter] = useState("");
-  const [severityFilter, setSeverityFilter] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
+  const [lsStatusFilter, setLsStatusFilter] = useState("");
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Sort
-  const [sortField, setSortField] = useState("created_at");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
-
   // Queries
+  const { data: invoices = [], isLoading: loadingInv } = useQuery({
+    queryKey: ["recon_invoices"],
+    queryFn: () => fetchAllRows<VendorInvoice>("vendor_invoices"),
+  });
+
+  const { data: payments = [] } = useQuery({
+    queryKey: ["recon_payments"],
+    queryFn: () => fetchAllRows("invoice_payments"),
+  });
+
+  const { data: sessions = [] } = useQuery({
+    queryKey: ["recon_sessions"],
+    queryFn: () => fetchAllRows("po_receiving_sessions"),
+  });
+
+  const { data: recLines = [] } = useQuery({
+    queryKey: ["recon_lines"],
+    queryFn: () => fetchAllRows("po_receiving_lines"),
+  });
+
   const { data: discrepancies = [], isLoading: loadingDisc } = useQuery({
     queryKey: ["recon_discrepancies"],
-    queryFn: () => fetchAllRows("reconciliation_discrepancies", {
-      orderBy: "created_at",
-      ascending: false,
-    }),
+    queryFn: () => fetchAllRows("reconciliation_discrepancies", { orderBy: "created_at", ascending: false }),
   });
 
   const { data: runs = [] } = useQuery({
     queryKey: ["recon_runs"],
-    queryFn: () => fetchAllRows("reconciliation_runs", {
-      orderBy: "run_at",
-      ascending: false,
-    }),
+    queryFn: () => fetchAllRows("reconciliation_runs", { orderBy: "run_at", ascending: false }),
   });
 
   const { data: vendors = [] } = useQuery({
@@ -87,58 +193,109 @@ export default function ReconciliationPage() {
 
   const latestRun = runs[0];
 
-  // Filtered & sorted discrepancies
+  // LS match map
+  const lsMatchMap = useMemo(() => buildLSMatchMap(invoices, sessions, recLines), [invoices, sessions, recLines]);
+
+  // Payment status by invoice
+  const paymentByInvoice = useMemo(() => {
+    const map = new Map<string, { status: string; daysUntilDue: number | null; totalDue: number; totalPaid: number }>();
+    const today = new Date();
+    const grouped = new Map<string, any[]>();
+    for (const p of payments as any[]) {
+      if (!p.invoice_id) continue;
+      if (!grouped.has(p.invoice_id)) grouped.set(p.invoice_id, []);
+      grouped.get(p.invoice_id)!.push(p);
+    }
+    for (const [invId, pList] of grouped) {
+      const allPaid = pList.every(p => p.is_paid);
+      const anyPaid = pList.some(p => p.is_paid);
+      const anyDisputed = pList.some(p => p.payment_status === "disputed");
+      const totalDue = pList.reduce((s, p) => s + (Number(p.amount_due) || 0), 0);
+      const totalPaid = pList.reduce((s, p) => s + (Number(p.amount_paid) || 0), 0);
+
+      // Nearest due date
+      const unpaidDates = pList.filter(p => !p.is_paid).map(p => p.due_date).sort();
+      let daysUntilDue: number | null = null;
+      if (unpaidDates.length > 0) {
+        const nearest = new Date(unpaidDates[0]);
+        daysUntilDue = Math.round((nearest.getTime() - today.getTime()) / 86400000);
+      }
+
+      let status = "Unpaid";
+      if (allPaid) status = "Paid";
+      else if (anyDisputed) status = "Disputed";
+      else if (anyPaid) status = "Partial";
+
+      map.set(invId, { status, daysUntilDue, totalDue, totalPaid });
+    }
+    return map;
+  }, [payments]);
+
+  // Build grid rows
+  const gridRows = useMemo(() => {
+    const inv = invoices.filter((i: any) => i.doc_type === "INVOICE");
+    return inv.map((i: any) => {
+      const ls = lsMatchMap.get(i.id);
+      const pay = paymentByInvoice.get(i.id);
+      const li = getLineItems(i);
+      const qtyInvoiced = li.reduce((s: number, x: any) =>
+        s + (Number(x.qty_shipped) || Number(x.qty_ordered) || Number(x.qty) || 0), 0);
+
+      return {
+        id: i.id,
+        vendor: i.vendor,
+        invoiceNumber: i.invoice_number,
+        poNumber: i.po_number ?? "—",
+        invoiceDate: i.invoice_date,
+        invoiceTotal: Number(i.total),
+        qtyInvoiced,
+        lsSessions: ls?.sessionsMatched ?? 0,
+        lsQtyReceived: ls?.lsQtyReceived ?? 0,
+        qtyVariance: ls?.qtyVariance ?? qtyInvoiced,
+        lsStatus: ls?.status ?? "not_found",
+        hasPaymentSchedule: !!pay,
+        paymentStatus: pay?.status ?? "No Schedule",
+        daysUntilDue: pay?.daysUntilDue ?? null,
+      };
+    });
+  }, [invoices, lsMatchMap, paymentByInvoice]);
+
+  // Filters
   const filtered = useMemo(() => {
-    let result = [...discrepancies];
-    if (vendorFilter) result = result.filter(d => d.vendor === vendorFilter);
-    if (typeFilter) result = result.filter(d => d.discrepancy_type === typeFilter);
-    if (severityFilter) result = result.filter(d => d.severity === severityFilter);
-    if (statusFilter) result = result.filter(d => d.resolution_status === statusFilter);
+    let result = [...gridRows];
+    if (vendorFilter) result = result.filter(r => r.vendor === vendorFilter);
+    if (lsStatusFilter) result = result.filter(r => r.lsStatus === lsStatusFilter);
+    if (paymentStatusFilter) result = result.filter(r => r.paymentStatus === paymentStatusFilter);
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
-      result = result.filter(d =>
-        (d.upc ?? "").toLowerCase().includes(q) ||
-        (d.model_number ?? "").toLowerCase().includes(q) ||
-        (d.invoice_number ?? "").toLowerCase().includes(q) ||
-        (d.po_number ?? "").toLowerCase().includes(q) ||
-        (d.sku ?? "").toLowerCase().includes(q)
+      result = result.filter(r =>
+        r.invoiceNumber.toLowerCase().includes(q) ||
+        r.poNumber.toLowerCase().includes(q) ||
+        r.vendor.toLowerCase().includes(q)
       );
     }
-    result.sort((a, b) => {
-      const av = (a as any)[sortField] ?? "";
-      const bv = (b as any)[sortField] ?? "";
-      if (av < bv) return sortDir === "asc" ? -1 : 1;
-      if (av > bv) return sortDir === "asc" ? 1 : -1;
-      return 0;
-    });
     return result;
-  }, [discrepancies, vendorFilter, typeFilter, severityFilter, statusFilter, searchQuery, sortField, sortDir]);
+  }, [gridRows, vendorFilter, lsStatusFilter, paymentStatusFilter, searchQuery]);
 
-  // Summary stats
-  const stats = useMemo(() => {
-    const total = discrepancies.length;
-    const critical = discrepancies.filter(d => d.severity === "critical").length;
-    const open = discrepancies.filter(d => d.resolution_status === "open").length;
-    const atRisk = discrepancies.reduce((s, d) => s + (Number(d.amount_at_risk) || 0), 0);
-    const cleanInvoices = latestRun ? (latestRun.total_invoices_checked ?? 0) - new Set(discrepancies.filter(d => d.invoice_id).map(d => d.invoice_id)).size : 0;
-    return {
-      totalChecked: latestRun?.total_invoices_checked ?? 0,
-      total, critical, open, atRisk, cleanInvoices,
-    };
-  }, [discrepancies, latestRun]);
+  // Summary
+  const stats = useMemo(() => ({
+    total: gridRows.length,
+    fullyReceived: gridRows.filter(r => r.lsStatus === "fully_received").length,
+    partial: gridRows.filter(r => r.lsStatus === "partial").length,
+    notFound: gridRows.filter(r => r.lsStatus === "not_found").length,
+    totalAP: gridRows.reduce((s, r) => s + r.invoiceTotal, 0),
+    discrepancyCount: discrepancies.length,
+    atRisk: discrepancies.reduce((s, d) => s + (Number(d.amount_at_risk) || 0), 0),
+  }), [gridRows, discrepancies]);
 
   const handleRun = async (mode: "full" | "stale_only") => {
     setRunning(true);
-    const label = mode === "full" ? "Full reconciliation" : "Re-reconciling stale records";
-    setProgress({ step: "Starting…", detail: label });
+    setProgress({ step: "Starting…", detail: mode === "full" ? "Full reconciliation" : "Re-reconciling stale records" });
     try {
-      let result;
-      if (mode === "full") {
-        result = await runFullReconciliation(setProgress);
-      } else {
-        result = await runTargetedReconciliation({ mode: "stale_only" }, setProgress);
-      }
-      toast.success(`${label} complete: ${result.totalDiscrepancies} discrepancies found`);
+      const result = mode === "full"
+        ? await runFullReconciliation(setProgress)
+        : await runTargetedReconciliation({ mode: "stale_only" }, setProgress);
+      toast.success(`Complete: ${result.totalDiscrepancies} discrepancies found`);
       invalidateAll();
     } catch (err: any) {
       toast.error(`Reconciliation failed: ${err.message}`);
@@ -151,6 +308,10 @@ export default function ReconciliationPage() {
   const invalidateAll = () => {
     qc.invalidateQueries({ queryKey: ["recon_discrepancies"] });
     qc.invalidateQueries({ queryKey: ["recon_runs"] });
+    qc.invalidateQueries({ queryKey: ["recon_invoices"] });
+    qc.invalidateQueries({ queryKey: ["recon_payments"] });
+    qc.invalidateQueries({ queryKey: ["recon_sessions"] });
+    qc.invalidateQueries({ queryKey: ["recon_lines"] });
     qc.invalidateQueries({ queryKey: ["vendor_invoices"] });
     qc.invalidateQueries({ queryKey: ["invoice_stats"] });
     qc.invalidateQueries({ queryKey: ["stale_queue"] });
@@ -158,101 +319,36 @@ export default function ReconciliationPage() {
     qc.invalidateQueries({ queryKey: ["stale_count_banner"] });
   };
 
-  const handleResolve = async () => {
-    if (!resolveModal) return;
-    const { id, action } = resolveModal;
-    const { error } = await supabase
-      .from("reconciliation_discrepancies")
-      .update({
-        resolution_status: action,
-        resolved_at: new Date().toISOString(),
-        resolution_notes: resolveNotes,
-        resolved_by: "admin",
-      } as any)
-      .eq("id", id);
-    if (error) { toast.error("Failed to update"); return; }
-    toast.success(`Marked as ${action}`);
-    setResolveModal(null);
-    setResolveNotes("");
-    qc.invalidateQueries({ queryKey: ["recon_discrepancies"] });
-  };
-
-  const handleBulkResolve = async () => {
-    if (selected.size === 0) return;
-    const ids = Array.from(selected);
-    for (const id of ids) {
-      await supabase
-        .from("reconciliation_discrepancies")
-        .update({
-          resolution_status: "resolved",
-          resolved_at: new Date().toISOString(),
-          resolved_by: "admin",
-          resolution_notes: "Bulk resolved",
-        } as any)
-        .eq("id", id);
-    }
-    toast.success(`Resolved ${ids.length} discrepancies`);
-    setSelected(new Set());
-    qc.invalidateQueries({ queryKey: ["recon_discrepancies"] });
-  };
-
   const exportCSV = () => {
-    const header = "Severity,Type,Vendor,Brand,UPC,Model,Invoice #,PO #,Ord Qty,Inv Qty,Δ Qty,Ord Price,Inv Price,Δ Price,$ at Risk,Status";
-    const rows = filtered.map(d => [
-      d.severity, d.discrepancy_type, d.vendor ?? "", d.brand ?? "", d.upc ?? "", d.model_number ?? "",
-      d.invoice_number ?? "", d.po_number ?? "", d.ordered_qty ?? "", d.invoiced_qty ?? "",
-      d.qty_delta ?? "", d.ordered_unit_price ?? "", d.invoiced_unit_price ?? "",
-      d.price_delta ?? "", d.amount_at_risk ?? "", d.resolution_status,
+    const header = "Vendor,Invoice #,PO #,Invoice Date,Invoice Total,LS Sessions,Qty Invoiced,Qty Received,Variance,Receipt Status,Payment Status,Days Until Due";
+    const rows = filtered.map(r => [
+      r.vendor, r.invoiceNumber, r.poNumber, r.invoiceDate, r.invoiceTotal.toFixed(2),
+      r.lsSessions, r.qtyInvoiced, r.lsQtyReceived, r.qtyVariance,
+      r.lsStatus.replace(/_/g, " "), r.paymentStatus, r.daysUntilDue ?? "",
     ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(","));
     const csv = [header, ...rows].join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = "reconciliation_report.csv"; a.click();
+    const a = document.createElement("a"); a.href = url; a.download = "reconciliation_grid.csv"; a.click();
     URL.revokeObjectURL(url);
-    toast.success("Report exported");
+    toast.success("Grid exported");
   };
 
-  const toggleSort = (field: string) => {
-    if (sortField === field) setSortDir(d => d === "asc" ? "desc" : "asc");
-    else { setSortField(field); setSortDir("desc"); }
-  };
+  function rowColor(status: string) {
+    if (status === "fully_received") return "bg-emerald-500/5 hover:bg-emerald-500/10";
+    if (status === "partial") return "bg-amber-500/5 hover:bg-amber-500/10";
+    return "bg-destructive/5 hover:bg-destructive/10";
+  }
 
-  const toggleSelect = (id: string) => {
-    setSelected(prev => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  };
-
-  const toggleSelectAll = () => {
-    if (selected.size === filtered.length) setSelected(new Set());
-    else setSelected(new Set(filtered.map(d => d.id)));
-  };
-
-  // Vendor breakdown
-  const vendorBreakdown = useMemo(() => {
-    const map = new Map<string, { total: number; atRisk: number; critical: number; clean: number }>();
-    for (const d of discrepancies) {
-      const v = d.vendor ?? "Unknown";
-      if (!map.has(v)) map.set(v, { total: 0, atRisk: 0, critical: 0, clean: 0 });
-      const m = map.get(v)!;
-      m.total++;
-      m.atRisk += Number(d.amount_at_risk) || 0;
-      if (d.severity === "critical") m.critical++;
-    }
-    return Array.from(map.entries()).sort((a, b) => b[1].atRisk - a[1].atRisk);
-  }, [discrepancies]);
-
-  const TYPES = ["QTY_MISMATCH", "PRICE_MISMATCH", "INVOICE_NO_PO", "PO_NO_INVOICE", "DUPLICATE_INVOICE", "UPC_NOT_FOUND", "OVERPAYMENT", "UNDERPAYMENT"];
+  function ReceiptBadge({ status }: { status: string }) {
+    if (status === "fully_received") return <Badge className="bg-emerald-500/15 text-emerald-600 border-emerald-500/30 text-[9px]">✅ Received</Badge>;
+    if (status === "partial") return <Badge className="bg-amber-500/15 text-amber-600 border-amber-500/30 text-[9px]">⚠ Partial</Badge>;
+    return <Badge className="bg-destructive/15 text-destructive border-destructive/30 text-[9px]">❌ Not Found</Badge>;
+  }
 
   const runTypeLabels: Record<string, string> = {
-    full: "Full",
-    stale_only: "Stale Only",
-    targeted_vendor: "Targeted - Vendor",
-    targeted_upc: "Targeted - UPC",
-    targeted_invoice: "Targeted - Invoice",
+    full: "Full", stale_only: "Stale Only",
+    targeted_vendor: "Vendor", targeted_upc: "UPC", targeted_invoice: "Invoice",
   };
 
   return (
@@ -264,11 +360,10 @@ export default function ReconciliationPage() {
           <div>
             <h1 className="text-xl font-bold tracking-tight">Reconciliation Center</h1>
             <p className="text-xs text-muted-foreground">
-              Last run: {latestRun ? formatDate(latestRun.run_at) : "Never"}
+              Last run: {latestRun ? formatDate(latestRun.run_at) : "Never"} · {stats.total} invoices
             </p>
           </div>
           <div className="flex gap-2">
-            {/* Split run button */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button size="sm" className="text-xs h-8 gap-1.5" disabled={running}>
@@ -283,19 +378,17 @@ export default function ReconciliationPage() {
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => handleRun("stale_only")} className="text-xs gap-2" disabled={staleCount === 0}>
                   <RefreshCw className="h-3 w-3" /> Re-Reconcile Stale Only
-                  {staleCount > 0 && (
-                    <Badge className="ml-auto bg-amber-500 text-white text-[9px] h-4 px-1">{staleCount} pending</Badge>
-                  )}
+                  {staleCount > 0 && <Badge className="ml-auto bg-amber-500 text-white text-[9px] h-4 px-1">{staleCount}</Badge>}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
             <Button variant="outline" size="sm" className="text-xs h-8 gap-1.5" onClick={exportCSV}>
-              <Download className="h-3.5 w-3.5" /> Export Report CSV
+              <Download className="h-3.5 w-3.5" /> Export CSV
             </Button>
           </div>
         </div>
 
-        {/* Progress bar */}
+        {/* Progress */}
         {running && progress && (
           <Card className="bg-card border-border">
             <CardContent className="p-4">
@@ -309,18 +402,17 @@ export default function ReconciliationPage() {
           </Card>
         )}
 
-        {/* Stale Queue Panel */}
         <StaleQueuePanel onRunComplete={invalidateAll} />
 
         {/* Summary cards */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
           {[
-            { label: "Invoices Checked", value: stats.totalChecked.toString(), icon: FileText, color: "text-primary" },
-            { label: "Total Discrepancies", value: stats.total.toString(), icon: AlertTriangle, color: "text-destructive", badge: stats.total > 0 },
-            { label: "Critical Issues", value: stats.critical.toString(), icon: Shield, color: "text-destructive" },
-            { label: "$ at Risk", value: formatCurrency(stats.atRisk), icon: DollarSign, color: "text-destructive" },
-            { label: "Clean Invoices", value: stats.cleanInvoices.toString(), icon: CheckCircle2, color: "text-emerald-500" },
-            { label: "Stale Records", value: staleCount.toString(), icon: RefreshCw, color: "text-amber-500" },
+            { label: "Total Invoices", value: stats.total, icon: FileText, color: "text-primary" },
+            { label: "✅ Fully Received", value: stats.fullyReceived, icon: CheckCircle2, color: "text-emerald-500" },
+            { label: "⚠ Partial", value: stats.partial, icon: AlertTriangle, color: "text-amber-500" },
+            { label: "❌ Not Found", value: stats.notFound, icon: Shield, color: "text-destructive" },
+            { label: "Total AP Value", value: formatCurrency(stats.totalAP), icon: DollarSign, color: "text-primary" },
+            { label: "Discrepancies", value: stats.discrepancyCount, icon: AlertTriangle, color: "text-destructive" },
           ].map(item => (
             <Card key={item.label} className="bg-card border-border">
               <CardContent className="p-4">
@@ -328,10 +420,7 @@ export default function ReconciliationPage() {
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{item.label}</span>
                   <item.icon className={`h-3.5 w-3.5 ${item.color} opacity-70`} />
                 </div>
-                <div className="flex items-center gap-2">
-                  <p className="text-lg font-bold tracking-tight">{item.value}</p>
-                  {item.badge && <Badge className="bg-destructive text-destructive-foreground text-[9px] h-4 px-1">{stats.total}</Badge>}
-                </div>
+                <p className="text-lg font-bold tracking-tight">{item.value}</p>
               </CardContent>
             </Card>
           ))}
@@ -347,167 +436,97 @@ export default function ReconciliationPage() {
               {vendors.map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
             </SelectContent>
           </Select>
-          <Select value={typeFilter || "__all__"} onValueChange={v => setTypeFilter(v === "__all__" ? "" : v)}>
-            <SelectTrigger className="h-8 w-[160px] text-xs"><SelectValue placeholder="All Types" /></SelectTrigger>
+          <Select value={lsStatusFilter || "__all__"} onValueChange={v => setLsStatusFilter(v === "__all__" ? "" : v)}>
+            <SelectTrigger className="h-8 w-[160px] text-xs"><SelectValue placeholder="All Receipt Status" /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="__all__">All Types</SelectItem>
-              {TYPES.map(t => <SelectItem key={t} value={t}>{t.replace(/_/g, " ")}</SelectItem>)}
+              <SelectItem value="__all__">All Receipt Status</SelectItem>
+              <SelectItem value="fully_received">✅ Fully Received</SelectItem>
+              <SelectItem value="partial">⚠ Partial</SelectItem>
+              <SelectItem value="not_found">❌ Not Found</SelectItem>
             </SelectContent>
           </Select>
-          <Select value={severityFilter || "__all__"} onValueChange={v => setSeverityFilter(v === "__all__" ? "" : v)}>
-            <SelectTrigger className="h-8 w-[120px] text-xs"><SelectValue placeholder="All Severity" /></SelectTrigger>
+          <Select value={paymentStatusFilter || "__all__"} onValueChange={v => setPaymentStatusFilter(v === "__all__" ? "" : v)}>
+            <SelectTrigger className="h-8 w-[140px] text-xs"><SelectValue placeholder="Payment Status" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="__all__">All</SelectItem>
-              <SelectItem value="critical">Critical</SelectItem>
-              <SelectItem value="warning">Warning</SelectItem>
-              <SelectItem value="info">Info</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={statusFilter || "__all__"} onValueChange={v => setStatusFilter(v === "__all__" ? "" : v)}>
-            <SelectTrigger className="h-8 w-[120px] text-xs"><SelectValue placeholder="All Status" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__all__">All</SelectItem>
-              <SelectItem value="open">Open</SelectItem>
-              <SelectItem value="resolved">Resolved</SelectItem>
-              <SelectItem value="disputed">Disputed</SelectItem>
-              <SelectItem value="waived">Waived</SelectItem>
+              <SelectItem value="Unpaid">Unpaid</SelectItem>
+              <SelectItem value="Partial">Partial</SelectItem>
+              <SelectItem value="Paid">Paid</SelectItem>
+              <SelectItem value="Disputed">Disputed</SelectItem>
             </SelectContent>
           </Select>
           <div className="relative flex-1 min-w-[180px]">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-            <Input
-              placeholder="Search UPC, model, invoice, PO…"
-              className="h-8 pl-8 text-xs"
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-            />
+            <Input placeholder="Search invoice, PO, vendor…" className="h-8 pl-8 text-xs" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
           </div>
-          {(vendorFilter || typeFilter || severityFilter || statusFilter || searchQuery) && (
+          {(vendorFilter || lsStatusFilter || paymentStatusFilter || searchQuery) && (
             <Button variant="ghost" size="sm" className="h-8 text-xs gap-1" onClick={() => {
-              setVendorFilter(""); setTypeFilter(""); setSeverityFilter(""); setStatusFilter(""); setSearchQuery("");
+              setVendorFilter(""); setLsStatusFilter(""); setPaymentStatusFilter(""); setSearchQuery("");
             }}>
               <X className="h-3 w-3" /> Clear
             </Button>
           )}
         </div>
 
-        {/* Bulk actions */}
-        {selected.size > 0 && (
-          <div className="flex items-center gap-3 p-2 rounded-md bg-accent/50 border border-border">
-            <span className="text-xs font-medium">{selected.size} selected</span>
-            <Button size="sm" className="h-7 text-xs" onClick={handleBulkResolve}>
-              Mark All Resolved
-            </Button>
-            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setSelected(new Set())}>
-              Clear
-            </Button>
-          </div>
-        )}
-
-        {/* Discrepancy table */}
+        {/* Master Reconciliation Grid */}
         <div className="rounded-lg border border-border bg-card overflow-auto">
           <Table>
             <TableHeader>
               <TableRow className="border-border hover:bg-transparent">
-                <TableHead className="w-8">
-                  <Checkbox
-                    checked={selected.size === filtered.length && filtered.length > 0}
-                    onCheckedChange={toggleSelectAll}
-                  />
-                </TableHead>
-                <TableHead className="text-[10px] font-semibold cursor-pointer" onClick={() => toggleSort("severity")}>Severity</TableHead>
-                <TableHead className="text-[10px] font-semibold cursor-pointer" onClick={() => toggleSort("discrepancy_type")}>Type</TableHead>
-                <TableHead className="text-[10px] font-semibold cursor-pointer" onClick={() => toggleSort("vendor")}>Vendor</TableHead>
-                <TableHead className="text-[10px] font-semibold">Brand</TableHead>
-                <TableHead className="text-[10px] font-semibold">UPC</TableHead>
-                <TableHead className="text-[10px] font-semibold">Model</TableHead>
-                <TableHead className="text-[10px] font-semibold cursor-pointer" onClick={() => toggleSort("invoice_number")}>Invoice #</TableHead>
+                <TableHead className="text-[10px] font-semibold">Vendor</TableHead>
+                <TableHead className="text-[10px] font-semibold">Invoice #</TableHead>
                 <TableHead className="text-[10px] font-semibold">PO #</TableHead>
-                <TableHead className="text-[10px] font-semibold text-right">Ord Qty</TableHead>
-                <TableHead className="text-[10px] font-semibold text-right">Inv Qty</TableHead>
-                <TableHead className="text-[10px] font-semibold text-right">Δ Qty</TableHead>
-                <TableHead className="text-[10px] font-semibold text-right">Ord Price</TableHead>
-                <TableHead className="text-[10px] font-semibold text-right">Inv Price</TableHead>
-                <TableHead className="text-[10px] font-semibold text-right">Δ Price</TableHead>
-                <TableHead className="text-[10px] font-semibold text-right cursor-pointer" onClick={() => toggleSort("amount_at_risk")}>$ at Risk</TableHead>
-                <TableHead className="text-[10px] font-semibold cursor-pointer" onClick={() => toggleSort("resolution_status")}>Status</TableHead>
-                <TableHead className="text-[10px] font-semibold">Actions</TableHead>
+                <TableHead className="text-[10px] font-semibold">Date</TableHead>
+                <TableHead className="text-[10px] font-semibold text-right">Total</TableHead>
+                <TableHead className="text-[10px] font-semibold text-right">LS Sessions</TableHead>
+                <TableHead className="text-[10px] font-semibold text-right">Qty Invoiced</TableHead>
+                <TableHead className="text-[10px] font-semibold text-right">Qty Received</TableHead>
+                <TableHead className="text-[10px] font-semibold text-right">Variance</TableHead>
+                <TableHead className="text-[10px] font-semibold">Receipt Status</TableHead>
+                <TableHead className="text-[10px] font-semibold">Payment</TableHead>
+                <TableHead className="text-[10px] font-semibold text-right">Days Due</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filtered.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={18} className="text-center py-12 text-muted-foreground text-sm">
-                    {loadingDisc ? "Loading…" : "No discrepancies found. Run reconciliation to check."}
+                  <TableCell colSpan={12} className="text-center py-12 text-muted-foreground text-sm">
+                    {loadingInv ? "Loading…" : "No invoices match filters."}
                   </TableCell>
                 </TableRow>
-              ) : filtered.map(d => (
-                <TableRow key={d.id} className="border-border hover:bg-accent/30">
-                  <TableCell>
-                    <Checkbox checked={selected.has(d.id)} onCheckedChange={() => toggleSelect(d.id)} />
+              ) : filtered.map(r => (
+                <TableRow key={r.id} className={`border-border ${rowColor(r.lsStatus)}`}>
+                  <TableCell className="text-[10px]">{r.vendor}</TableCell>
+                  <TableCell className="text-[10px] font-mono">{r.invoiceNumber}</TableCell>
+                  <TableCell className="text-[10px]">{r.poNumber}</TableCell>
+                  <TableCell className="text-[10px]">{formatDate(r.invoiceDate)}</TableCell>
+                  <TableCell className="text-[10px] text-right tabular-nums">{formatCurrency(r.invoiceTotal)}</TableCell>
+                  <TableCell className="text-[10px] text-right tabular-nums">{r.lsSessions}</TableCell>
+                  <TableCell className="text-[10px] text-right tabular-nums">{r.qtyInvoiced}</TableCell>
+                  <TableCell className="text-[10px] text-right tabular-nums">{r.lsQtyReceived}</TableCell>
+                  <TableCell className={`text-[10px] text-right tabular-nums font-semibold ${r.qtyVariance > 0 ? "text-amber-500" : r.qtyVariance < 0 ? "text-emerald-500" : ""}`}>
+                    {r.qtyVariance !== 0 ? (r.qtyVariance > 0 ? `+${r.qtyVariance}` : r.qtyVariance) : "0"}
                   </TableCell>
-                  <TableCell><SeverityBadge severity={d.severity ?? "info"} /></TableCell>
-                  <TableCell className="text-[10px] font-mono">{(d.discrepancy_type ?? "").replace(/_/g, " ")}</TableCell>
-                  <TableCell className="text-[10px]">{d.vendor ?? "—"}</TableCell>
-                  <TableCell className="text-[10px]">{d.brand ?? "—"}</TableCell>
-                  <TableCell className="text-[10px] font-mono">{d.upc ?? "—"}</TableCell>
-                  <TableCell className="text-[10px]">{d.model_number ?? "—"}</TableCell>
-                  <TableCell className="text-[10px] font-mono">{d.invoice_number ?? "—"}</TableCell>
-                  <TableCell className="text-[10px]">{d.po_number ?? "—"}</TableCell>
-                  <TableCell className="text-[10px] text-right tabular-nums">{d.ordered_qty ?? "—"}</TableCell>
-                  <TableCell className="text-[10px] text-right tabular-nums">{d.invoiced_qty ?? "—"}</TableCell>
-                  <TableCell className="text-[10px] text-right tabular-nums">{d.qty_delta ?? "—"}</TableCell>
-                  <TableCell className="text-[10px] text-right tabular-nums">{d.ordered_unit_price != null ? formatCurrency(Number(d.ordered_unit_price)) : "—"}</TableCell>
-                  <TableCell className="text-[10px] text-right tabular-nums">{d.invoiced_unit_price != null ? formatCurrency(Number(d.invoiced_unit_price)) : "—"}</TableCell>
-                  <TableCell className="text-[10px] text-right tabular-nums">{d.price_delta != null ? formatCurrency(Number(d.price_delta)) : "—"}</TableCell>
-                  <TableCell className="text-[10px] text-right tabular-nums font-semibold">{d.amount_at_risk != null ? formatCurrency(Number(d.amount_at_risk)) : "—"}</TableCell>
-                  <TableCell><ResolutionBadge status={d.resolution_status ?? "open"} /></TableCell>
+                  <TableCell><ReceiptBadge status={r.lsStatus} /></TableCell>
                   <TableCell>
-                    <div className="flex gap-1">
-                      <Button variant="ghost" size="sm" className="h-6 text-[9px] px-1.5" onClick={() => { setResolveModal({ id: d.id, action: "resolved" }); setResolveNotes(""); }}>
-                        Resolve
-                      </Button>
-                      <Button variant="ghost" size="sm" className="h-6 text-[9px] px-1.5" onClick={() => { setResolveModal({ id: d.id, action: "disputed" }); setResolveNotes(""); }}>
-                        Dispute
-                      </Button>
-                      <Button variant="ghost" size="sm" className="h-6 text-[9px] px-1.5" onClick={() => { setResolveModal({ id: d.id, action: "waived" }); setResolveNotes(""); }}>
-                        Waive
-                      </Button>
-                    </div>
+                    <Badge variant="outline" className={`text-[9px] ${
+                      r.paymentStatus === "Paid" ? "bg-emerald-500/15 text-emerald-600 border-emerald-500/30" :
+                      r.paymentStatus === "Partial" ? "bg-amber-500/15 text-amber-600 border-amber-500/30" :
+                      r.paymentStatus === "Disputed" ? "bg-purple-500/15 text-purple-600 border-purple-500/30" :
+                      r.paymentStatus === "No Schedule" ? "bg-destructive/15 text-destructive border-destructive/30" :
+                      ""
+                    }`}>{r.paymentStatus}</Badge>
+                  </TableCell>
+                  <TableCell className={`text-[10px] text-right tabular-nums ${r.daysUntilDue !== null && r.daysUntilDue < 0 ? "text-destructive font-semibold" : ""}`}>
+                    {r.daysUntilDue !== null
+                      ? r.daysUntilDue < 0 ? `${Math.abs(r.daysUntilDue)}d overdue` : `${r.daysUntilDue}d`
+                      : "—"}
                   </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
         </div>
-
-        {/* Vendor Breakdown */}
-        {vendorBreakdown.length > 0 && (
-          <div>
-            <h2 className="text-sm font-bold mb-3">Vendor Breakdown</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-              {vendorBreakdown.map(([vendor, data]) => {
-                const pctClean = stats.totalChecked > 0 ? Math.round(((stats.totalChecked - data.total) / stats.totalChecked) * 100) : 100;
-                return (
-                  <Card key={vendor} className="bg-card border-border">
-                    <CardContent className="p-4">
-                      <p className="text-sm font-semibold truncate mb-2">{vendor}</p>
-                      <div className="grid grid-cols-2 gap-y-1 text-[10px] text-muted-foreground mb-2">
-                        <span>Discrepancies</span><span className="text-right font-medium text-foreground">{data.total}</span>
-                        <span>$ at Risk</span><span className="text-right font-medium text-foreground">{formatCurrency(data.atRisk)}</span>
-                        <span>Critical</span><span className="text-right font-medium text-destructive">{data.critical}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Progress value={pctClean} className="h-1.5 flex-1" />
-                        <span className="text-[9px] text-muted-foreground">{pctClean}% clean</span>
-                      </div>
-                    </CardContent>
-                  </Card>
-                );
-              })}
-            </div>
-          </div>
-        )}
 
         {/* Run History */}
         <div>
@@ -534,14 +553,8 @@ export default function ReconciliationPage() {
                   <TableRow key={r.id} className="border-border">
                     <TableCell className="text-[10px] font-mono">#{runs.length - i}</TableCell>
                     <TableCell className="text-[10px]">{formatDate(r.run_at)}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="text-[9px]">
-                        {runTypeLabels[(r as any).run_type] ?? "Full"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-[10px] text-muted-foreground max-w-[200px] truncate">
-                      {(r as any).scope_description ?? "All records"}
-                    </TableCell>
+                    <TableCell><Badge variant="outline" className="text-[9px]">{runTypeLabels[(r as any).run_type] ?? "Full"}</Badge></TableCell>
+                    <TableCell className="text-[10px] text-muted-foreground max-w-[200px] truncate">{(r as any).scope_description ?? "All records"}</TableCell>
                     <TableCell className="text-[10px] text-right tabular-nums">{r.total_invoices_checked}</TableCell>
                     <TableCell className="text-[10px] text-right tabular-nums">{r.total_po_lines_checked}</TableCell>
                     <TableCell className="text-[10px] text-right tabular-nums">{r.total_discrepancies}</TableCell>
@@ -554,44 +567,6 @@ export default function ReconciliationPage() {
           </div>
         </div>
       </main>
-
-      {/* Resolution Modal */}
-      <Dialog open={!!resolveModal} onOpenChange={o => !o && setResolveModal(null)}>
-        <DialogContent className="bg-card border-border sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="capitalize">Mark as {resolveModal?.action}</DialogTitle>
-          </DialogHeader>
-          <Textarea
-            value={resolveNotes}
-            onChange={e => setResolveNotes(e.target.value)}
-            placeholder="Add resolution notes (optional)…"
-            className="bg-secondary border-border min-h-[80px]"
-          />
-          <DialogFooter>
-            <Button variant="outline" size="sm" onClick={() => setResolveModal(null)}>Cancel</Button>
-            <Button size="sm" onClick={handleResolve} className="capitalize">{resolveModal?.action}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
-}
-
-function SeverityBadge({ severity }: { severity: string }) {
-  const config: Record<string, string> = {
-    critical: "bg-destructive/15 text-destructive border-destructive/30",
-    warning: "bg-amber-500/15 text-amber-600 border-amber-500/30",
-    info: "bg-primary/15 text-primary border-primary/30",
-  };
-  return <Badge variant="outline" className={`text-[9px] font-medium ${config[severity] ?? config.info}`}>{severity}</Badge>;
-}
-
-function ResolutionBadge({ status }: { status: string }) {
-  const config: Record<string, string> = {
-    open: "bg-destructive/10 text-destructive border-destructive/30",
-    resolved: "bg-emerald-500/15 text-emerald-600 border-emerald-500/30",
-    disputed: "bg-purple-500/15 text-purple-600 border-purple-500/30",
-    waived: "bg-muted text-muted-foreground border-border",
-  };
-  return <Badge variant="outline" className={`text-[9px] font-medium ${config[status] ?? config.open}`}>{status}</Badge>;
 }
