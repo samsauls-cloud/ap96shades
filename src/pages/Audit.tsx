@@ -97,7 +97,11 @@ export default function AuditPage() {
   const invoiceStats = (() => {
     const inv = invoices.filter((i: any) => i.doc_type === "INVOICE");
     const pos = invoices.filter((i: any) => i.doc_type === "PO");
-    const invTotal = inv.reduce((s: number, i: any) => s + (Number(i.total) || 0), 0);
+    // AP totals only include confirmed-terms invoices (exclude proforma + needs_review)
+    const confirmedInv = inv.filter((i: any) => i.terms_status === "confirmed");
+    const needsReviewInv = inv.filter((i: any) => i.terms_status === "needs_review");
+    const invTotal = confirmedInv.reduce((s: number, i: any) => s + (Number(i.total) || 0), 0);
+    const needsReviewTotal = needsReviewInv.reduce((s: number, i: any) => s + (Number(i.total) || 0), 0);
     const hasPO = inv.filter((i: any) => i.po_number && i.po_number.trim() !== "").length;
     const noPO = inv.filter((i: any) => !i.po_number || i.po_number.trim() === "").length;
 
