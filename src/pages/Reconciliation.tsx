@@ -36,100 +36,10 @@ import type { VendorInvoice } from "@/lib/supabase-queries";
 
 type ResolutionAction = "resolved" | "disputed" | "waived";
 
-/* ── LS matching helpers (shared with Audit) ── */
+/* ── LS matching (shared engine) ── */
+import { buildLSMatchMap, type LSMatchResult } from "@/lib/ls-match-engine";
 
-const VENDOR_ALIASES: Record<string, string[]> = {
-  Luxottica: ["Luxottica", "EOL"],
-  Kering: ["Kering"],
-  "Maui Jim": ["Maui Jim"],
-  Safilo: ["Safilo", "Marchon"],
-  Marcolin: ["Marcolin"],
-  Marchon: ["Marchon", "Safilo"],
-};
-
-function getVendorAliases(vendor: string): string[] {
-  return VENDOR_ALIASES[vendor] ?? [vendor];
-}
-
-interface LSInvoiceMatch {
-  invoiceId: string;
-  sessionsMatched: number;
-  invoiceQtyShipped: number;
-  lsQtyReceived: number;
-  qtyVariance: number;
-  status: "fully_received" | "partial" | "not_found";
-}
-
-function buildLSMatchMap(
-  invoices: any[], sessions: any[], lines: any[]
-): Map<string, LSInvoiceMatch> {
-  const linesBySession = new Map<string, any[]>();
-  for (const l of lines) {
-    if (!linesBySession.has(l.session_id)) linesBySession.set(l.session_id, []);
-    linesBySession.get(l.session_id)!.push(l);
-  }
-
-  const upcByVendor = new Map<string, Map<string, any[]>>();
-  for (const s of sessions) {
-    const sLines = linesBySession.get(s.id) ?? [];
-    for (const l of sLines) {
-      if (!l.upc) continue;
-      const upc = l.upc.replace(/^0+/, "");
-      if (!upcByVendor.has(s.vendor)) upcByVendor.set(s.vendor, new Map());
-      const vm = upcByVendor.get(s.vendor)!;
-      if (!vm.has(upc)) vm.set(upc, []);
-      vm.get(upc)!.push({ ...l, _sessionId: s.id });
-    }
-  }
-
-  const map = new Map<string, LSInvoiceMatch>();
-
-  for (const inv of invoices) {
-    if (inv.doc_type !== "INVOICE") continue;
-
-    const li = getLineItems(inv);
-    const invoiceQtyShipped = li.reduce((s: number, x: any) =>
-      s + (Number(x.qty_shipped) || Number(x.qty_ordered) || Number(x.qty) || 0), 0);
-
-    const invoiceUPCs = new Set(
-      li.map((x: any) => (x.upc ?? "").replace(/^0+/, "")).filter(Boolean)
-    );
-
-    const matchedSessions = new Set<string>();
-
-    if (inv.reconciled_session_id) matchedSessions.add(inv.reconciled_session_id);
-    for (const s of sessions) {
-      if (s.reconciled_invoice_id === inv.id) matchedSessions.add(s.id);
-    }
-
-    const aliases = getVendorAliases(inv.vendor);
-    for (const alias of aliases) {
-      const vendorUPCs = upcByVendor.get(alias);
-      if (!vendorUPCs) continue;
-      for (const upc of invoiceUPCs) {
-        const ml = vendorUPCs.get(upc);
-        if (ml) ml.forEach(m => matchedSessions.add(m._sessionId));
-      }
-    }
-
-    let lsQtyReceived = 0;
-    for (const sid of matchedSessions) {
-      const sLines = linesBySession.get(sid) ?? [];
-      for (const l of sLines) {
-        const upc = (l.upc ?? "").replace(/^0+/, "");
-        if (invoiceUPCs.has(upc)) lsQtyReceived += Number(l.received_qty) || 0;
-      }
-    }
-
-    const qtyVariance = invoiceQtyShipped - lsQtyReceived;
-    let status: LSInvoiceMatch["status"] = "not_found";
-    if (matchedSessions.size > 0) status = qtyVariance <= 0 ? "fully_received" : "partial";
-
-    map.set(inv.id, { invoiceId: inv.id, sessionsMatched: matchedSessions.size, invoiceQtyShipped, lsQtyReceived, qtyVariance, status });
-  }
-
-  return map;
-}
+type LSInvoiceMatch = LSMatchResult;
 
 /* ── main ── */
 
