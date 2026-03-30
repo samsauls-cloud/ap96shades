@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Upload, CheckCircle2, AlertCircle, Loader2, XCircle, ExternalLink, Copy, RotateCcw, Timer, Zap, Package, FileSpreadsheet } from "lucide-react";
+import { Upload, CheckCircle2, AlertCircle, Loader2, XCircle, ExternalLink, Copy, RotateCcw, Timer, Zap, Package, FileSpreadsheet, Camera, ImageIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,6 +25,7 @@ import {
   checkInvoiceDuplicate, mergeExtendedInvoice, updatePOTotalInvoiced, normalizeVendor,
 } from "@/lib/invoice-dedup";
 import { parseCSVToPOs, fileToText } from "@/lib/csv-po-parser";
+import { isImageFile, imageToBase64, callAnthropicImageAPI } from "@/lib/photo-capture-engine";
 
 function formatElapsed(ms: number): string {
   const s = Math.floor(ms / 1000);
@@ -61,10 +62,13 @@ export default function ReaderPage() {
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
-    const files = Array.from(e.dataTransfer.files).filter(isAcceptedFile);
-    if (files.length === 0) { toast.error("Only PDF and CSV files are supported"); return; }
-    setQueue(prev => [...prev, ...files]);
-  }, []);
+    const files = Array.from(e.dataTransfer.files).filter(f => isAcceptedFile(f) || isImageFile(f));
+    if (files.length === 0) { toast.error("Only PDF, CSV, and image files are supported"); return; }
+    const images = files.filter(isImageFile);
+    const others = files.filter(f => !isImageFile(f));
+    if (images.length > 0) processPhotoFiles(images);
+    if (others.length > 0) setQueue(prev => [...prev, ...others]);
+  }, [apiKey]);
 
   const handleFileInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []).filter(isAcceptedFile);
@@ -72,6 +76,74 @@ export default function ReaderPage() {
     setQueue(prev => [...prev, ...files]);
     e.target.value = "";
   }, []);
+
+  const handlePhotoInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []).filter(isImageFile);
+    if (files.length === 0) return;
+    processPhotoFiles(files);
+    e.target.value = "";
+  }, [apiKey]);
+
+  const processPhotoFiles = async (files: File[]) => {
+    if (!apiKey) { toast.error("Please enter your Anthropic API key for photo processing"); return; }
+    for (const file of files) {
+      const docId = crypto.randomUUID();
+      setDocs(prev => [...prev, {
+        id: docId, filename: file.name, vendor: "", doc_type: "",
+        invoice_number: "", total: 0, line_items_count: 0,
+        status: "processing" as const, file,
+      }]);
+
+      try {
+        const { base64, mediaType } = await imageToBase64(file);
+        const parsed = await callAnthropicImageAPI(apiKey, base64, mediaType);
+        const invoice = parsedToInvoice(parsed, file.name);
+        invoice.import_source = "photo_capture";
+
+        const lineItemsCount = (parsed.line_items || []).length;
+
+        // Dedup check
+        const dedupResult = await checkInvoiceDuplicate(
+          invoice.invoice_number, invoice.vendor, parsed.line_items || [], invoice.total || 0
+        );
+
+        if (dedupResult.type === "true_duplicate") {
+          updateDoc(docId, {
+            status: "duplicate", vendor: invoice.vendor, doc_type: invoice.doc_type,
+            invoice_number: invoice.invoice_number, total: invoice.total || 0,
+            line_items_count: lineItemsCount, duplicateDbId: dedupResult.existingId,
+          });
+          continue;
+        }
+
+        const saved = await insertInvoice(invoice);
+        const needsReview = parsed.needs_review === true;
+
+        updateDoc(docId, {
+          status: "done", vendor: invoice.vendor, doc_type: invoice.doc_type,
+          invoice_number: invoice.invoice_number, total: invoice.total || 0,
+          line_items_count: lineItemsCount, dbId: saved.id,
+          extendedInfo: needsReview
+            ? "⚠ Some fields may need verification — photo quality affected extraction."
+            : undefined,
+        });
+
+        // Auto-generate payments
+        try {
+          await generatePaymentsForInvoice(
+            saved.id, invoice.invoice_date, invoice.total || 0, invoice.vendor, invoice.invoice_number, invoice.po_number ?? null
+          );
+        } catch { /* silent */ }
+
+        queryClient.invalidateQueries({ queryKey: ["vendor_invoices"] });
+        queryClient.invalidateQueries({ queryKey: ["invoice_stats"] });
+        toast.success(`📷 Photo invoice extracted: ${invoice.vendor} — ${invoice.invoice_number}`);
+      } catch (err: any) {
+        updateDoc(docId, { status: "error", error: err.message || "Photo extraction failed" });
+        toast.error(`Photo extraction failed: ${err.message}`);
+      }
+    }
+  };
 
   const updateDoc = useCallback((docId: string, updates: Partial<ProcessedDoc>) => {
     setDocs(prev => prev.map(d => d.id === docId ? { ...d, ...updates } : d));
@@ -663,6 +735,50 @@ export default function ReaderPage() {
             )}
           </CardContent>
         </Card>
+
+        {/* Divider */}
+        <div className="flex items-center gap-3">
+          <div className="flex-1 border-t border-border" />
+          <span className="text-xs text-muted-foreground font-medium">or</span>
+          <div className="flex-1 border-t border-border" />
+        </div>
+
+        {/* Photo Capture Zone */}
+        <Card className="bg-card border-border border-dashed">
+          <CardContent className="p-8 flex flex-col items-center justify-center text-center">
+            <Camera className="h-10 w-10 text-muted-foreground mb-3" />
+            <p className="text-sm font-medium mb-1">📷 Photo Capture</p>
+            <p className="text-xs text-muted-foreground mb-3">Take a photo of a printed invoice or upload from photo library</p>
+            <div className="flex gap-2">
+              <label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={handlePhotoInput}
+                  className="hidden"
+                />
+                <Button variant="default" size="sm" className="text-xs gap-1" asChild>
+                  <span><Camera className="h-3 w-3" /> Camera</span>
+                </Button>
+              </label>
+              <label>
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/heic,image/heif,image/webp"
+                  multiple
+                  onChange={handlePhotoInput}
+                  className="hidden"
+                />
+                <Button variant="outline" size="sm" className="text-xs gap-1" asChild>
+                  <span><ImageIcon className="h-3 w-3" /> Upload Photo</span>
+                </Button>
+              </label>
+            </div>
+            <p className="text-[10px] text-muted-foreground mt-2">Supports JPG, PNG, HEIC, WEBP</p>
+          </CardContent>
+        </Card>
+
 
         {(queue.length > 0 || processing) && (
           <div className="space-y-3">
