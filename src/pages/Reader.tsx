@@ -745,12 +745,12 @@ export default function ReaderPage() {
 
         {/* Photo Capture Zone */}
         <Card className="bg-card border-border border-dashed">
-          <CardContent className="p-8 flex flex-col items-center justify-center text-center">
-            <Camera className="h-10 w-10 text-muted-foreground mb-3" />
-            <p className="text-sm font-medium mb-1">📷 Photo Capture</p>
-            <p className="text-xs text-muted-foreground mb-3">Take a photo of a printed invoice or upload from photo library</p>
-            <div className="flex gap-2">
-              <label>
+          <CardContent className="p-6 sm:p-8 flex flex-col items-center justify-center text-center">
+            <Camera className="h-10 w-10 sm:h-10 sm:w-10 text-muted-foreground mb-3" />
+            <p className="text-sm sm:text-sm font-medium mb-1">📷 Photo Capture</p>
+            <p className="text-xs text-muted-foreground mb-4">Take a photo of a printed invoice or upload from photo library</p>
+            <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+              <label className="w-full sm:w-auto">
                 <input
                   type="file"
                   accept="image/*"
@@ -758,11 +758,11 @@ export default function ReaderPage() {
                   onChange={handlePhotoInput}
                   className="hidden"
                 />
-                <Button variant="default" size="sm" className="text-xs gap-1" asChild>
-                  <span><Camera className="h-3 w-3" /> Camera</span>
+                <Button variant="default" size="default" className="text-sm gap-2 w-full sm:w-auto h-12 sm:h-10" asChild>
+                  <span><Camera className="h-4 w-4" /> Open Camera</span>
                 </Button>
               </label>
-              <label>
+              <label className="w-full sm:w-auto">
                 <input
                   type="file"
                   accept="image/jpeg,image/png,image/heic,image/heif,image/webp"
@@ -770,12 +770,12 @@ export default function ReaderPage() {
                   onChange={handlePhotoInput}
                   className="hidden"
                 />
-                <Button variant="outline" size="sm" className="text-xs gap-1" asChild>
-                  <span><ImageIcon className="h-3 w-3" /> Upload Photo</span>
+                <Button variant="outline" size="default" className="text-sm gap-2 w-full sm:w-auto h-12 sm:h-10" asChild>
+                  <span><ImageIcon className="h-4 w-4" /> Upload Photo</span>
                 </Button>
               </label>
             </div>
-            <p className="text-[10px] text-muted-foreground mt-2">Supports JPG, PNG, HEIC, WEBP</p>
+            <p className="text-[10px] text-muted-foreground mt-3">Supports JPG, PNG, HEIC, WEBP</p>
           </CardContent>
         </Card>
 
