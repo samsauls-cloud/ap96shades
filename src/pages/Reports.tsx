@@ -45,6 +45,16 @@ export default function ReportsPage() {
     queryFn: () => fetchAllRows<VendorInvoice>("vendor_invoices"),
   });
 
+  const { data: recSessions = [] } = useQuery({
+    queryKey: ["report_rec_sessions"],
+    queryFn: () => fetchAllRows("po_receiving_sessions"),
+  });
+
+  const { data: recLines = [] } = useQuery({
+    queryKey: ["report_rec_lines"],
+    queryFn: () => fetchAllRows("po_receiving_lines"),
+  });
+
   const activePayments = payments.filter(p => p.payment_status !== "void");
   const vendors = [...new Set(payments.map(p => p.vendor))].sort();
   const today = new Date();
