@@ -41,8 +41,9 @@ function extractAllModelCodes(desc: string): string[] {
 function mmToModelCode(item: string): string | null {
   const m = item.match(/^MM(\d+)-(\d+\w*)$/i);
   if (!m) return null;
-  // Remove leading zeros from color code: "002" → "02"
-  const color = m[2].replace(/^0+/, "") || "0";
+  // Strip only the leading zero if 3+ digits: "002" → "02", "02" stays "02", "2M" stays "2M"
+  let color = m[2];
+  if (/^\d{3,}$/.test(color)) color = color.replace(/^0/, "");
   return `${m[1]}-${color}`.toUpperCase();
 }
 
