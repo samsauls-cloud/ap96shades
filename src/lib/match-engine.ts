@@ -58,7 +58,7 @@ export async function runTwoWayMatchEngine(
 }> {
   // Fetch data if not provided
   const invoices = input?.invoices ?? await fetchAllRows("vendor_invoices");
-  const receivingLines = input?.receivingLines ?? await fetchAllRows("lightspeed_receiving");
+  const receivingLines = input?.receivingLines ?? await fetchAllRows("po_receiving_lines");
   const sessions = input?.sessions ?? await fetchAllRows("po_receiving_sessions");
 
   // Get vendor alias map for type filtering
