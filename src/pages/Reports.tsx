@@ -6,15 +6,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Loader2, Download, FileBarChart, Clock, DollarSign, TrendingUp, PackageCheck, Users } from "lucide-react";
+import { Loader2, Download, FileBarChart, Clock, DollarSign, TrendingUp, PackageCheck, Users, AlertTriangle } from "lucide-react";
 import { formatCurrency, formatDate, getLineItems } from "@/lib/supabase-queries";
 import type { VendorInvoice } from "@/lib/supabase-queries";
 import { fetchPayments, type InvoicePayment, isOverdue, getDaysOverdue } from "@/lib/payment-queries";
 import { PaymentStatusBadge } from "@/components/invoices/PaymentStatusBadge";
 import { fetchAllRows } from "@/lib/supabase-fetch-all";
+import { Badge } from "@/components/ui/badge";
 import { addDays, startOfWeek, format, subMonths, isWithinInterval } from "date-fns";
 
-type ReportTab = "aging" | "history" | "outstanding" | "cashflow" | "fulfillment" | "vendorspend";
+type ReportTab = "aging" | "history" | "outstanding" | "cashflow" | "fulfillment" | "vendorspend" | "backorder";
 
 function exportCSV(rows: string[][], filename: string) {
   const csv = rows.map(r => r.map(c => `"${String(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
@@ -44,6 +45,16 @@ export default function ReportsPage() {
     queryFn: () => fetchAllRows<VendorInvoice>("vendor_invoices"),
   });
 
+  const { data: recSessions = [] } = useQuery({
+    queryKey: ["report_rec_sessions"],
+    queryFn: () => fetchAllRows("po_receiving_sessions"),
+  });
+
+  const { data: recLines = [] } = useQuery({
+    queryKey: ["report_rec_lines"],
+    queryFn: () => fetchAllRows("po_receiving_lines"),
+  });
+
   const activePayments = payments.filter(p => p.payment_status !== "void");
   const vendors = [...new Set(payments.map(p => p.vendor))].sort();
   const today = new Date();
@@ -56,6 +67,7 @@ export default function ReportsPage() {
     { key: "cashflow" as const, label: "Cash Flow Forecast", icon: TrendingUp },
     { key: "fulfillment" as const, label: "PO Fulfillment", icon: PackageCheck },
     { key: "vendorspend" as const, label: "Vendor Spend", icon: Users },
+    { key: "backorder" as const, label: "Backorder Tracker", icon: AlertTriangle },
   ];
 
   return (
@@ -82,6 +94,8 @@ export default function ReportsPage() {
           <POFulfillmentReport invoices={invoices} />
         ) : tab === "vendorspend" ? (
           <VendorSpendReport invoices={invoices} payments={activePayments} />
+        ) : tab === "backorder" ? (
+          <BackorderTracker recLines={recLines} recSessions={recSessions} invoices={invoices} />
         ) : (
           <CashFlowForecast payments={activePayments} today={today} />
         )}
@@ -557,5 +571,168 @@ function VendorSpendReport({ invoices, payments }: { invoices: VendorInvoice[]; 
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+/* ── Backorder Tracker ── */
+function BackorderTracker({ recLines, recSessions, invoices }: { recLines: any[]; recSessions: any[]; invoices: VendorInvoice[] }) {
+  const rows = useMemo(() => {
+    const backorderLines = recLines.filter(l => (Number(l.not_received_qty) || 0) > 0);
+    return backorderLines.map(l => {
+      const session = recSessions.find((s: any) => s.id === l.session_id);
+      const invId = session?.reconciled_invoice_id;
+      const inv = invId ? invoices.find(i => i.id === invId) : null;
+      const notRcvd = Number(l.not_received_qty) || 0;
+      const unitCost = Number(l.unit_cost) || 0;
+      return {
+        vendor: (inv as any)?.vendor ?? session?.vendor ?? "—",
+        poNumber: (inv as any)?.po_number ?? "—",
+        invoiceNumber: (inv as any)?.invoice_number ?? "—",
+        itemDescription: l.item_description ?? "—",
+        upc: l.upc ?? "—",
+        manufact_sku: l.manufact_sku ?? "—",
+        orderQty: Number(l.order_qty) || 0,
+        receivedQty: Number(l.received_qty) || 0,
+        notReceivedQty: notRcvd,
+        unitCost,
+        backorderValue: notRcvd * unitCost,
+        lsStatus: l.lightspeed_status ?? "—",
+        receivingStatus: l.receiving_status ?? "—",
+      };
+    }).sort((a, b) => b.backorderValue - a.backorderValue);
+  }, [recLines, recSessions, invoices]);
+
+  const totalUnits = rows.reduce((s, r) => s + r.notReceivedQty, 0);
+  const totalValue = rows.reduce((s, r) => s + r.backorderValue, 0);
+
+  // By vendor summary
+  const byVendor = useMemo(() => {
+    const map = new Map<string, { units: number; value: number }>();
+    for (const r of rows) {
+      const cur = map.get(r.vendor) ?? { units: 0, value: 0 };
+      cur.units += r.notReceivedQty;
+      cur.value += r.backorderValue;
+      map.set(r.vendor, cur);
+    }
+    return Array.from(map.entries()).sort((a, b) => b[1].value - a[1].value);
+  }, [rows]);
+
+  const handleExport = () => {
+    const header = ["Vendor", "PO #", "Invoice #", "Item", "UPC", "SKU", "Order Qty", "Received Qty", "Not Received", "Unit Cost", "Backorder Value", "LS Status", "Receiving Status"];
+    const csvRows = rows.map(r => [
+      r.vendor, r.poNumber, r.invoiceNumber, r.itemDescription, r.upc, r.manufact_sku,
+      String(r.orderQty), String(r.receivedQty), String(r.notReceivedQty),
+      r.unitCost.toFixed(2), r.backorderValue.toFixed(2), r.lsStatus, r.receivingStatus,
+    ]);
+    exportCSV([header, ...csvRows], `backorder_tracker_${format(new Date(), "yyyy-MM-dd")}.csv`);
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Summary cards */}
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+        <Card className="bg-card border-amber-500/30">
+          <CardContent className="p-4">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-500">Total Units on Backorder</span>
+            <p className="text-2xl font-bold tracking-tight">{totalUnits.toLocaleString()}</p>
+          </CardContent>
+        </Card>
+        <Card className="bg-card border-destructive/30">
+          <CardContent className="p-4">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-destructive">Total Backorder Value</span>
+            <p className="text-2xl font-bold tracking-tight text-destructive">{formatCurrency(totalValue)}</p>
+            <p className="text-[10px] text-muted-foreground">Invoiced but not yet received</p>
+          </CardContent>
+        </Card>
+        <Card className="bg-card border-border">
+          <CardContent className="p-4">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Vendors Affected</span>
+            <p className="text-2xl font-bold tracking-tight">{byVendor.length}</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* By vendor summary */}
+      <Card className="bg-card border-border">
+        <CardHeader className="pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <CardTitle className="text-sm font-semibold">Backorder by Vendor</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow className="border-border">
+                <TableHead className="text-[10px] font-semibold">Vendor</TableHead>
+                <TableHead className="text-[10px] font-semibold text-right">Units</TableHead>
+                <TableHead className="text-[10px] font-semibold text-right">Value</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {byVendor.map(([vendor, d]) => (
+                <TableRow key={vendor} className="border-border">
+                  <TableCell className="text-xs font-medium">{vendor}</TableCell>
+                  <TableCell className="text-xs text-right tabular-nums">{d.units}</TableCell>
+                  <TableCell className="text-xs text-right tabular-nums font-semibold text-destructive">{formatCurrency(d.value)}</TableCell>
+                </TableRow>
+              ))}
+              <TableRow className="border-border bg-muted/50">
+                <TableCell className="text-xs font-bold">TOTAL</TableCell>
+                <TableCell className="text-xs text-right tabular-nums font-bold">{totalUnits}</TableCell>
+                <TableCell className="text-xs text-right tabular-nums font-bold text-destructive">{formatCurrency(totalValue)}</TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      {/* Detail table */}
+      <Card className="bg-card border-border">
+        <CardHeader className="pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <CardTitle className="text-sm font-semibold">Backorder Detail ({rows.length} items)</CardTitle>
+          <Button size="sm" variant="outline" className="text-xs h-7 w-full sm:w-auto" onClick={handleExport}><Download className="h-3 w-3 mr-1" /> Export CSV</Button>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="overflow-auto max-h-[600px]">
+            <Table>
+              <TableHeader>
+                <TableRow className="border-border">
+                  <TableHead className="text-[10px] font-semibold">Vendor</TableHead>
+                  <TableHead className="text-[10px] font-semibold">PO #</TableHead>
+                  <TableHead className="text-[10px] font-semibold">Invoice #</TableHead>
+                  <TableHead className="text-[10px] font-semibold">Item</TableHead>
+                  <TableHead className="text-[10px] font-semibold">UPC</TableHead>
+                  <TableHead className="text-[10px] font-semibold text-right">Ordered</TableHead>
+                  <TableHead className="text-[10px] font-semibold text-right">Received</TableHead>
+                  <TableHead className="text-[10px] font-semibold text-right">Not Rcvd</TableHead>
+                  <TableHead className="text-[10px] font-semibold text-right">Unit Cost</TableHead>
+                  <TableHead className="text-[10px] font-semibold text-right">Backorder $</TableHead>
+                  <TableHead className="text-[10px] font-semibold">Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rows.length === 0 ? (
+                  <TableRow><TableCell colSpan={11} className="text-center text-xs text-muted-foreground py-8">No backorder items</TableCell></TableRow>
+                ) : rows.map((r, i) => (
+                  <TableRow key={i} className="border-border">
+                    <TableCell className="text-[10px]">{r.vendor}</TableCell>
+                    <TableCell className="text-[10px] font-mono">{r.poNumber}</TableCell>
+                    <TableCell className="text-[10px] font-mono">{r.invoiceNumber}</TableCell>
+                    <TableCell className="text-[10px] max-w-[150px] truncate">{r.itemDescription}</TableCell>
+                    <TableCell className="text-[10px] font-mono">{r.upc}</TableCell>
+                    <TableCell className="text-[10px] text-right tabular-nums">{r.orderQty}</TableCell>
+                    <TableCell className="text-[10px] text-right tabular-nums">{r.receivedQty}</TableCell>
+                    <TableCell className="text-[10px] text-right tabular-nums text-amber-500 font-semibold">{r.notReceivedQty}</TableCell>
+                    <TableCell className="text-[10px] text-right tabular-nums">{formatCurrency(r.unitCost)}</TableCell>
+                    <TableCell className="text-[10px] text-right tabular-nums font-semibold text-destructive">{formatCurrency(r.backorderValue)}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="text-[9px]">{r.receivingStatus}</Badge>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
   );
 }

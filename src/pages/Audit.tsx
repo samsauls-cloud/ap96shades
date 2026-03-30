@@ -506,14 +506,20 @@ export default function AuditPage() {
                   <p className="text-[10px] text-muted-foreground">{paymentStats.totalUnpaidCount} unpaid installments</p>
                 </CardContent>
               </Card>
-              <Card className="bg-card border-border">
+              <Card className="bg-card border-emerald-500/30">
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between mb-1">
-                    <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">LS Match Rate</span>
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-500">LS Match Coverage</span>
                     <PackageCheck className="h-3.5 w-3.5 text-emerald-500 opacity-70" />
                   </div>
-                  <p className="text-lg font-bold tracking-tight">{lsMatches.fullyReceived + lsMatches.partial}/{lsMatches.results.length}</p>
-                  <p className="text-[10px] text-muted-foreground">{lsMatches.notFound} unmatched</p>
+                  <p className="text-lg font-bold tracking-tight">
+                    {lsMatches.results.length > 0
+                      ? `${((lsMatches.fullyReceived + lsMatches.partial) / lsMatches.results.length * 100).toFixed(1)}%`
+                      : "—"}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground">
+                    {lsMatches.fullyReceived + lsMatches.partial} of {lsMatches.results.length} invoices matched
+                  </p>
                 </CardContent>
               </Card>
             </div>
@@ -616,22 +622,101 @@ export default function AuditPage() {
                 </div>
               )}
 
-              {/* $8K Gap explanation */}
+              {/* $8K Gap explanation + Missing Invoice Finder */}
               <Card className="bg-card border-primary/30">
                 <CardContent className="p-4">
                   <div className="flex items-center gap-2 mb-2">
                     <DollarSign className="h-4 w-4 text-primary" />
-                    <span className="text-xs font-semibold">$8K Gap Analysis</span>
+                    <span className="text-xs font-semibold">Missing Invoice Finder — $8K Gap Analysis</span>
                   </div>
                   <div className="text-[10px] text-muted-foreground space-y-1">
-                    <p>Excel AP tracker: ~$597,131 | System total: {formatCurrency(invoiceStats.invoiceTotal)}</p>
-                    <p>Gap: ~{formatCurrency(597131 - invoiceStats.invoiceTotal)}</p>
-                    <p className="pt-1 font-medium text-foreground">
+                    <p>Excel AP tracker: <span className="font-semibold text-foreground">$597,131.71</span></p>
+                    <p>System total: <span className="font-semibold text-foreground">{formatCurrency(invoiceStats.invoiceTotal)}</span></p>
+                    <p>Gap: <span className="font-semibold text-destructive">{formatCurrency(597131.71 - invoiceStats.invoiceTotal)}</span></p>
+                    <div className="h-px bg-border/50 my-2" />
+                    <p className="font-medium text-foreground">
                       {invoiceStats.duplicates.length === 0 && invoiceStats.nonUnpaid.length === 0
-                        ? "No duplicates or paid-status invoices found. Gap likely due to invoices in Excel not yet uploaded to the system, or Excel including PO/credit memo amounts."
+                        ? "No duplicates or paid-status invoices found. Gap likely from invoices in Excel not yet uploaded to the system."
                         : "See duplicate and status sections above for potential explanations."}
                     </p>
+                    <p>Check Excel tracker for invoices dated before <span className="font-mono text-foreground">{invoiceStats.byVendor.length > 0
+                      ? (() => {
+                          const dates = (invoices as any[]).filter(i => i.doc_type === "INVOICE").map(i => i.invoice_date).sort();
+                          return dates[0] ?? "—";
+                        })()
+                      : "—"}</span> or from vendors with unexpectedly low totals above.</p>
                   </div>
+                </CardContent>
+              </Card>
+
+              {/* Payment Sum vs Invoice Sum comparison */}
+              {(() => {
+                const paymentSum = (payments as any[]).reduce((s: number, p: any) => s + (Number(p.amount_due) || 0), 0);
+                const invoiceSum = invoiceStats.invoiceTotal;
+                const diff = invoiceSum - paymentSum;
+                return (
+                  <Card className={`bg-card ${Math.abs(diff) > 1 ? "border-amber-500/30" : "border-emerald-500/30"}`}>
+                    <CardContent className="p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <StatusIcon ok={Math.abs(diff) < 1} />
+                        <span className="text-xs font-semibold">Payment Schedule Sum vs Invoice Sum</span>
+                      </div>
+                      <div className="text-[10px] space-y-0.5">
+                        <MetricRow label="Sum of vendor_invoices.total (INVOICE)" value={formatCurrency(invoiceSum)} />
+                        <MetricRow label="Sum of invoice_payments.amount_due" value={formatCurrency(paymentSum)} />
+                        <MetricRow label="Difference" value={formatCurrency(diff)} warn={Math.abs(diff) > 1} />
+                        {Math.abs(diff) > 1 && (
+                          <p className="text-[10px] text-amber-500 pt-1">
+                            ⚠ {formatCurrency(diff)} gap — likely invoices without payment terms engines (unknown vendors) or rounding.
+                          </p>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })()}
+
+              {/* Vendor LS Match Rates */}
+              <Card className="bg-card border-border">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-xs font-semibold">LS Match Rate by Vendor</CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="border-border">
+                        <TableHead className="text-[10px] font-semibold">Vendor</TableHead>
+                        <TableHead className="text-[10px] font-semibold text-right">Invoices</TableHead>
+                        <TableHead className="text-[10px] font-semibold text-right">Matched to LS</TableHead>
+                        <TableHead className="text-[10px] font-semibold text-right">Unmatched</TableHead>
+                        <TableHead className="text-[10px] font-semibold text-right">Match Rate</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {(() => {
+                        const vendorMap = new Map<string, { total: number; matched: number }>();
+                        for (const r of lsMatches.results) {
+                          const cur = vendorMap.get(r.vendor) ?? { total: 0, matched: 0 };
+                          cur.total++;
+                          if (r.status !== "not_found") cur.matched++;
+                          vendorMap.set(r.vendor, cur);
+                        }
+                        return Array.from(vendorMap.entries())
+                          .sort((a, b) => (a[1].matched / a[1].total) - (b[1].matched / b[1].total))
+                          .map(([vendor, d]) => (
+                            <TableRow key={vendor} className="border-border">
+                              <TableCell className="text-xs font-medium">{vendor}</TableCell>
+                              <TableCell className="text-xs text-right tabular-nums">{d.total}</TableCell>
+                              <TableCell className="text-xs text-right tabular-nums text-emerald-500">{d.matched}</TableCell>
+                              <TableCell className="text-xs text-right tabular-nums text-destructive">{d.total - d.matched}</TableCell>
+                              <TableCell className={`text-xs text-right tabular-nums font-semibold ${d.matched / d.total < 0.5 ? "text-destructive" : d.matched / d.total < 1 ? "text-amber-500" : "text-emerald-500"}`}>
+                                {(d.matched / d.total * 100).toFixed(1)}%
+                              </TableCell>
+                            </TableRow>
+                          ));
+                      })()}
+                    </TableBody>
+                  </Table>
                 </CardContent>
               </Card>
             </Section>
