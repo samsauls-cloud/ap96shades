@@ -23,6 +23,30 @@ function extractModelCode(desc: string): string | null {
   return m ? m[1].replace(/\s+/g, "").toUpperCase() : null;
 }
 
+/** Extract all model codes from LS description (some have multiple) */
+function extractAllModelCodes(desc: string): string[] {
+  const codes: string[] = [];
+  // Standard pipe-delimited model codes
+  const m = desc.match(/\|\s*([A-Z]?\d[\w]*\s*-\s*[\w]+)\s*\|/gi);
+  if (m) {
+    for (const match of m) {
+      const inner = match.replace(/^\||\|$/g, "").trim().replace(/\s+/g, "").toUpperCase();
+      if (inner) codes.push(inner);
+    }
+  }
+  return codes;
+}
+
+/** Convert MM invoice item "MM327-002" → normalised model code "327-02" */
+function mmToModelCode(item: string): string | null {
+  const m = item.match(/^MM(\d+)-(\d+\w*)$/i);
+  if (!m) return null;
+  // Strip only the leading zero if 3+ digits: "002" → "02", "02" stays "02", "2M" stays "2M"
+  let color = m[2];
+  if (/^\d{3,}$/.test(color)) color = color.replace(/^0/, "");
+  return `${m[1]}-${color}`.toUpperCase();
+}
+
 /** Normalise an invoice item_number for comparison (strip spaces, uppercase) */
 function normaliseItemNumber(s: string): string {
   return s.replace(/\s+/g, "").toUpperCase();
@@ -103,6 +127,12 @@ export function buildLSMatchResults(
     const invoiceItemNumbers = new Set(
       lineItems.map((li: any) => normaliseItemNumber(li.item_number ?? "")).filter(Boolean)
     );
+    // Also build MM→model-code conversions for My Maui items
+    const mmConvertedCodes = new Map<string, string>(); // normalised MM item → converted model code
+    for (const itemNum of invoiceItemNumbers) {
+      const converted = mmToModelCode(itemNum);
+      if (converted) mmConvertedCodes.set(itemNum, converted);
+    }
 
     const matchedSessions = new Set<string>();
     const matchedLineIds = new Set<string>();
@@ -131,8 +161,15 @@ export function buildLSMatchResults(
         const vendorModels = modelByVendor.get(alias);
         if (!vendorModels) continue;
         for (const itemNum of invoiceItemNumbers) {
+          // Direct model code match
           const ml = vendorModels.get(itemNum);
-          if (ml) ml.forEach(m => { matchedSessions.add(m._sessionId); matchedLineIds.add(m.id); });
+          if (ml) { ml.forEach(m => { matchedSessions.add(m._sessionId); matchedLineIds.add(m.id); }); continue; }
+          // MM→model-code conversion match
+          const converted = mmConvertedCodes.get(itemNum);
+          if (converted) {
+            const ml2 = vendorModels.get(converted);
+            if (ml2) ml2.forEach(m => { matchedSessions.add(m._sessionId); matchedLineIds.add(m.id); });
+          }
         }
       }
     }
@@ -149,13 +186,17 @@ export function buildLSMatchResults(
         }
       }
     } else {
-      // Model-code based qty counting
+      // Model-code based qty counting (with MM conversion)
+      const allMatchCodes = new Set<string>();
+      for (const itemNum of invoiceItemNumbers) allMatchCodes.add(itemNum);
+      for (const [, converted] of mmConvertedCodes) allMatchCodes.add(converted);
+
       for (const sid of matchedSessions) {
         const sLines = linesBySession.get(sid) ?? [];
         for (const l of sLines) {
           if (l.item_description) {
             const mc = extractModelCode(l.item_description);
-            if (mc && invoiceItemNumbers.has(mc)) {
+            if (mc && allMatchCodes.has(mc)) {
               lsQtyReceived += Number(l.received_qty) || 0;
             }
           }
