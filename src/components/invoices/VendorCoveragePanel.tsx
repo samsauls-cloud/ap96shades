@@ -24,7 +24,7 @@ export function VendorCoveragePanel() {
       // Get alias map
       const { data: aliases } = await supabase
         .from("vendor_alias_map")
-        .select("vendor_id, vendor_name");
+        .select("vendor_id, vendor_name, vendor_type");
 
       const aliasMap = new Map<string, { name: string; type: string }>();
       for (const a of aliases ?? []) {
