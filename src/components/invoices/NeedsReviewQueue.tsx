@@ -79,10 +79,10 @@ export function NeedsReviewCount() {
   const { data: count = 0 } = useQuery({
     queryKey: ["needs_review_count"],
     queryFn: async () => {
-      const { count, error } = await supabase
-        .from("vendor_invoices")
+      const { count, error } = await (supabase
+        .from("vendor_invoices") as any)
         .select("id", { count: "exact", head: true })
-        .eq("terms_status" as any, "needs_review")
+        .eq("terms_status", "needs_review")
         .neq("doc_type", "proforma");
       if (error) return 0;
       return count ?? 0;
