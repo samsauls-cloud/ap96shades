@@ -39,10 +39,13 @@ export function VendorCoveragePanel() {
       const groups = new Map<string, VendorCoverage>();
       for (const l of lines ?? []) {
         const vid = l.vendor_id ?? "UNMAPPED";
-        const name = aliasMap.get(vid) ?? vid;
+        const mapped = aliasMap.get(vid);
+        const name = mapped?.name ?? vid;
+        const type = mapped?.type ?? 'frame';
         const cur = groups.get(vid) ?? {
           vendor_name: name,
           vendor_id: vid,
+          vendor_type: type,
           lines: 0,
           ordered: 0,
           received: 0,
