@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/collapsible";
 import { InvoiceNav } from "@/components/invoices/InvoiceNav";
 import { ReconciliationAuditPanel } from "@/components/invoices/ReconciliationAuditPanel";
+import { VendorCoveragePanel } from "@/components/invoices/VendorCoveragePanel";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchAllRows } from "@/lib/supabase-fetch-all";
 import { formatCurrency, formatDate, getLineItems } from "@/lib/supabase-queries";
@@ -398,6 +399,11 @@ export default function AuditPage() {
               recSessions={recSessions as any[]}
               recLines={recLines as any[]}
             />
+
+            {/* ── Vendor Receiving Coverage ── */}
+            <Section title="Vendor Receiving Coverage" icon={PackageCheck}>
+              <VendorCoveragePanel />
+            </Section>
 
             {/* ── Invoice Data Audit ── */}
             <Section title="Invoice Data Audit" icon={FileText}>
