@@ -6,11 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Loader2, Download, FileBarChart, Clock, DollarSign, TrendingUp } from "lucide-react";
-import { formatCurrency, formatDate } from "@/lib/supabase-queries";
+import { Loader2, Download, FileBarChart, Clock, DollarSign, TrendingUp, PackageCheck, Users } from "lucide-react";
+import { formatCurrency, formatDate, getLineItems } from "@/lib/supabase-queries";
+import type { VendorInvoice } from "@/lib/supabase-queries";
 import { fetchPayments, type InvoicePayment, isOverdue, getDaysOverdue } from "@/lib/payment-queries";
 import { PaymentStatusBadge } from "@/components/invoices/PaymentStatusBadge";
-import { addDays, startOfWeek, format, isWithinInterval } from "date-fns";
+import { fetchAllRows } from "@/lib/supabase-fetch-all";
+import { addDays, startOfWeek, format, subMonths, isWithinInterval } from "date-fns";
 
 type ReportTab = "aging" | "history" | "outstanding" | "cashflow";
 
