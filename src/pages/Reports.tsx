@@ -14,7 +14,7 @@ import { PaymentStatusBadge } from "@/components/invoices/PaymentStatusBadge";
 import { fetchAllRows } from "@/lib/supabase-fetch-all";
 import { addDays, startOfWeek, format, subMonths, isWithinInterval } from "date-fns";
 
-type ReportTab = "aging" | "history" | "outstanding" | "cashflow";
+type ReportTab = "aging" | "history" | "outstanding" | "cashflow" | "fulfillment" | "vendorspend";
 
 function exportCSV(rows: string[][], filename: string) {
   const csv = rows.map(r => r.map(c => `"${String(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
