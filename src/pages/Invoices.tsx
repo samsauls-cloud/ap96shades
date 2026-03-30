@@ -18,9 +18,11 @@ import { POView } from "@/components/invoices/POView";
 
 export default function InvoicesPage() {
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [filters, setFilters] = useState<InvoiceFilters>({ page: 1, perPage: 25, sortField: "invoice_date", sortDir: "desc" });
   const [selectedInvoice, setSelectedInvoice] = useState<VendorInvoice | null>(null);
   const [viewMode, setViewMode] = useState<"list" | "po">("list");
+  const openHandledRef = useRef(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["vendor_invoices", filters],
