@@ -16,6 +16,7 @@ import {
   Collapsible, CollapsibleContent, CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { InvoiceNav } from "@/components/invoices/InvoiceNav";
+import { ReconciliationAuditPanel } from "@/components/invoices/ReconciliationAuditPanel";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchAllRows } from "@/lib/supabase-fetch-all";
 import { formatCurrency, formatDate, getLineItems } from "@/lib/supabase-queries";
@@ -389,6 +390,14 @@ export default function AuditPage() {
                 </CardContent>
               </Card>
             </div>
+
+            {/* ── Full Reconciliation Audit ── */}
+            <ReconciliationAuditPanel
+              invoices={invoices as any[]}
+              payments={payments as any[]}
+              recSessions={recSessions as any[]}
+              recLines={recLines as any[]}
+            />
 
             {/* ── Invoice Data Audit ── */}
             <Section title="Invoice Data Audit" icon={FileText}>
