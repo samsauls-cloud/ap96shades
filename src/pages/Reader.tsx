@@ -26,7 +26,6 @@ import {
 } from "@/lib/invoice-dedup";
 import { parseCSVToPOs, fileToText } from "@/lib/csv-po-parser";
 import { isImageFile, imageToBase64, callAnthropicImageAPI } from "@/lib/photo-capture-engine";
-import { parsedToInvoice } from "@/lib/reader-engine";
 
 function formatElapsed(ms: number): string {
   const s = Math.floor(ms / 1000);
