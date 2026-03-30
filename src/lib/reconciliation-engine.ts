@@ -132,7 +132,7 @@ export async function runFullReconciliation(
           invoiced_qty: invoicedQty,
           received_qty: receivedQty,
           qty_delta: delta,
-          amount_at_risk: Math.abs(delta) * (li.unit_price ?? 0),
+          amount_at_risk: Math.abs(delta) * safeNum(li.unit_price),
         });
       }
 
