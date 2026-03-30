@@ -9,6 +9,7 @@ import { formatCurrency } from "@/lib/supabase-queries";
 interface VendorCoverage {
   vendor_name: string;
   vendor_id: string;
+  vendor_type: string;
   lines: number;
   ordered: number;
   received: number;
