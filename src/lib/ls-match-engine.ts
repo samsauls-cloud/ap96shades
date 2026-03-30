@@ -126,6 +126,12 @@ export function buildLSMatchResults(
     const invoiceItemNumbers = new Set(
       lineItems.map((li: any) => normaliseItemNumber(li.item_number ?? "")).filter(Boolean)
     );
+    // Also build MM→model-code conversions for My Maui items
+    const mmConvertedCodes = new Map<string, string>(); // normalised MM item → converted model code
+    for (const itemNum of invoiceItemNumbers) {
+      const converted = mmToModelCode(itemNum);
+      if (converted) mmConvertedCodes.set(itemNum, converted);
+    }
 
     const matchedSessions = new Set<string>();
     const matchedLineIds = new Set<string>();
@@ -154,8 +160,15 @@ export function buildLSMatchResults(
         const vendorModels = modelByVendor.get(alias);
         if (!vendorModels) continue;
         for (const itemNum of invoiceItemNumbers) {
+          // Direct model code match
           const ml = vendorModels.get(itemNum);
-          if (ml) ml.forEach(m => { matchedSessions.add(m._sessionId); matchedLineIds.add(m.id); });
+          if (ml) { ml.forEach(m => { matchedSessions.add(m._sessionId); matchedLineIds.add(m.id); }); continue; }
+          // MM→model-code conversion match
+          const converted = mmConvertedCodes.get(itemNum);
+          if (converted) {
+            const ml2 = vendorModels.get(converted);
+            if (ml2) ml2.forEach(m => { matchedSessions.add(m._sessionId); matchedLineIds.add(m.id); });
+          }
         }
       }
     }
