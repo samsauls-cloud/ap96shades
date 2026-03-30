@@ -110,7 +110,7 @@ export function InvoiceTable({ invoices, filters, onSort, onRowClick, totalCount
                     ))}
                   </div>
                 </TableCell>
-                <TableCell><StatusBadge status={inv.status} /></TableCell>
+                <TableCell><StatusBadge status={inv.status} docType={inv.doc_type} /></TableCell>
                 <TableCell>
                   <span
                     className="cursor-pointer"
@@ -154,7 +154,7 @@ export function InvoiceTable({ invoices, filters, onSort, onRowClick, totalCount
               <div className="text-right shrink-0">
                 <p className="font-semibold text-sm tabular-nums">{formatCurrency(inv.total)}</p>
                 <div className="flex gap-1 justify-end">
-                  <StatusBadge status={inv.status} />
+                  <StatusBadge status={inv.status} docType={inv.doc_type} />
                   <ReconStatusBadge
                     status={(inv as any).recon_status || (inv as any).reconciliation_status || 'unreconciled'}
                     isStale={(inv as any).recon_stale === true}

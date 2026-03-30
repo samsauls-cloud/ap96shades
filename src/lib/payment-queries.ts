@@ -384,7 +384,7 @@ export async function recalculatePaymentsForInvoice(
 export async function generateAllMissingPayments(): Promise<{ generated: number; invoices: number }> {
   const { data: allInvoices, error: invErr } = await supabase
     .from("vendor_invoices")
-    .select("id, invoice_date, total, vendor, invoice_number, po_number, payment_terms");
+    .select("id, invoice_date, total, vendor, invoice_number, po_number, payment_terms, doc_type");
   if (invErr) throw invErr;
 
   const { data: existingPayments, error: payErr } = await supabase
@@ -394,6 +394,9 @@ export async function generateAllMissingPayments(): Promise<{ generated: number;
 
   const hasPayments = new Set((existingPayments ?? []).map(p => (p as any).invoice_id));
   const missing = (allInvoices ?? []).filter(inv => {
+    // Skip proformas entirely
+    const dt = (inv.doc_type || "").toLowerCase();
+    if (dt === "proforma" || dt === "pro-forma" || dt === "pro forma") return false;
     const normalized = normalizeVendor(inv.vendor);
     return !hasPayments.has(inv.id) && isKnownVendor(normalized) && hasTermsEngine(normalized);
   });
@@ -433,6 +436,8 @@ export async function runFullAudit(): Promise<AuditResult> {
   // 1. Missing payments
   const paymentInvoiceIds = new Set(payments.map((p: any) => p.invoice_id));
   const missingPayments = invoices.filter(inv => {
+    const dt = (inv.doc_type || "").toLowerCase();
+    if (dt === "proforma" || dt === "pro-forma" || dt === "pro forma") return false;
     const normalized = normalizeVendor(inv.vendor);
     return !paymentInvoiceIds.has(inv.id) && isKnownVendor(normalized) && inv.doc_type === "INVOICE";
   }).map(inv => ({

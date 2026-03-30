@@ -10,7 +10,7 @@ import { Switch } from "@/components/ui/switch";
 import { Link } from "react-router-dom";
 import { InvoiceNav } from "@/components/invoices/InvoiceNav";
 import { DocTypeBadge } from "@/components/invoices/Badges";
-import { insertInvoice, formatCurrency, type VendorInvoiceInsert, getLineItems } from "@/lib/supabase-queries";
+import { insertInvoice, formatCurrency, type VendorInvoiceInsert, getLineItems, isProforma } from "@/lib/supabase-queries";
 import { checkPendingMatches } from "@/lib/pending-match";
 import { generatePaymentsForInvoice } from "@/lib/payment-queries";
 import {
@@ -131,12 +131,14 @@ export default function ReaderPage() {
             : undefined,
         });
 
-        // Auto-generate payments
-        try {
-          await generatePaymentsForInvoice(
-            saved.id, invoice.invoice_date, invoice.total || 0, invoice.vendor, invoice.invoice_number, invoice.po_number ?? null
-          );
-        } catch { /* silent */ }
+        // Auto-generate payments — skip for proformas
+        if (!isProforma({ doc_type: invoice.doc_type || "" })) {
+          try {
+            await generatePaymentsForInvoice(
+              saved.id, invoice.invoice_date, invoice.total || 0, invoice.vendor, invoice.invoice_number, invoice.po_number ?? null
+            );
+          } catch { /* silent */ }
+        }
 
         // Auto-run SKU check and attach results
         try {
@@ -328,12 +330,14 @@ export default function ReaderPage() {
           dbId: saved.id,
         });
 
-        // Auto-generate payment installments
-        try {
-          await generatePaymentsForInvoice(
-            saved.id, invoice.invoice_date, invoice.total || 0, invoice.vendor, invoice.invoice_number, invoice.po_number ?? null
-          );
-        } catch { /* silent — payments are secondary */ }
+        // Auto-generate payment installments — skip for proformas
+        if (!isProforma({ doc_type: invoice.doc_type || "" })) {
+          try {
+            await generatePaymentsForInvoice(
+              saved.id, invoice.invoice_date, invoice.total || 0, invoice.vendor, invoice.invoice_number, invoice.po_number ?? null
+            );
+          } catch { /* silent — payments are secondary */ }
+        }
 
         // Auto-check for pending matches against partially reconciled sessions
         try {
