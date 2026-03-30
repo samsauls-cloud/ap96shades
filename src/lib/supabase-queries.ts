@@ -131,6 +131,17 @@ export async function fetchDistinctTags(): Promise<string[]> {
 }
 
 export async function deleteInvoice(id: string) {
+  // Clear references that use NO ACTION foreign keys before deleting
+  const [r1, r2, r3, r4] = await Promise.all([
+    supabase.from("po_receiving_sessions").update({ reconciled_invoice_id: null } as any).eq("reconciled_invoice_id", id),
+    supabase.from("reconciliation_discrepancies").update({ invoice_id: null } as any).eq("invoice_id", id),
+    supabase.from("vendor_invoices").update({ linked_proforma_id: null } as any).eq("linked_proforma_id", id),
+    supabase.from("vendor_invoices").update({ proforma_superseded_by: null } as any).eq("proforma_superseded_by", id),
+  ]);
+  for (const r of [r1, r2, r3, r4]) {
+    if (r.error) throw r.error;
+  }
+
   const { error } = await supabase
     .from("vendor_invoices")
     .delete()
