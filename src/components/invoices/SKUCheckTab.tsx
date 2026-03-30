@@ -263,11 +263,11 @@ export function SKUCheckTab({ invoice }: Props) {
   );
 }
 
-async function fetchAssortment(codes: string[]) {
+async function fetchItemMaster(codes: string[]) {
   if (codes.length === 0) return [];
   const { data } = await supabase
-    .from("master_assortment")
-    .select("upc, model, wholesale, brand, vendor")
+    .from("item_master")
+    .select("upc, model_number, wholesale_price, retail_price, brand")
     .or(codes.map(c => `upc.eq.${c}`).join(","));
   return data ?? [];
 }
@@ -284,8 +284,17 @@ async function fetchPlanogram(codes: string[]) {
 async function fetchReceiving(codes: string[]) {
   if (codes.length === 0) return [];
   const { data } = await supabase
-    .from("po_receiving_lines")
+    .from("lightspeed_receiving")
     .select("upc, manufact_sku, received_qty, not_received_qty, receiving_status, unit_cost")
+    .or(codes.map(c => `upc.eq.${c}`).join(","));
+  return data ?? [];
+}
+
+async function fetchInventory(codes: string[]) {
+  if (codes.length === 0) return [];
+  const { data } = await supabase
+    .from("inventory_snapshots")
+    .select("upc, quantity_on_hand, store_id, snapshot_date")
     .or(codes.map(c => `upc.eq.${c}`).join(","));
   return data ?? [];
 }
