@@ -816,7 +816,160 @@ export default function AuditPage() {
               </Card>
             </Section>
 
-            {/* ── Lightspeed → Invoice Match ── */}
+            {/* ── Vendor ID Mapping Diagnostic ── */}
+            <Section title="Vendor ID Mapping Diagnostic" icon={SearchIcon} defaultOpen>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {/* LS Vendors */}
+                <Card className="bg-card border-border">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-xs font-semibold">Lightspeed Receiving — Session Vendors</CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="border-border">
+                          <TableHead className="text-[10px] font-semibold">Vendor Name</TableHead>
+                          <TableHead className="text-[10px] font-semibold text-right">Lines</TableHead>
+                          <TableHead className="text-[10px] font-semibold text-right">Units Rcvd</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {(() => {
+                          const vendorLines = new Map<string, { lines: number; units: number }>();
+                          for (const s of recSessions as any[]) {
+                            const sLines = (recLines as any[]).filter(l => l.session_id === s.id);
+                            const cur = vendorLines.get(s.vendor) ?? { lines: 0, units: 0 };
+                            cur.lines += sLines.length;
+                            cur.units += sLines.reduce((sum: number, l: any) => sum + (Number(l.received_qty) || 0), 0);
+                            vendorLines.set(s.vendor, cur);
+                          }
+                          return Array.from(vendorLines.entries()).sort((a, b) => b[1].lines - a[1].lines).map(([v, d]) => (
+                            <TableRow key={v} className="border-border">
+                              <TableCell className="text-xs font-mono font-medium">{v}</TableCell>
+                              <TableCell className="text-xs text-right tabular-nums">{d.lines}</TableCell>
+                              <TableCell className="text-xs text-right tabular-nums">{d.units}</TableCell>
+                            </TableRow>
+                          ));
+                        })()}
+                      </TableBody>
+                    </Table>
+                  </CardContent>
+                </Card>
+
+                {/* Invoice Vendors */}
+                <Card className="bg-card border-border">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-xs font-semibold">vendor_invoices — Invoice Vendors</CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="border-border">
+                          <TableHead className="text-[10px] font-semibold">Vendor Name</TableHead>
+                          <TableHead className="text-[10px] font-semibold text-right">Invoices</TableHead>
+                          <TableHead className="text-[10px] font-semibold text-right">Total Value</TableHead>
+                          <TableHead className="text-[10px] font-semibold text-right">LS Lines</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {invoiceStats.byVendor.map(([vendor, d]) => {
+                          // Check if this vendor has ANY LS receiving data
+                          const aliases = VENDOR_ALIASES[vendor] ?? [vendor];
+                          const lsLineCount = aliases.reduce((sum, alias) => {
+                            return sum + (recSessions as any[]).filter(s => s.vendor === alias)
+                              .reduce((s2, session) => s2 + (recLines as any[]).filter(l => l.session_id === session.id).length, 0);
+                          }, 0);
+                          return (
+                            <TableRow key={vendor} className={`border-border ${lsLineCount === 0 ? "bg-destructive/5" : ""}`}>
+                              <TableCell className="text-xs font-medium">{vendor}</TableCell>
+                              <TableCell className="text-xs text-right tabular-nums">{d.count}</TableCell>
+                              <TableCell className="text-xs text-right tabular-nums">{formatCurrency(d.value)}</TableCell>
+                              <TableCell className={`text-xs text-right tabular-nums font-semibold ${lsLineCount === 0 ? "text-destructive" : "text-emerald-500"}`}>
+                                {lsLineCount === 0 ? "❌ 0" : lsLineCount}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Mapping gap alert */}
+              {(() => {
+                const lsVendors = new Set((recSessions as any[]).map(s => s.vendor));
+                const invoiceVendors = new Set(invoiceStats.byVendor.map(([v]) => v));
+                const unmappedInvoiceVendors = Array.from(invoiceVendors).filter(v => {
+                  const aliases = VENDOR_ALIASES[v] ?? [v];
+                  return !aliases.some(a => lsVendors.has(a));
+                });
+                const unmappedLsVendors = Array.from(lsVendors).filter(v => {
+                  // Check if any invoice vendor aliases contain this LS vendor
+                  return !Array.from(invoiceVendors).some(iv => {
+                    const aliases = VENDOR_ALIASES[iv] ?? [iv];
+                    return aliases.includes(v);
+                  });
+                });
+                return (unmappedInvoiceVendors.length > 0 || unmappedLsVendors.length > 0) ? (
+                  <Card className="bg-card border-destructive/30">
+                    <CardContent className="p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <AlertTriangle className="h-4 w-4 text-destructive" />
+                        <span className="text-xs font-semibold text-destructive">Vendor Mapping Gaps Detected</span>
+                      </div>
+                      {unmappedInvoiceVendors.length > 0 && (
+                        <div className="mb-2">
+                          <p className="text-[10px] font-semibold text-foreground mb-1">Invoice vendors with NO Lightspeed receiving data:</p>
+                          {unmappedInvoiceVendors.map(v => {
+                            const vd = invoiceStats.byVendor.find(([vn]) => vn === v);
+                            return (
+                              <div key={v} className="flex justify-between text-[10px] py-0.5">
+                                <span className="font-mono text-destructive">{v}</span>
+                                <span>{vd ? `${vd[1].count} invoices / ${formatCurrency(vd[1].value)}` : ""}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {unmappedLsVendors.length > 0 && (
+                        <div>
+                          <p className="text-[10px] font-semibold text-foreground mb-1">LS vendors not mapped to any invoice vendor:</p>
+                          {unmappedLsVendors.map(v => (
+                            <div key={v} className="text-[10px] font-mono text-amber-500 py-0.5">{v}</div>
+                          ))}
+                        </div>
+                      )}
+                      <p className="text-[10px] text-muted-foreground mt-2">
+                        Maui Jim, Safilo, and Marcolin have zero receiving sessions in Lightspeed. These POs either haven't been imported yet or use a different vendor identifier.
+                      </p>
+                    </CardContent>
+                  </Card>
+                ) : null;
+              })()}
+
+              {/* Discrepancy Logic Explanation */}
+              <Card className="bg-card border-border">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <FileText className="h-4 w-4 text-primary" />
+                    <span className="text-xs font-semibold">Billing Discrepancy Logic (receiving-engine.ts)</span>
+                  </div>
+                  <div className="text-[10px] text-muted-foreground space-y-1">
+                    <p><span className="font-mono text-foreground">billing_discrepancy</span> is set by <span className="font-mono text-foreground">calcDiscrepancy()</span> in the receiving engine:</p>
+                    <p>1. If a LS receiving line has <span className="text-destructive font-semibold">no matching invoice line</span> (UPC/SKU not found on invoice) → <span className="font-mono">NOT_ON_INVOICE</span>, amount = ordered_cost</p>
+                    <p>2. If invoice qty {">"} received qty → <span className="font-mono">OVERBILLED</span>, amount = (inv_qty - rcv_qty) × unit_price</p>
+                    <p>3. If invoice qty {"<"} received qty → <span className="font-mono">UNDERBILLED</span></p>
+                    <p>4. If unit prices differ by {">"}2% → <span className="font-mono">PRICE_MISMATCH</span> (compares <span className="font-mono">invoiceLine.unit_price</span> vs <span className="font-mono">receivingLine.unit_cost</span>)</p>
+                    <p className="pt-1 text-amber-500 font-semibold">
+                      ⚠ The $366K "discrepancy" is mostly NOT_ON_INVOICE — items in LS receiving sessions that have no matching UPC on the linked invoice. This happens when a session is linked to the wrong invoice, or the invoice has different UPCs than what was physically received.
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            </Section>
+
+
             <Section title="Invoice → Lightspeed Receipt Match" icon={PackageCheck} defaultOpen>
               <Card className="bg-card border-border">
                 <CardContent className="p-4 space-y-1">

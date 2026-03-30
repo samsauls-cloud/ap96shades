@@ -58,6 +58,13 @@ export const VENDOR_TERMS: Record<string, VendorTermsConfig> = {
     basis: "EOM",
     label: "EOM 60",
   },
+  Marchon: {
+    type: "DAYS_SPLIT",
+    installments: 1,
+    offsets: [30],
+    basis: "INVOICE_DATE",
+    label: "Net 30",
+  },
 };
 
 // Maui Jim alternate terms for older POs
