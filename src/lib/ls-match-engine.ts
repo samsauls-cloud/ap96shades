@@ -23,6 +23,29 @@ function extractModelCode(desc: string): string | null {
   return m ? m[1].replace(/\s+/g, "").toUpperCase() : null;
 }
 
+/** Extract all model codes from LS description (some have multiple) */
+function extractAllModelCodes(desc: string): string[] {
+  const codes: string[] = [];
+  // Standard pipe-delimited model codes
+  const m = desc.match(/\|\s*([A-Z]?\d[\w]*\s*-\s*[\w]+)\s*\|/gi);
+  if (m) {
+    for (const match of m) {
+      const inner = match.replace(/^\||\|$/g, "").trim().replace(/\s+/g, "").toUpperCase();
+      if (inner) codes.push(inner);
+    }
+  }
+  return codes;
+}
+
+/** Convert MM invoice item "MM327-002" → normalised model code "327-02" */
+function mmToModelCode(item: string): string | null {
+  const m = item.match(/^MM(\d+)-(\d+\w*)$/i);
+  if (!m) return null;
+  // Remove leading zeros from color code: "002" → "02"
+  const color = m[2].replace(/^0+/, "") || "0";
+  return `${m[1]}-${color}`.toUpperCase();
+}
+
 /** Normalise an invoice item_number for comparison (strip spaces, uppercase) */
 function normaliseItemNumber(s: string): string {
   return s.replace(/\s+/g, "").toUpperCase();
