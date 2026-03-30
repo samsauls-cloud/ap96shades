@@ -57,6 +57,7 @@ export default function ReportsPage() {
     { key: "cashflow" as const, label: "Cash Flow Forecast", icon: TrendingUp },
     { key: "fulfillment" as const, label: "PO Fulfillment", icon: PackageCheck },
     { key: "vendorspend" as const, label: "Vendor Spend", icon: Users },
+    { key: "backorder" as const, label: "Backorder Tracker", icon: AlertTriangle },
   ];
 
   return (
