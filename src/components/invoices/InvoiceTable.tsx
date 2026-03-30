@@ -4,7 +4,7 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { ChevronUp, ChevronDown, ChevronsUpDown, Camera } from "lucide-react";
-import { StatusBadge, DocTypeBadge, ReconStatusBadge } from "./Badges";
+import { StatusBadge, DocTypeBadge, ReconStatusBadge, TermsStatusBadge } from "./Badges";
 import type { VendorInvoice, InvoiceFilters } from "@/lib/supabase-queries";
 import { formatCurrency, formatDate, getTotalUnits } from "@/lib/supabase-queries";
 
@@ -86,6 +86,7 @@ export function InvoiceTable({ invoices, filters, onSort, onRowClick, totalCount
                 <TableCell>
                   <div className="flex items-center gap-1">
                     <DocTypeBadge docType={inv.doc_type} />
+                    <TermsStatusBadge termsStatus={(inv as any).terms_status} />
                     {inv.import_source === "photo_capture" && (
                       <span title="Photo capture" className="text-[9px] px-1 py-0.5 rounded bg-amber-500/10 text-amber-500 border border-amber-500/20">
                         <Camera className="h-2.5 w-2.5 inline" />

@@ -3,7 +3,27 @@ import type { VendorInvoiceInsert } from "@/lib/supabase-queries";
 import { normalizeVendor } from "@/lib/invoice-dedup";
 import { applyVendorDiscount } from "@/lib/vendor-pricing-rules";
 
-const SYSTEM_PROMPT = `You are a document data extractor for an optical retail business (NinetySix Shades). Extract data from vendor invoices AND purchase orders from: Maui Jim, Kering (Gucci, Saint Laurent, Balenciaga, Bottega Veneta, Alexander McQueen), Safilo (Carrera, Fossil, Hugo Boss, Jimmy Choo), Marcolin (Tom Ford, Guess, Swarovski, Montblanc), Luxottica (Ray-Ban, Oakley, Prada, Versace, Persol, Coach, DKNY, Dolce & Gabbana, Emporio Armani, Giorgio Armani, Burberry, Michael Kors, Tiffany, Vogue), Marchon (Nike, Columbia, Dragon, Flexon, Calvin Klein, Donna Karan, Lacoste, Salvatore Ferragamo, MCM, Nautica, Nine West, Skaga). Luxottica POs use fields: Order Number, Account Number, Carrier, Terms, Item Number, Color Code, Temple, Quantity Ordered, Quantity Shipped, Unit Cost, Extended Cost. Detect INVOICE vs PO. IMPORTANT: If this document contains any of these phrases — "pro forma", "proforma", "not an invoice", "invoice to follow", "for reference only", "preliminary", "THIS IS NOT AN INVOICE", "for reference purposes only" — set doc_type to "proforma". Do NOT set it to "INVOICE". A proforma is NOT a payable document. Return ONLY valid JSON: { doc_type, vendor, vendor_brands[], invoice_number, invoice_date (YYYY-MM-DD), po_number, account_number, ship_to, carrier, payment_terms, subtotal, tax, freight, total, currency, line_items[{upc, item_number, sku, description, brand, model, color_code, color_desc, size, temple, qty_ordered, qty_shipped, qty, unit_price, line_total}], notes }. CRITICAL: Return ONLY raw JSON. No markdown, no code fences, no backticks, no preamble, no explanation. Your response must start with { and end with }. Nothing before {. Nothing after }.`;
+const SYSTEM_PROMPT = `You are a document data extractor for an optical retail business (NinetySix Shades). Extract data from vendor invoices AND purchase orders from: Maui Jim, Kering (Gucci, Saint Laurent, Balenciaga, Bottega Veneta, Alexander McQueen), Safilo (Carrera, Fossil, Hugo Boss, Jimmy Choo), Marcolin (Tom Ford, Guess, Swarovski, Montblanc), Luxottica (Ray-Ban, Oakley, Prada, Versace, Persol, Coach, DKNY, Dolce & Gabbana, Emporio Armani, Giorgio Armani, Burberry, Michael Kors, Tiffany, Vogue), Marchon (Nike, Columbia, Dragon, Flexon, Calvin Klein, Donna Karan, Lacoste, Salvatore Ferragamo, MCM, Nautica, Nine West, Skaga). Luxottica POs use fields: Order Number, Account Number, Carrier, Terms, Item Number, Color Code, Temple, Quantity Ordered, Quantity Shipped, Unit Cost, Extended Cost. Detect INVOICE vs PO. IMPORTANT: If this document contains any of these phrases — "pro forma", "proforma", "not an invoice", "invoice to follow", "for reference only", "preliminary", "THIS IS NOT AN INVOICE", "for reference purposes only" — set doc_type to "proforma". Do NOT set it to "INVOICE". A proforma is NOT a payable document.
+
+PAYMENT TERMS EXTRACTION — CRITICAL:
+Carefully read the entire invoice for payment terms. They may appear in the header, footer, terms section, or anywhere on the document. Any term type can appear on any vendor's invoice — do NOT assume based on vendor name.
+
+Extract payment_terms_extracted as a structured object:
+- type: "net_single" (Net 30, Net 60, N30, Due on Receipt), "eom_single" (EOM 30, EOM 60), "eom_split" (EOM 30/60/90), "net_split" (Days 30/60/90), "early_pay" (2/10 Net 30), "cod" (COD, Cash on Delivery), or "unknown"
+- days: array of day offsets, e.g. [30,60,90]
+- installments: number of payments
+- eom_based: true if end-of-month based
+- discount_pct: discount percentage for early_pay (null otherwise)
+- discount_days: days for discount (null otherwise)
+- net_days: net days for early_pay (null otherwise)
+- confidence: "high" (explicit term text found), "medium" (implied from due date), "low" (nothing found or only FOB)
+- raw_text: exact text copied from invoice
+- shipping_terms: "FOB" if FOB found (FOB is NOT a payment term)
+- extraction_notes: where on document terms were found
+
+IMPORTANT: FOB is a SHIPPING term, not a payment term. If FOB is the ONLY term-like text, set payment_terms to null and shipping_terms to "FOB".
+
+Return ONLY valid JSON: { doc_type, vendor, vendor_brands[], invoice_number, invoice_date (YYYY-MM-DD), po_number, account_number, ship_to, carrier, payment_terms, payment_terms_extracted, shipping_terms, subtotal, tax, freight, total, currency, needs_review, line_items[{upc, item_number, sku, description, brand, model, color_code, color_desc, size, temple, qty_ordered, qty_shipped, qty, unit_price, line_total}], notes }. CRITICAL: Return ONLY raw JSON. No markdown, no code fences, no backticks, no preamble, no explanation. Your response must start with { and end with }. Nothing before {. Nothing after }.`;
 
 export const CONCURRENCY = 4;
 export const RETRY_CONCURRENCY = 3;
@@ -164,16 +184,42 @@ export function parsedToInvoice(parsed: any, filename: string): VendorInvoiceIns
       : discountNote
     : existingNotes || null;
 
+  // Determine terms_status from extraction confidence
+  const extractedTerms = parsed.payment_terms_extracted;
+  const confidence = extractedTerms?.confidence ?? "low";
+  const docType = parsed.doc_type || "INVOICE";
+  const isProformaDoc = docType.toLowerCase().includes("proforma") || docType.toLowerCase().includes("pro forma") || docType.toLowerCase().includes("pro-forma");
+
+  let termsStatus = "needs_review";
+  let termsConfidence = confidence;
+  if (isProformaDoc) {
+    termsStatus = "proforma";
+    termsConfidence = null;
+  } else if (confidence === "high") {
+    termsStatus = "confirmed";
+  } else if (confidence === "medium") {
+    termsStatus = "confirmed"; // Include in AP but flagged
+  }
+  // low or unknown → needs_review
+
+  // Handle FOB: if payment_terms is FOB-only, clear it
+  let paymentTerms = parsed.payment_terms;
+  const shippingTerms = parsed.shipping_terms || extractedTerms?.shipping_terms || null;
+  if (paymentTerms && typeof paymentTerms === "string") {
+    const cleaned = paymentTerms.replace(/\bfob\b[\s\w]*/gi, "").trim();
+    if (cleaned === "" || cleaned === ",") paymentTerms = null;
+  }
+
   return {
     vendor,
-    doc_type: parsed.doc_type || "INVOICE",
+    doc_type: docType,
     invoice_number: parsed.invoice_number || filename,
     invoice_date: parsed.invoice_date || new Date().toISOString().split("T")[0],
     po_number: parsed.po_number,
     account_number: parsed.account_number,
     ship_to: parsed.ship_to,
     carrier: parsed.carrier,
-    payment_terms: parsed.payment_terms,
+    payment_terms: paymentTerms,
     subtotal: subtotal ?? parsed.subtotal,
     tax: parsed.tax,
     freight: parsed.freight,
@@ -183,6 +229,14 @@ export function parsedToInvoice(parsed: any, filename: string): VendorInvoiceIns
     notes: combinedNotes,
     filename,
     line_items: lineItems,
+    // New terms columns (cast to any for TS compat until types regenerate)
+    ...(({
+      terms_status: termsStatus,
+      terms_confidence: termsConfidence,
+      payment_terms_extracted: extractedTerms || null,
+      payment_terms_source: "extraction",
+      shipping_terms: shippingTerms,
+    }) as any),
   };
 }
 

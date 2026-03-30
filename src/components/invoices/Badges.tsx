@@ -59,3 +59,16 @@ export function ReconStatusBadge({ status, isStale, staleReason }: { status: str
     </Badge>
   );
 }
+
+export function TermsStatusBadge({ termsStatus }: { termsStatus?: string }) {
+  if (!termsStatus || termsStatus === "confirmed") return null;
+  if (termsStatus === "proforma") return null; // Already shown by DocTypeBadge
+  if (termsStatus === "needs_review") {
+    return (
+      <Badge variant="outline" className="text-[10px] font-medium bg-amber-500/15 text-amber-600 border-amber-500/30">
+        ⚠️ Terms
+      </Badge>
+    );
+  }
+  return null;
+}

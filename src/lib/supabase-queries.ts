@@ -164,6 +164,8 @@ export interface InvoiceStats {
   total_ap_value: number;
   total_units: number;
   unpaid_balance: number;
+  needs_review_count: number;
+  needs_review_value: number;
 }
 
 export async function fetchInvoiceStats(filters: InvoiceFilters): Promise<InvoiceStats> {
