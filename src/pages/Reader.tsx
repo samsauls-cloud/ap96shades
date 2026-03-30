@@ -58,7 +58,7 @@ export default function ReaderPage() {
   };
 
   const isAcceptedFile = (f: File) =>
-    f.type === "application/pdf" || f.name.toLowerCase().endsWith(".csv") || f.type === "text/csv";
+    (f.type === "application/pdf" || f.name.toLowerCase().endsWith(".csv") || f.type === "text/csv") && !isImageFile(f);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
