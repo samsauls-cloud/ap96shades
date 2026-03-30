@@ -185,13 +185,17 @@ export function buildLSMatchResults(
         }
       }
     } else {
-      // Model-code based qty counting
+      // Model-code based qty counting (with MM conversion)
+      const allMatchCodes = new Set<string>();
+      for (const itemNum of invoiceItemNumbers) allMatchCodes.add(itemNum);
+      for (const [, converted] of mmConvertedCodes) allMatchCodes.add(converted);
+
       for (const sid of matchedSessions) {
         const sLines = linesBySession.get(sid) ?? [];
         for (const l of sLines) {
           if (l.item_description) {
             const mc = extractModelCode(l.item_description);
-            if (mc && invoiceItemNumbers.has(mc)) {
+            if (mc && allMatchCodes.has(mc)) {
               lsQtyReceived += Number(l.received_qty) || 0;
             }
           }
