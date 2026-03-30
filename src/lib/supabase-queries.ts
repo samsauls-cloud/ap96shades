@@ -4,7 +4,13 @@ import type { Database, Json } from "@/integrations/supabase/types";
 export type VendorInvoice = Database["public"]["Tables"]["vendor_invoices"]["Row"];
 export type VendorInvoiceInsert = Database["public"]["Tables"]["vendor_invoices"]["Insert"];
 export type InvoiceStatus = "unpaid" | "paid" | "partial" | "disputed";
-export type DocType = "INVOICE" | "PO";
+export type DocType = "INVOICE" | "PO" | "proforma";
+
+/** Returns true if this invoice is a proforma (not a payable document) */
+export function isProforma(inv: { doc_type: string }): boolean {
+  const dt = (inv.doc_type || "").toLowerCase();
+  return dt === "proforma" || dt === "pro-forma" || dt === "pro forma";
+}
 
 export interface LineItem {
   upc?: string;
