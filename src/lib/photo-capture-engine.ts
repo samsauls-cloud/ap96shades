@@ -75,20 +75,52 @@ async function convertHEICToJPEG(file: File): Promise<{ base64: string; mediaTyp
   }
 }
 
-export async function imageToBase64(file: File): Promise<{ base64: string; mediaType: string }> {
-  const name = file.name.toLowerCase();
-  if (name.endsWith(".heic") || name.endsWith(".heif") || file.type === "image/heic" || file.type === "image/heif") {
-    return convertHEICToJPEG(file);
+const MAX_IMAGE_DIMENSION = 2048;
+const JPEG_QUALITY = 0.85;
+
+async function resizeImageToCanvas(file: File): Promise<{ base64: string; mediaType: string }> {
+  const bitmap = await createImageBitmap(file);
+  let { width, height } = bitmap;
+
+  // Scale down if either dimension exceeds max
+  if (width > MAX_IMAGE_DIMENSION || height > MAX_IMAGE_DIMENSION) {
+    const scale = MAX_IMAGE_DIMENSION / Math.max(width, height);
+    width = Math.round(width * scale);
+    height = Math.round(height * scale);
   }
 
-  const buffer = await file.arrayBuffer();
-  const bytes = new Uint8Array(buffer);
-  let binary = "";
-  const chunkSize = 8192;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d")!;
+  ctx.drawImage(bitmap, 0, 0, width, height);
+  bitmap.close();
+
+  const dataUrl = canvas.toDataURL("image/jpeg", JPEG_QUALITY);
+  const base64 = dataUrl.split(",")[1];
+  return { base64, mediaType: "image/jpeg" };
+}
+
+export async function imageToBase64(file: File): Promise<{ base64: string; mediaType: string }> {
+  // All image types get resized/compressed via canvas to keep payload small
+  try {
+    return await resizeImageToCanvas(file);
+  } catch {
+    // Fallback for formats createImageBitmap can't handle (some HEIC)
+    const name = file.name.toLowerCase();
+    if (name.endsWith(".heic") || name.endsWith(".heif") || file.type === "image/heic" || file.type === "image/heif") {
+      return convertHEICToJPEG(file);
+    }
+    // Raw fallback
+    const buffer = await file.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+    let binary = "";
+    const chunkSize = 8192;
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+    }
+    return { base64: btoa(binary), mediaType: getMediaType(file) };
   }
-  return { base64: btoa(binary), mediaType: getMediaType(file) };
 }
 
 function extractJSON(raw: string): any {
