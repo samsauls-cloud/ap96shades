@@ -780,6 +780,7 @@ export default function ReaderPage() {
         </Card>
 
 
+        {(queue.length > 0 || processing) && (
           <div className="space-y-3">
             <div className="flex flex-col sm:flex-row gap-2">
               <Button onClick={processQueue} disabled={processing} className="flex-1">
