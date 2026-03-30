@@ -391,6 +391,14 @@ export default function AuditPage() {
               </Card>
             </div>
 
+            {/* ── Full Reconciliation Audit ── */}
+            <ReconciliationAuditPanel
+              invoices={invoices as any[]}
+              payments={payments as any[]}
+              recSessions={recSessions as any[]}
+              recLines={recLines as any[]}
+            />
+
             {/* ── Invoice Data Audit ── */}
             <Section title="Invoice Data Audit" icon={FileText}>
               <Card className="bg-card border-border">
