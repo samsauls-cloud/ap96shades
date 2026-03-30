@@ -3,6 +3,13 @@ import type { VendorInvoice, LineItem } from "@/lib/supabase-queries";
 import { getLineItems } from "@/lib/supabase-queries";
 import { fetchAllRows } from "@/lib/supabase-fetch-all";
 
+/** Safely coerce a value to number — treats "", null, undefined, NaN as 0 */
+function safeNum(v: any): number {
+  if (v === null || v === undefined || v === "") return 0;
+  const n = Number(v);
+  return isNaN(n) ? 0 : n;
+}
+
 // Vendor → Brand mapping
 const VENDOR_BRAND_MAP: Record<string, string[]> = {
   Luxottica: ["RAY-BAN", "OAKLEY", "OLIVER PEOPLES", "RALPH", "VOGUE", "PERSOL"],
