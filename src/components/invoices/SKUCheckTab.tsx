@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { formatCurrency, getLineItems, type VendorInvoice, type LineItem } from "@/lib/supabase-queries";
-import { fetchAll } from "@/lib/supabase-fetch-all";
+
 
 type SKUStatus = "have_it" | "on_floor" | "received_not_shelved" | "billed_not_received" | "not_in_system" | "discontinued";
 
