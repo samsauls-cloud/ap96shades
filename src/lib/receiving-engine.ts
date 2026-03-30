@@ -4,10 +4,12 @@ import { getLineItems, type LineItem } from "@/lib/supabase-queries";
 // ── Lightspeed Vendor ID Map ──
 const LIGHTSPEED_VENDOR_MAP: Record<string, string> = {
   '14': 'Luxottica',
-  '15': 'Kering',
-  '1738': 'EOL',
-  '23': 'Marcolin',
+  '15': 'Maui Jim',
   '21': 'Marchon',
+  '23': 'Marcolin',
+  '25': 'Marchon',   // Nike Vision is distributed by Marchon
+  '52': 'Unknown',
+  '1738': 'EOL',
 };
 
 // ── EOL Brand → Real Vendor Map ──
