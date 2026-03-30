@@ -174,7 +174,7 @@ export async function setPaymentVoid(paymentId: string, reason: string): Promise
 export async function markPaymentPaid(paymentId: string): Promise<void> {
   const { data: current, error: fetchErr } = await supabase
     .from("invoice_payments")
-    .select("amount_due, amount_paid, payment_history")
+    .select("amount_due, amount_paid, payment_history, invoice_id")
     .eq("id", paymentId)
     .single();
   if (fetchErr) throw fetchErr;
@@ -194,6 +194,58 @@ export async function markPaymentPaid(paymentId: string): Promise<void> {
     } as any)
     .eq("id", paymentId);
   if (error) throw error;
+
+  // Sync parent invoice status
+  if (current.invoice_id) {
+    await syncInvoicePaymentStatus(current.invoice_id);
+  }
+}
+
+/** Sync vendor_invoices.status based on all installment statuses */
+export async function syncInvoicePaymentStatus(invoiceId: string): Promise<void> {
+  const { data: allInstallments, error: fetchErr } = await supabase
+    .from("invoice_payments")
+    .select("payment_status, balance_remaining")
+    .eq("invoice_id", invoiceId);
+  if (fetchErr) throw fetchErr;
+  if (!allInstallments || allInstallments.length === 0) return;
+
+  const allPaid = allInstallments.every(p => p.payment_status === "paid" || p.payment_status === "overpaid");
+  const anyPartial = allInstallments.some(p => p.payment_status === "partial");
+  const newStatus = allPaid ? "paid" : anyPartial ? "partial" : "unpaid";
+
+  const { error } = await supabase
+    .from("vendor_invoices")
+    .update({ status: newStatus } as any)
+    .eq("id", invoiceId);
+  if (error) throw error;
+}
+
+/** Mark ALL installments for an invoice as paid in one shot */
+export async function markAllInstallmentsPaid(invoiceId: string): Promise<void> {
+  const today = new Date().toISOString().split("T")[0];
+  const { data: installments, error: fetchErr } = await supabase
+    .from("invoice_payments")
+    .select("id, amount_due")
+    .eq("invoice_id", invoiceId);
+  if (fetchErr) throw fetchErr;
+
+  for (const inst of installments ?? []) {
+    const { error } = await supabase
+      .from("invoice_payments")
+      .update({
+        is_paid: true,
+        paid_date: today,
+        amount_paid: Number(inst.amount_due) || 0,
+        balance_remaining: 0,
+        payment_status: "paid",
+        last_payment_date: today,
+      } as any)
+      .eq("id", inst.id);
+    if (error) throw error;
+  }
+
+  await syncInvoicePaymentStatus(invoiceId);
 }
 
 export async function markPaymentUnpaid(paymentId: string): Promise<void> {
