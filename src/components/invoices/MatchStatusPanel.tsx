@@ -223,6 +223,7 @@ export function MatchStatusPanel() {
                     <TableCell className="text-xs text-right tabular-nums">{v.totalInvoices}</TableCell>
                     <TableCell className="text-xs text-right tabular-nums text-emerald-500 font-semibold">{v.matched}</TableCell>
                     <TableCell className={`text-xs text-right tabular-nums font-semibold ${cellColor(v.waitingReceipt)}`}>{v.waitingReceipt}</TableCell>
+                    <TableCell className={`text-xs text-right tabular-nums font-semibold ${v.matchedException > 0 ? "text-destructive" : "text-muted-foreground"}`}>{v.matchedException}</TableCell>
                     <TableCell className={`text-xs text-right tabular-nums font-semibold ${cellColor(v.pendingReview)}`}>{v.pendingReview}</TableCell>
                     <TableCell className={`text-xs text-right tabular-nums font-semibold ${cellColor(v.receiptsWaitingInvoice)}`}>{v.receiptsWaitingInvoice}</TableCell>
                   </TableRow>
