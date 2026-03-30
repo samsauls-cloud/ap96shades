@@ -10,7 +10,7 @@ import { Switch } from "@/components/ui/switch";
 import { Link } from "react-router-dom";
 import { InvoiceNav } from "@/components/invoices/InvoiceNav";
 import { DocTypeBadge } from "@/components/invoices/Badges";
-import { insertInvoice, formatCurrency, type VendorInvoiceInsert, getLineItems } from "@/lib/supabase-queries";
+import { insertInvoice, formatCurrency, type VendorInvoiceInsert, getLineItems, isProforma } from "@/lib/supabase-queries";
 import { checkPendingMatches } from "@/lib/pending-match";
 import { generatePaymentsForInvoice } from "@/lib/payment-queries";
 import {
