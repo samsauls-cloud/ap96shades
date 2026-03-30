@@ -26,6 +26,7 @@ import {
 } from "@/lib/invoice-dedup";
 import { parseCSVToPOs, fileToText } from "@/lib/csv-po-parser";
 import { isImageFile, imageToBase64, callAnthropicImageAPI } from "@/lib/photo-capture-engine";
+import { runQuickSKUCheck, type SKUCheckResult } from "@/lib/sku-check-engine";
 
 function formatElapsed(ms: number): string {
   const s = Math.floor(ms / 1000);
@@ -50,6 +51,7 @@ export default function ReaderPage() {
   const [isRetrying, setIsRetrying] = useState(false);
   const failedRef = useRef<HTMLDivElement>(null);
   const fileMapRef = useRef<Map<string, File>>(new Map());
+  const [skuResults, setSkuResults] = useState<Map<string, SKUCheckResult>>(new Map());
 
   const saveApiKey = (key: string) => {
     const cleanKey = key.replace(/[^\x20-\x7E]/g, '').trim();
@@ -123,6 +125,7 @@ export default function ReaderPage() {
           status: "done", vendor: invoice.vendor, doc_type: invoice.doc_type,
           invoice_number: invoice.invoice_number, total: invoice.total || 0,
           line_items_count: lineItemsCount, dbId: saved.id,
+          invoiceData: invoice,
           extendedInfo: needsReview
             ? "⚠ Some fields may need verification — photo quality affected extraction."
             : undefined,
@@ -133,6 +136,12 @@ export default function ReaderPage() {
           await generatePaymentsForInvoice(
             saved.id, invoice.invoice_date, invoice.total || 0, invoice.vendor, invoice.invoice_number, invoice.po_number ?? null
           );
+        } catch { /* silent */ }
+
+        // Auto-run SKU check and attach results
+        try {
+          const skuResult = await runQuickSKUCheck(parsed.line_items || []);
+          setSkuResults(prev => new Map(prev).set(docId, skuResult));
         } catch { /* silent */ }
 
         queryClient.invalidateQueries({ queryKey: ["vendor_invoices"] });
@@ -937,9 +946,34 @@ export default function ReaderPage() {
                             )}
                           </div>
                           {(d.status === "done" || d.status === "staged") && (
-                            <p className="text-[10px] text-muted-foreground break-words">
-                              {d.vendor} — {d.invoice_number} — {formatCurrency(d.total)} — {d.line_items_count} items
-                            </p>
+                            <div className="space-y-1">
+                              <p className="text-[10px] text-muted-foreground break-words">
+                                {d.vendor} — <span className="text-amber-400 font-semibold">{d.invoice_number}</span>
+                                {d.invoiceData?.po_number && <> — PO <span className="text-amber-400 font-semibold">{d.invoiceData.po_number}</span></>}
+                                {" "}— {formatCurrency(d.total)} — {d.line_items_count} items
+                              </p>
+                              {(() => {
+                                const sku = skuResults.get(d.id);
+                                if (!sku) return null;
+                                const s = sku.summary;
+                                return (
+                                  <div className="space-y-1 mt-1">
+                                    <p className="text-[10px] text-muted-foreground">
+                                      <span className="font-medium">{s.inSystem}</span> of {s.total} SKUs found in system
+                                      {s.onFloor > 0 && <> · <span className="font-medium">{s.onFloor}</span> on floor</>}
+                                      {s.haveIt > 0 && <> · <span className="font-medium">{s.haveIt}</span> in stock</>}
+                                      {s.receivedNotShelved > 0 && <> · <span className="font-medium">{s.receivedNotShelved}</span> received not shelved</>}
+                                      {s.notInSystem > 0 && <> · <span className="font-medium">{s.notInSystem}</span> not in system</>}
+                                    </p>
+                                    {sku.billedNotReceivedCount > 0 && (
+                                      <p className="text-[10px] font-semibold text-orange-400 bg-orange-500/10 rounded px-2 py-1 inline-block">
+                                        ⚠ {sku.billedNotReceivedCount} item{sku.billedNotReceivedCount > 1 ? "s" : ""} billed but no receiving record — check Lightspeed
+                                      </p>
+                                    )}
+                                  </div>
+                                );
+                              })()}
+                            </div>
                           )}
                           {d.status === "extended" && d.extendedInfo && (
                             <p className="text-[10px] text-blue-500 break-words">{d.extendedInfo}</p>
