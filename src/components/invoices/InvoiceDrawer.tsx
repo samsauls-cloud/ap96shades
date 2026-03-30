@@ -211,57 +211,67 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
 
         <Separator className="mb-4" />
 
-        {/* Line items */}
-        <div className="mb-4">
-          <h3 className="text-xs font-semibold text-muted-foreground mb-2">Line Items ({lineItems.length})</h3>
-          {lineItems.length > 0 ? (
-            <div className="rounded border border-border overflow-auto max-h-[400px]">
-              <Table>
-                <TableHeader>
-                  <TableRow className="border-border text-[10px]">
-                    <TableHead className="text-[10px] font-semibold">UPC</TableHead>
-                    <TableHead className="text-[10px] font-semibold">Item #</TableHead>
-                    <TableHead className="text-[10px] font-semibold">Brand</TableHead>
-                    <TableHead className="text-[10px] font-semibold">Model</TableHead>
-                    <TableHead className="text-[10px] font-semibold">Color</TableHead>
-                    <TableHead className="text-[10px] font-semibold">Color Desc</TableHead>
-                    <TableHead className="text-[10px] font-semibold">Size</TableHead>
-                    <TableHead className="text-[10px] font-semibold">Temple</TableHead>
-                    <TableHead className="text-[10px] font-semibold text-right">Ord</TableHead>
-                    <TableHead className="text-[10px] font-semibold text-right">Ship</TableHead>
-                    <TableHead className="text-[10px] font-semibold text-right">Price</TableHead>
-                    <TableHead className="text-[10px] font-semibold text-right">Total</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {lineItems.map((li, i) => {
-                    const shortShip = (li.qty_shipped != null && li.qty_ordered != null && li.qty_shipped < li.qty_ordered);
-                    return (
-                      <TableRow key={i} className="border-border">
-                        <TableCell className="text-[10px] font-mono">{li.upc ?? "—"}</TableCell>
-                        <TableCell className="text-[10px] font-mono">{li.item_number ?? "—"}</TableCell>
-                        <TableCell className="text-[10px]">{li.brand ?? "—"}</TableCell>
-                        <TableCell className="text-[10px]">{li.model ?? "—"}</TableCell>
-                        <TableCell className="text-[10px] font-mono">{li.color_code ?? "—"}</TableCell>
-                        <TableCell className="text-[10px]">{li.color_desc ?? "—"}</TableCell>
-                        <TableCell className="text-[10px]">{li.size ?? "—"}</TableCell>
-                        <TableCell className="text-[10px]">{li.temple ?? "—"}</TableCell>
-                        <TableCell className="text-[10px] text-right tabular-nums">{li.qty_ordered ?? "—"}</TableCell>
-                        <TableCell className={`text-[10px] text-right tabular-nums ${shortShip ? "text-status-unpaid font-bold" : ""}`}>
-                          {li.qty_shipped ?? "—"}
-                        </TableCell>
-                        <TableCell className="text-[10px] text-right tabular-nums">{formatCurrency(li.unit_price)}</TableCell>
-                        <TableCell className="text-[10px] text-right tabular-nums font-medium">{formatCurrency(li.line_total)}</TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </div>
-          ) : (
-            <p className="text-xs text-muted-foreground">No line items</p>
-          )}
-        </div>
+        {/* Line Items / SKU Check Tabs */}
+        <Tabs defaultValue="line-items" className="mb-4">
+          <TabsList className="h-8">
+            <TabsTrigger value="line-items" className="text-xs h-6">Line Items ({lineItems.length})</TabsTrigger>
+            <TabsTrigger value="sku-check" className="text-xs h-6 gap-1">
+              <ScanSearch className="h-3 w-3" /> SKU Check
+            </TabsTrigger>
+          </TabsList>
+          <TabsContent value="line-items">
+            {lineItems.length > 0 ? (
+              <div className="rounded border border-border overflow-auto max-h-[400px]">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="border-border text-[10px]">
+                      <TableHead className="text-[10px] font-semibold">UPC</TableHead>
+                      <TableHead className="text-[10px] font-semibold">Item #</TableHead>
+                      <TableHead className="text-[10px] font-semibold">Brand</TableHead>
+                      <TableHead className="text-[10px] font-semibold">Model</TableHead>
+                      <TableHead className="text-[10px] font-semibold">Color</TableHead>
+                      <TableHead className="text-[10px] font-semibold">Color Desc</TableHead>
+                      <TableHead className="text-[10px] font-semibold">Size</TableHead>
+                      <TableHead className="text-[10px] font-semibold">Temple</TableHead>
+                      <TableHead className="text-[10px] font-semibold text-right">Ord</TableHead>
+                      <TableHead className="text-[10px] font-semibold text-right">Ship</TableHead>
+                      <TableHead className="text-[10px] font-semibold text-right">Price</TableHead>
+                      <TableHead className="text-[10px] font-semibold text-right">Total</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {lineItems.map((li, i) => {
+                      const shortShip = (li.qty_shipped != null && li.qty_ordered != null && li.qty_shipped < li.qty_ordered);
+                      return (
+                        <TableRow key={i} className="border-border">
+                          <TableCell className="text-[10px] font-mono">{li.upc ?? "—"}</TableCell>
+                          <TableCell className="text-[10px] font-mono">{li.item_number ?? "—"}</TableCell>
+                          <TableCell className="text-[10px]">{li.brand ?? "—"}</TableCell>
+                          <TableCell className="text-[10px]">{li.model ?? "—"}</TableCell>
+                          <TableCell className="text-[10px] font-mono">{li.color_code ?? "—"}</TableCell>
+                          <TableCell className="text-[10px]">{li.color_desc ?? "—"}</TableCell>
+                          <TableCell className="text-[10px]">{li.size ?? "—"}</TableCell>
+                          <TableCell className="text-[10px]">{li.temple ?? "—"}</TableCell>
+                          <TableCell className="text-[10px] text-right tabular-nums">{li.qty_ordered ?? "—"}</TableCell>
+                          <TableCell className={`text-[10px] text-right tabular-nums ${shortShip ? "text-status-unpaid font-bold" : ""}`}>
+                            {li.qty_shipped ?? "—"}
+                          </TableCell>
+                          <TableCell className="text-[10px] text-right tabular-nums">{formatCurrency(li.unit_price)}</TableCell>
+                          <TableCell className="text-[10px] text-right tabular-nums font-medium">{formatCurrency(li.line_total)}</TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">No line items</p>
+            )}
+          </TabsContent>
+          <TabsContent value="sku-check">
+            <SKUCheckTab invoice={inv} />
+          </TabsContent>
+        </Tabs>
 
         {/* Match Report */}
         <MatchReportSection invoice={inv} />
