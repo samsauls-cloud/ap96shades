@@ -101,42 +101,37 @@ export function SKUCheckTab({ invoice }: Props) {
       const sku = li.item_number || li.sku || "";
       const lookupKeys = [upc, sku].filter(Boolean);
 
-      const assortment = lookupKeys.reduce<any>((found, key) => found || assortmentMap.get(key), null);
+      const itemMaster = lookupKeys.reduce<any>((found, key) => found || itemMasterMap.get(key), null);
       const planogram = lookupKeys.reduce<any>((found, key) => found || planogramMap.get(key), null);
       const receiving = lookupKeys.reduce<any>((found, key) => found || receivingMap.get(key), null);
+      const inventory = lookupKeys.reduce<any>((found, key) => found || inventoryMap.get(key), null);
 
       // Determine status
       let status: SKUStatus = "not_in_system";
+      const qtyOnHand = inventory?.quantity_on_hand ?? 0;
 
       if (planogram && (planogram.is_vendor_discontinued || planogram.is_discontinued)) {
         status = "discontinued";
+      } else if (inventory && qtyOnHand > 0) {
+        status = "have_it";
       } else if (planogram && planogram.go_out_location) {
         status = "on_floor";
-      } else if (assortment) {
-        status = "have_it";
       } else if (receiving && (receiving.received_qty || 0) > 0 && !planogram) {
         status = "received_not_shelved";
+      } else if (itemMaster && !receiving) {
+        status = "billed_not_received";
       } else if (receiving && (receiving.not_received_qty || 0) > 0) {
         status = "billed_not_received";
-      } else if (!assortment && !planogram && !receiving) {
+      } else if (!itemMaster && !planogram && !receiving && !inventory) {
         status = "not_in_system";
-      }
-
-      // If on invoice but no receiving record and not in system
-      if (!receiving && !assortment && !planogram) {
-        status = "not_in_system";
-      } else if (!receiving || (receiving.not_received_qty || 0) > 0) {
-        if (status === "not_in_system" && (assortment || planogram)) {
-          status = "billed_not_received";
-        }
       }
 
       // Cost variance
       const invoicePrice = li.unit_price ?? 0;
-      const refCost = receiving?.unit_cost ?? assortment?.wholesale ?? null;
+      const refCost = receiving?.unit_cost ?? itemMaster?.wholesale_price ?? null;
       let costVariance: number | null = null;
       let costVariancePercent: number | null = null;
-      if (refCost != null && invoicePrice > 0) {
+      if (refCost != null && invoicePrice > 0 && refCost > 0) {
         costVariance = invoicePrice - refCost;
         costVariancePercent = (costVariance / refCost) * 100;
       }
@@ -147,7 +142,7 @@ export function SKUCheckTab({ invoice }: Props) {
         description: li.description || li.brand ? `${li.brand || ""} ${li.model || ""}`.trim() : "—",
         billedQty: li.qty_shipped ?? li.qty_ordered ?? li.qty ?? 0,
         billedCost: invoicePrice,
-        onHand: assortment ? "✓" : "—",
+        onHand: inventory ? `${qtyOnHand}` : (itemMaster ? "✓" : "—"),
         onFloor: planogram?.go_out_location || "—",
         received: receiving ? `${receiving.received_qty ?? 0}` : "—",
         status,
