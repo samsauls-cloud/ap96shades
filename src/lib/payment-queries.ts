@@ -436,6 +436,8 @@ export async function runFullAudit(): Promise<AuditResult> {
   // 1. Missing payments
   const paymentInvoiceIds = new Set(payments.map((p: any) => p.invoice_id));
   const missingPayments = invoices.filter(inv => {
+    const dt = (inv.doc_type || "").toLowerCase();
+    if (dt === "proforma" || dt === "pro-forma" || dt === "pro forma") return false;
     const normalized = normalizeVendor(inv.vendor);
     return !paymentInvoiceIds.has(inv.id) && isKnownVendor(normalized) && inv.doc_type === "INVOICE";
   }).map(inv => ({
