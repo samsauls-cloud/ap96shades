@@ -400,6 +400,11 @@ export default function AuditPage() {
               recLines={recLines as any[]}
             />
 
+            {/* ── Vendor Receiving Coverage ── */}
+            <Section title="Vendor Receiving Coverage" icon={PackageCheck}>
+              <VendorCoveragePanel />
+            </Section>
+
             {/* ── Invoice Data Audit ── */}
             <Section title="Invoice Data Audit" icon={FileText}>
               <Card className="bg-card border-border">
