@@ -62,10 +62,13 @@ export default function ReaderPage() {
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
-    const files = Array.from(e.dataTransfer.files).filter(isAcceptedFile);
-    if (files.length === 0) { toast.error("Only PDF and CSV files are supported"); return; }
-    setQueue(prev => [...prev, ...files]);
-  }, []);
+    const files = Array.from(e.dataTransfer.files).filter(f => isAcceptedFile(f) || isImageFile(f));
+    if (files.length === 0) { toast.error("Only PDF, CSV, and image files are supported"); return; }
+    const images = files.filter(isImageFile);
+    const others = files.filter(f => !isImageFile(f));
+    if (images.length > 0) processPhotoFiles(images);
+    if (others.length > 0) setQueue(prev => [...prev, ...others]);
+  }, [apiKey]);
 
   const handleFileInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []).filter(isAcceptedFile);
@@ -73,6 +76,74 @@ export default function ReaderPage() {
     setQueue(prev => [...prev, ...files]);
     e.target.value = "";
   }, []);
+
+  const handlePhotoInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []).filter(isImageFile);
+    if (files.length === 0) return;
+    processPhotoFiles(files);
+    e.target.value = "";
+  }, [apiKey]);
+
+  const processPhotoFiles = async (files: File[]) => {
+    if (!apiKey) { toast.error("Please enter your Anthropic API key for photo processing"); return; }
+    for (const file of files) {
+      const docId = crypto.randomUUID();
+      setDocs(prev => [...prev, {
+        id: docId, filename: file.name, vendor: "", doc_type: "",
+        invoice_number: "", total: 0, line_items_count: 0,
+        status: "processing" as const, file,
+      }]);
+
+      try {
+        const { base64, mediaType } = await imageToBase64(file);
+        const parsed = await callAnthropicImageAPI(apiKey, base64, mediaType);
+        const invoice = parsedToInvoice(parsed, file.name);
+        invoice.import_source = "photo_capture";
+
+        const lineItemsCount = (parsed.line_items || []).length;
+
+        // Dedup check
+        const dedupResult = await checkInvoiceDuplicate(
+          invoice.invoice_number, invoice.vendor, parsed.line_items || [], invoice.total || 0
+        );
+
+        if (dedupResult.type === "true_duplicate") {
+          updateDoc(docId, {
+            status: "duplicate", vendor: invoice.vendor, doc_type: invoice.doc_type,
+            invoice_number: invoice.invoice_number, total: invoice.total || 0,
+            line_items_count: lineItemsCount, duplicateDbId: dedupResult.existingId,
+          });
+          continue;
+        }
+
+        const saved = await insertInvoice(invoice);
+        const needsReview = parsed.needs_review === true;
+
+        updateDoc(docId, {
+          status: "done", vendor: invoice.vendor, doc_type: invoice.doc_type,
+          invoice_number: invoice.invoice_number, total: invoice.total || 0,
+          line_items_count: lineItemsCount, dbId: saved.id,
+          extendedInfo: needsReview
+            ? "⚠ Some fields may need verification — photo quality affected extraction."
+            : undefined,
+        });
+
+        // Auto-generate payments
+        try {
+          await generatePaymentsForInvoice(
+            saved.id, invoice.invoice_date, invoice.total || 0, invoice.vendor, invoice.invoice_number, invoice.po_number ?? null
+          );
+        } catch { /* silent */ }
+
+        queryClient.invalidateQueries({ queryKey: ["vendor_invoices"] });
+        queryClient.invalidateQueries({ queryKey: ["invoice_stats"] });
+        toast.success(`📷 Photo invoice extracted: ${invoice.vendor} — ${invoice.invoice_number}`);
+      } catch (err: any) {
+        updateDoc(docId, { status: "error", error: err.message || "Photo extraction failed" });
+        toast.error(`Photo extraction failed: ${err.message}`);
+      }
+    }
+  };
 
   const updateDoc = useCallback((docId: string, updates: Partial<ProcessedDoc>) => {
     setDocs(prev => prev.map(d => d.id === docId ? { ...d, ...updates } : d));
