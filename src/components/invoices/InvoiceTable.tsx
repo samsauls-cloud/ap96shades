@@ -110,7 +110,7 @@ export function InvoiceTable({ invoices, filters, onSort, onRowClick, totalCount
                     ))}
                   </div>
                 </TableCell>
-                <TableCell><StatusBadge status={inv.status} /></TableCell>
+                <TableCell><StatusBadge status={inv.status} docType={inv.doc_type} /></TableCell>
                 <TableCell>
                   <span
                     className="cursor-pointer"
