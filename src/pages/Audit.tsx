@@ -354,11 +354,16 @@ export default function AuditPage() {
               <Card className="bg-card border-border">
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between mb-1">
-                    <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Total AP Value</span>
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Confirmed AP Liability</span>
                     <DollarSign className="h-3.5 w-3.5 text-primary opacity-70" />
                   </div>
                   <p className="text-lg font-bold tracking-tight">{formatCurrency(invoiceStats.invoiceTotal)}</p>
-                  <p className="text-[10px] text-muted-foreground">{invoiceStats.invoiceCount} invoices</p>
+                  <p className="text-[10px] text-muted-foreground">
+                    {invoiceStats.invoiceCount} invoices (confirmed terms)
+                    {invoiceStats.needsReviewCount > 0 && (
+                      <span className="text-amber-500 ml-1">+ {formatCurrency(invoiceStats.needsReviewTotal)} needs review</span>
+                    )}
+                  </p>
                 </CardContent>
               </Card>
               <Card className="bg-card border-destructive/30">
