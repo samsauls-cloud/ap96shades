@@ -127,14 +127,26 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
           </SheetTitle>
         </SheetHeader>
 
-        {/* Proforma banner */}
+        {/* Proforma banner + link action */}
         {isProforma(inv) && (
-          <div className="mb-4 p-3 rounded-lg bg-destructive/10 border border-destructive/30">
-            <p className="text-sm font-semibold text-destructive flex items-center gap-2">
-              🚫 PROFORMA — NOT INCLUDED IN AP TOTALS
-            </p>
-            <p className="text-xs text-muted-foreground mt-1">
-              Real invoice expected. When received, upload the financial invoice to replace this.
+          <>
+            <div className="mb-4 p-3 rounded-lg bg-destructive/10 border border-destructive/30">
+              <p className="text-sm font-semibold text-destructive flex items-center gap-2">
+                🚫 PROFORMA — NOT INCLUDED IN AP TOTALS
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Real invoice expected. When received, upload the financial invoice to replace this.
+              </p>
+            </div>
+            <LinkRealInvoice proforma={inv} onLinked={onUpdate} />
+          </>
+        )}
+
+        {/* Linked proforma banner (shown on real invoices) */}
+        {(inv as any).linked_proforma_id && (
+          <div className="mb-4 p-3 rounded-lg bg-primary/5 border border-primary/20">
+            <p className="text-xs text-primary font-medium flex items-center gap-1.5">
+              <FileCheck className="h-3.5 w-3.5" /> Proforma on file: {inv.po_number || inv.invoice_number}
             </p>
           </div>
         )}
