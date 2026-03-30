@@ -184,16 +184,42 @@ export function parsedToInvoice(parsed: any, filename: string): VendorInvoiceIns
       : discountNote
     : existingNotes || null;
 
+  // Determine terms_status from extraction confidence
+  const extractedTerms = parsed.payment_terms_extracted;
+  const confidence = extractedTerms?.confidence ?? "low";
+  const docType = parsed.doc_type || "INVOICE";
+  const isProformaDoc = docType.toLowerCase().includes("proforma") || docType.toLowerCase().includes("pro forma") || docType.toLowerCase().includes("pro-forma");
+
+  let termsStatus = "needs_review";
+  let termsConfidence = confidence;
+  if (isProformaDoc) {
+    termsStatus = "proforma";
+    termsConfidence = null;
+  } else if (confidence === "high") {
+    termsStatus = "confirmed";
+  } else if (confidence === "medium") {
+    termsStatus = "confirmed"; // Include in AP but flagged
+  }
+  // low or unknown → needs_review
+
+  // Handle FOB: if payment_terms is FOB-only, clear it
+  let paymentTerms = parsed.payment_terms;
+  const shippingTerms = parsed.shipping_terms || extractedTerms?.shipping_terms || null;
+  if (paymentTerms && typeof paymentTerms === "string") {
+    const cleaned = paymentTerms.replace(/\bfob\b[\s\w]*/gi, "").trim();
+    if (cleaned === "" || cleaned === ",") paymentTerms = null;
+  }
+
   return {
     vendor,
-    doc_type: parsed.doc_type || "INVOICE",
+    doc_type: docType,
     invoice_number: parsed.invoice_number || filename,
     invoice_date: parsed.invoice_date || new Date().toISOString().split("T")[0],
     po_number: parsed.po_number,
     account_number: parsed.account_number,
     ship_to: parsed.ship_to,
     carrier: parsed.carrier,
-    payment_terms: parsed.payment_terms,
+    payment_terms: paymentTerms,
     subtotal: subtotal ?? parsed.subtotal,
     tax: parsed.tax,
     freight: parsed.freight,
@@ -203,6 +229,14 @@ export function parsedToInvoice(parsed: any, filename: string): VendorInvoiceIns
     notes: combinedNotes,
     filename,
     line_items: lineItems,
+    // New terms columns (cast to any for TS compat until types regenerate)
+    ...(({
+      terms_status: termsStatus,
+      terms_confidence: termsConfidence,
+      payment_terms_extracted: extractedTerms || null,
+      payment_terms_source: "extraction",
+      shipping_terms: shippingTerms,
+    }) as any),
   };
 }
 
