@@ -16,7 +16,7 @@ import { MatchReportSection } from "./MatchReportSection";
 import { TagInput } from "./TagInput";
 import { SKUCheckTab } from "./SKUCheckTab";
 import type { VendorInvoice, InvoiceStatus } from "@/lib/supabase-queries";
-import { formatCurrency, formatDate, getLineItems, getTotalUnits, lineItemsToCSV, updateInvoiceStatus, updateInvoiceNotes, updateInvoiceTags, fetchDistinctTags, deleteInvoice } from "@/lib/supabase-queries";
+import { formatCurrency, formatDate, getLineItems, getTotalUnits, lineItemsToCSV, updateInvoiceStatus, updateInvoiceNotes, updateInvoiceTags, fetchDistinctTags, deleteInvoice, isProforma } from "@/lib/supabase-queries";
 import { generatePaymentsForInvoice, fetchPaymentsForInvoice } from "@/lib/payment-queries";
 import { hasTermsEngine } from "@/lib/payment-terms";
 import { supabase } from "@/integrations/supabase/client";
