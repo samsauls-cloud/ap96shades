@@ -312,8 +312,22 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
           staleReason={(inv as any).recon_stale_reason}
           enteredAfterRecon={(inv as any).entered_after_recon === true}
         />
-        {/* Payment schedule — never show for proformas */}
-        {!isProforma(inv) && hasTermsEngine(inv.vendor) && (
+        {/* Terms Confirmation Panel — show when needs_review */}
+        {!isProforma(inv) && (inv as any).terms_status === "needs_review" && (
+          <TermsConfirmationPanel invoice={inv} onConfirmed={onUpdate} />
+        )}
+
+        {/* Medium confidence banner */}
+        {!isProforma(inv) && (inv as any).terms_confidence === "medium" && (inv as any).terms_status === "confirmed" && (
+          <div className="mb-4 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+            <p className="text-xs text-amber-700 font-medium flex items-center gap-1.5">
+              <AlertCircle className="h-3.5 w-3.5" /> Terms interpreted — verify before payment
+            </p>
+          </div>
+        )}
+
+        {/* Payment schedule — show for confirmed or when payments exist */}
+        {!isProforma(inv) && ((inv as any).terms_status === "confirmed" || existingPayments.length > 0) && (
           <div className="mb-4">
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-xs font-semibold text-muted-foreground">Payment Schedule</h3>
@@ -333,7 +347,7 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
                       queryClient.invalidateQueries({ queryKey: ["invoice_payments_detail", inv.id] });
                       queryClient.invalidateQueries({ queryKey: ["invoice_payments"] });
                       queryClient.invalidateQueries({ queryKey: ["invoice_stats"] });
-                      queryClient.invalidateQueries({ queryKey: ["ap_audit"] });
+                      queryClient.invalidateQueries({ queryKey: ["ap_full_audit"] });
                     } catch { toast.error("Failed to generate payments"); }
                     finally { setGeneratingPayments(false); }
                   }}
