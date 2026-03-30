@@ -103,6 +103,8 @@ export default function InvoicesPage() {
     queryClient.invalidateQueries({ queryKey: ["distinct_vendors"] });
     queryClient.invalidateQueries({ queryKey: ["distinct_tags"] });
     queryClient.invalidateQueries({ queryKey: ["vendor_invoices_po_view"] });
+    queryClient.invalidateQueries({ queryKey: ["needs_review_invoices"] });
+    queryClient.invalidateQueries({ queryKey: ["needs_review_count"] });
   };
 
   const exportFilteredCSV = () => {
