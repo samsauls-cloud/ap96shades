@@ -257,7 +257,7 @@ export async function runFullReconciliation(
   for (const inv of invoices) {
     const lines = getLineItems(inv);
     if (lines.length === 0) continue;
-    const lineSum = lines.reduce((s, li) => s + (li.line_total ?? 0), 0);
+    const lineSum = lines.reduce((s, li) => s + safeNum(li.line_total), 0);
     const delta = inv.total - lineSum;
     if (Math.abs(delta) > 1) {
       discrepancies.push({
