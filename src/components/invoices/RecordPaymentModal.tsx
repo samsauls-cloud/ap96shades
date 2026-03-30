@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { AlertCircle, CheckCircle2, DollarSign, Clock, Ban, AlertTriangle } from "lucide-react";
 import { formatCurrency } from "@/lib/supabase-queries";
-import { type InvoicePayment, type PaymentHistoryEntry, recordPayment, setPaymentDisputed, setPaymentVoid } from "@/lib/payment-queries";
+import { type InvoicePayment, type PaymentHistoryEntry, recordPayment, setPaymentDisputed, setPaymentVoid, markPaymentPaid } from "@/lib/payment-queries";
 import { toast } from "sonner";
 import { PaymentStatusBadge } from "./PaymentStatusBadge";
 

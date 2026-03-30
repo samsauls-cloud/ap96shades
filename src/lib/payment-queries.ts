@@ -153,6 +153,11 @@ export async function recordPayment(
     } as any)
     .eq("id", paymentId);
   if (error) throw error;
+
+  // Sync parent invoice status
+  if (current.invoice_id) {
+    await syncInvoicePaymentStatus(current.invoice_id);
+  }
 }
 
 export async function setPaymentDisputed(paymentId: string, reason: string): Promise<void> {
