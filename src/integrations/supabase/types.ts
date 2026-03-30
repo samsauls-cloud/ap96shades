@@ -845,6 +845,30 @@ export type Database = {
         }
         Relationships: []
       }
+      vendor_alias_map: {
+        Row: {
+          aliases: string[]
+          created_at: string
+          id: string
+          vendor_id: string
+          vendor_name: string
+        }
+        Insert: {
+          aliases?: string[]
+          created_at?: string
+          id?: string
+          vendor_id: string
+          vendor_name: string
+        }
+        Update: {
+          aliases?: string[]
+          created_at?: string
+          id?: string
+          vendor_id?: string
+          vendor_name?: string
+        }
+        Relationships: []
+      }
       vendor_invoices: {
         Row: {
           account_number: string | null
