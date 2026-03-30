@@ -51,6 +51,7 @@ export default function ReaderPage() {
   const [isRetrying, setIsRetrying] = useState(false);
   const failedRef = useRef<HTMLDivElement>(null);
   const fileMapRef = useRef<Map<string, File>>(new Map());
+  const [skuResults, setSkuResults] = useState<Map<string, SKUCheckResult>>(new Map());
 
   const saveApiKey = (key: string) => {
     const cleanKey = key.replace(/[^\x20-\x7E]/g, '').trim();
