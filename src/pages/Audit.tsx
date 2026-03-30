@@ -175,7 +175,7 @@ export default function AuditPage() {
   // ── Lightspeed match stats ──
   const lsMatches = (() => {
     if (invoices.length === 0) return { results: [] as LSMatchResult[], fullyReceived: 0, partial: 0, notFound: 0 };
-    const results = computeLSMatches(invoices, recSessions, recLines);
+    const results = buildLSMatchResults(invoices, recSessions, recLines);
     return {
       results,
       fullyReceived: results.filter(r => r.status === "fully_received").length,
