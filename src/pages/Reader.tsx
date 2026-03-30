@@ -736,7 +736,50 @@ export default function ReaderPage() {
           </CardContent>
         </Card>
 
-        {(queue.length > 0 || processing) && (
+        {/* Divider */}
+        <div className="flex items-center gap-3">
+          <div className="flex-1 border-t border-border" />
+          <span className="text-xs text-muted-foreground font-medium">or</span>
+          <div className="flex-1 border-t border-border" />
+        </div>
+
+        {/* Photo Capture Zone */}
+        <Card className="bg-card border-border border-dashed">
+          <CardContent className="p-8 flex flex-col items-center justify-center text-center">
+            <Camera className="h-10 w-10 text-muted-foreground mb-3" />
+            <p className="text-sm font-medium mb-1">📷 Photo Capture</p>
+            <p className="text-xs text-muted-foreground mb-3">Take a photo of a printed invoice or upload from photo library</p>
+            <div className="flex gap-2">
+              <label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={handlePhotoInput}
+                  className="hidden"
+                />
+                <Button variant="default" size="sm" className="text-xs gap-1" asChild>
+                  <span><Camera className="h-3 w-3" /> Camera</span>
+                </Button>
+              </label>
+              <label>
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/heic,image/heif,image/webp"
+                  multiple
+                  onChange={handlePhotoInput}
+                  className="hidden"
+                />
+                <Button variant="outline" size="sm" className="text-xs gap-1" asChild>
+                  <span><ImageIcon className="h-3 w-3" /> Upload Photo</span>
+                </Button>
+              </label>
+            </div>
+            <p className="text-[10px] text-muted-foreground mt-2">Supports JPG, PNG, HEIC, WEBP</p>
+          </CardContent>
+        </Card>
+
+
           <div className="space-y-3">
             <div className="flex flex-col sm:flex-row gap-2">
               <Button onClick={processQueue} disabled={processing} className="flex-1">
