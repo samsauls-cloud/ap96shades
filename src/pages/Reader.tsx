@@ -948,8 +948,21 @@ export default function ReaderPage() {
                           {(d.status === "done" || d.status === "staged") && (
                             <div className="space-y-1">
                               <p className="text-[10px] text-muted-foreground break-words">
-                                {d.vendor} — <span className="text-amber-400 font-semibold">{d.invoice_number}</span>
-                                {d.invoiceData?.po_number && <> — PO <span className="text-amber-400 font-semibold">{d.invoiceData.po_number}</span></>}
+                                {d.vendor} —{" "}
+                                {d.dbId ? (
+                                  <Link to={`/invoices?open=${d.dbId}`} className="text-amber-400 font-semibold hover:underline">{d.invoice_number}</Link>
+                                ) : (
+                                  <span className="text-amber-400 font-semibold">{d.invoice_number}</span>
+                                )}
+                                {d.invoiceData?.po_number && (
+                                  <>{" "}— PO{" "}
+                                    {d.dbId ? (
+                                      <Link to={`/invoices?open=${d.dbId}`} className="text-amber-400 font-semibold hover:underline">{d.invoiceData.po_number}</Link>
+                                    ) : (
+                                      <span className="text-amber-400 font-semibold">{d.invoiceData.po_number}</span>
+                                    )}
+                                  </>
+                                )}
                                 {" "}— {formatCurrency(d.total)} — {d.line_items_count} items
                               </p>
                               {(() => {
