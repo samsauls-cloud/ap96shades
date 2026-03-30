@@ -997,7 +997,7 @@ export default function ReaderPage() {
                         </div>
                       </div>
                       {(d.status === "done" || d.status === "extended") && d.dbId && (
-                        <Link to="/invoices" className="flex items-center gap-1 text-xs text-primary hover:underline shrink-0">
+                        <Link to={`/invoices?open=${d.dbId}`} className="flex items-center gap-1 text-xs text-primary hover:underline shrink-0">
                           View <ExternalLink className="h-3 w-3" />
                         </Link>
                       )}

@@ -1,4 +1,5 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Download, Package, List } from "lucide-react";
@@ -17,9 +18,11 @@ import { POView } from "@/components/invoices/POView";
 
 export default function InvoicesPage() {
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [filters, setFilters] = useState<InvoiceFilters>({ page: 1, perPage: 25, sortField: "invoice_date", sortDir: "desc" });
   const [selectedInvoice, setSelectedInvoice] = useState<VendorInvoice | null>(null);
   const [viewMode, setViewMode] = useState<"list" | "po">("list");
+  const openHandledRef = useRef(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["vendor_invoices", filters],
@@ -54,6 +57,32 @@ export default function InvoicesPage() {
       }
     }
   }, [invoices, selectedInvoice]);
+
+  // Deep-link: auto-open invoice drawer from ?open=<id>
+  useEffect(() => {
+    const openId = searchParams.get("open");
+    if (!openId || openHandledRef.current) return;
+    // Try to find in current page first
+    const found = invoices.find(i => i.id === openId);
+    if (found) {
+      setSelectedInvoice(found);
+      openHandledRef.current = true;
+      searchParams.delete("open");
+      setSearchParams(searchParams, { replace: true });
+    } else if (!isLoading) {
+      // Fetch directly if not on current page
+      import("@/integrations/supabase/client").then(({ supabase }) => {
+        supabase.from("vendor_invoices").select("*").eq("id", openId).maybeSingle().then(({ data: inv }) => {
+          if (inv) {
+            setSelectedInvoice(inv as VendorInvoice);
+          }
+          openHandledRef.current = true;
+          searchParams.delete("open");
+          setSearchParams(searchParams, { replace: true });
+        });
+      });
+    }
+  }, [searchParams, invoices, isLoading]);
 
   const handleSort = useCallback((field: string) => {
     setFilters(prev => ({
