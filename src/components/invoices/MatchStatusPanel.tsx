@@ -56,8 +56,8 @@ export function MatchStatusPanel() {
       const vendorMap = new Map<string, VendorMatchSummary>();
       const ensureVendor = (v: string) => {
         if (!vendorMap.has(v)) vendorMap.set(v, {
-          vendor: v, totalInvoices: 0, matched: 0, waitingReceipt: 0,
-          pendingReview: 0, receiptsWaitingInvoice: 0, matchedValue: 0, waitingValue: 0,
+          vendor: v, totalInvoices: 0, matched: 0, matchedException: 0, waitingReceipt: 0,
+          pendingReview: 0, receiptsWaitingInvoice: 0, matchedValue: 0, waitingValue: 0, exceptionValue: 0,
         });
         return vendorMap.get(v)!;
       };
