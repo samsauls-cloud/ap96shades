@@ -852,6 +852,7 @@ export type Database = {
           id: string
           vendor_id: string
           vendor_name: string
+          vendor_type: string
         }
         Insert: {
           aliases?: string[]
@@ -859,6 +860,7 @@ export type Database = {
           id?: string
           vendor_id: string
           vendor_name: string
+          vendor_type?: string
         }
         Update: {
           aliases?: string[]
@@ -866,6 +868,7 @@ export type Database = {
           id?: string
           vendor_id?: string
           vendor_name?: string
+          vendor_type?: string
         }
         Relationships: []
       }

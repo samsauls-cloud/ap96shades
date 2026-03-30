@@ -1,0 +1,1 @@
+ALTER TABLE public.vendor_alias_map ADD COLUMN IF NOT EXISTS vendor_type text NOT NULL DEFAULT 'frame';

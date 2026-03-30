@@ -9,6 +9,7 @@ import { formatCurrency } from "@/lib/supabase-queries";
 interface VendorCoverage {
   vendor_name: string;
   vendor_id: string;
+  vendor_type: string;
   lines: number;
   ordered: number;
   received: number;
@@ -23,11 +24,11 @@ export function VendorCoveragePanel() {
       // Get alias map
       const { data: aliases } = await supabase
         .from("vendor_alias_map")
-        .select("vendor_id, vendor_name");
+        .select("vendor_id, vendor_name, vendor_type");
 
-      const aliasMap = new Map<string, string>();
+      const aliasMap = new Map<string, { name: string; type: string }>();
       for (const a of aliases ?? []) {
-        aliasMap.set(a.vendor_id, a.vendor_name);
+        aliasMap.set(a.vendor_id, { name: a.vendor_name, type: (a as any).vendor_type ?? 'frame' });
       }
 
       // Get all receiving lines grouped
@@ -38,10 +39,13 @@ export function VendorCoveragePanel() {
       const groups = new Map<string, VendorCoverage>();
       for (const l of lines ?? []) {
         const vid = l.vendor_id ?? "UNMAPPED";
-        const name = aliasMap.get(vid) ?? vid;
+        const mapped = aliasMap.get(vid);
+        const name = mapped?.name ?? vid;
+        const type = mapped?.type ?? 'frame';
         const cur = groups.get(vid) ?? {
           vendor_name: name,
           vendor_id: vid,
+          vendor_type: type,
           lines: 0,
           ordered: 0,
           received: 0,
@@ -56,6 +60,9 @@ export function VendorCoveragePanel() {
         groups.set(vid, cur);
       }
 
+      // Check for Direct Import vendor
+      const directImport = groups.get("china_direct") ?? null;
+
       // Check for unmapped
       const unmapped = Array.from(groups.values()).filter(
         g => g.vendor_id === "UNMAPPED" || g.vendor_id === "" || !aliasMap.has(g.vendor_id)
@@ -67,11 +74,20 @@ export function VendorCoveragePanel() {
         .select("id", { count: "exact", head: true })
         .ilike("vendor", "%blenders%");
 
+      const frameVendors = Array.from(groups.values())
+        .filter(v => v.vendor_type === 'frame')
+        .sort((a, b) => b.received_value - a.received_value);
+      const accessoryVendors = Array.from(groups.values())
+        .filter(v => v.vendor_type === 'accessories')
+        .sort((a, b) => b.received_value - a.received_value);
+
       return {
-        vendors: Array.from(groups.values()).sort((a, b) => b.received_value - a.received_value),
+        frameVendors,
+        accessoryVendors,
         unmapped,
         blendersHasInvoices: (blendersInvoices ?? 0) > 0,
         blendersData: groups.get("blenders") ?? null,
+        directImport,
       };
     },
   });
@@ -88,8 +104,80 @@ export function VendorCoveragePanel() {
 
   if (!data) return null;
 
-  const totalLines = data.vendors.reduce((s, v) => s + v.lines, 0);
-  const totalValue = data.vendors.reduce((s, v) => s + v.received_value, 0);
+  const allVendors = [...data.frameVendors, ...data.accessoryVendors];
+  const totalLines = allVendors.reduce((s, v) => s + v.lines, 0);
+  const totalValue = allVendors.reduce((s, v) => s + v.received_value, 0);
+  const frameTotalLines = data.frameVendors.reduce((s, v) => s + v.lines, 0);
+  const frameTotalValue = data.frameVendors.reduce((s, v) => s + v.received_value, 0);
+
+  const renderVendorTable = (vendors: VendorCoverage[], label: string, total: { lines: number; value: number }) => (
+    <Card className="bg-card border-border">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-xs font-semibold flex items-center gap-2">
+          <PackageSearch className="h-4 w-4 text-primary" />
+          {label}
+          <Badge variant="outline" className="text-[10px] ml-auto">
+            {total.lines} lines · {formatCurrency(total.value)}
+          </Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="p-0">
+        <div className="overflow-auto">
+          <Table>
+            <TableHeader>
+              <TableRow className="border-border">
+                <TableHead className="text-[10px] font-semibold">Vendor</TableHead>
+                <TableHead className="text-[10px] font-semibold">Type</TableHead>
+                <TableHead className="text-[10px] font-semibold text-right">Lines</TableHead>
+                <TableHead className="text-[10px] font-semibold text-right">Ordered</TableHead>
+                <TableHead className="text-[10px] font-semibold text-right">Received</TableHead>
+                <TableHead className="text-[10px] font-semibold text-right">Outstanding</TableHead>
+                <TableHead className="text-[10px] font-semibold text-right">Received Value</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {vendors.map(v => (
+                <TableRow key={v.vendor_id} className="border-border">
+                  <TableCell className="text-xs font-medium">
+                    <div className="flex items-center gap-1.5">
+                      {v.vendor_name}
+                      {(v.vendor_id === "UNMAPPED" || v.vendor_id === "") && (
+                        <AlertTriangle className="h-3 w-3 text-destructive" />
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="outline" className={`text-[9px] ${v.vendor_type === 'accessories' ? 'border-muted-foreground/30 text-muted-foreground' : 'border-primary/30 text-primary'}`}>
+                      {v.vendor_type?.toUpperCase() ?? 'FRAME'}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-xs text-right tabular-nums">{v.lines}</TableCell>
+                  <TableCell className="text-xs text-right tabular-nums">{v.ordered}</TableCell>
+                  <TableCell className="text-xs text-right tabular-nums">{v.received}</TableCell>
+                  <TableCell className="text-xs text-right tabular-nums">
+                    {v.outstanding > 0 ? (
+                      <span className="font-semibold text-destructive">{v.outstanding}</span>
+                    ) : (
+                      <span className="text-muted-foreground">0</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-xs text-right tabular-nums font-medium">{formatCurrency(v.received_value)}</TableCell>
+                </TableRow>
+              ))}
+              <TableRow className="border-border bg-muted/30">
+                <TableCell className="text-xs font-bold" colSpan={2}>TOTAL</TableCell>
+                <TableCell className="text-xs text-right tabular-nums font-bold">{total.lines}</TableCell>
+                <TableCell className="text-xs text-right tabular-nums font-bold">{vendors.reduce((s, v) => s + v.ordered, 0)}</TableCell>
+                <TableCell className="text-xs text-right tabular-nums font-bold">{vendors.reduce((s, v) => s + v.received, 0)}</TableCell>
+                <TableCell className="text-xs text-right tabular-nums font-bold">{vendors.reduce((s, v) => s + v.outstanding, 0)}</TableCell>
+                <TableCell className="text-xs text-right tabular-nums font-bold">{formatCurrency(total.value)}</TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+        </div>
+      </CardContent>
+    </Card>
+  );
 
   return (
     <div className="space-y-3">
@@ -116,6 +204,26 @@ export function VendorCoveragePanel() {
         </Card>
       )}
 
+      {/* Direct Import warning */}
+      {data.directImport && (
+        <Card className="bg-card border-amber-500/30">
+          <CardContent className="p-4">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-semibold text-amber-600 dark:text-amber-400">
+                  ⚠️ DIRECT IMPORT — Non-Standard Invoice Formats
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Invoices may be pro forma, commercial invoice, or packing list.
+                  Photo capture recommended. Payment terms vary by shipment — all go to needs_review queue.
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Unmapped warning */}
       {data.unmapped.length > 0 && data.unmapped.some(u => u.vendor_id === "UNMAPPED" || u.vendor_id === "") && (
         <Card className="bg-card border-destructive/30">
@@ -133,77 +241,27 @@ export function VendorCoveragePanel() {
         </Card>
       )}
 
-      {/* Coverage table */}
-      <Card className="bg-card border-border">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-xs font-semibold flex items-center gap-2">
-            <PackageSearch className="h-4 w-4 text-primary" />
-            Receiving Coverage by Vendor
-            <Badge variant="outline" className="text-[10px] ml-auto">
-              {totalLines} lines · {formatCurrency(totalValue)}
-            </Badge>
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="p-0">
-          <div className="overflow-auto">
-            <Table>
-              <TableHeader>
-                <TableRow className="border-border">
-                  <TableHead className="text-[10px] font-semibold">Vendor</TableHead>
-                  <TableHead className="text-[10px] font-semibold">ID</TableHead>
-                  <TableHead className="text-[10px] font-semibold text-right">Lines</TableHead>
-                  <TableHead className="text-[10px] font-semibold text-right">Ordered</TableHead>
-                  <TableHead className="text-[10px] font-semibold text-right">Received</TableHead>
-                  <TableHead className="text-[10px] font-semibold text-right">Outstanding</TableHead>
-                  <TableHead className="text-[10px] font-semibold text-right">Received Value</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {data.vendors.map(v => (
-                  <TableRow key={v.vendor_id} className="border-border">
-                    <TableCell className="text-xs font-medium">
-                      <div className="flex items-center gap-1.5">
-                        {v.vendor_name}
-                        {(v.vendor_id === "UNMAPPED" || v.vendor_id === "") && (
-                          <AlertTriangle className="h-3 w-3 text-destructive" />
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-[10px] font-mono text-muted-foreground">{v.vendor_id}</TableCell>
-                    <TableCell className="text-xs text-right tabular-nums">{v.lines}</TableCell>
-                    <TableCell className="text-xs text-right tabular-nums">{v.ordered}</TableCell>
-                    <TableCell className="text-xs text-right tabular-nums">{v.received}</TableCell>
-                    <TableCell className="text-xs text-right tabular-nums">
-                      {v.outstanding > 0 ? (
-                        <span className="text-amber-500 font-semibold">{v.outstanding}</span>
-                      ) : (
-                        <span className="text-muted-foreground">0</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-xs text-right tabular-nums font-medium">{formatCurrency(v.received_value)}</TableCell>
-                  </TableRow>
-                ))}
-                <TableRow className="border-border bg-muted/30">
-                  <TableCell className="text-xs font-bold" colSpan={2}>TOTAL</TableCell>
-                  <TableCell className="text-xs text-right tabular-nums font-bold">{totalLines}</TableCell>
-                  <TableCell className="text-xs text-right tabular-nums font-bold">{data.vendors.reduce((s, v) => s + v.ordered, 0)}</TableCell>
-                  <TableCell className="text-xs text-right tabular-nums font-bold">{data.vendors.reduce((s, v) => s + v.received, 0)}</TableCell>
-                  <TableCell className="text-xs text-right tabular-nums font-bold">{data.vendors.reduce((s, v) => s + v.outstanding, 0)}</TableCell>
-                  <TableCell className="text-xs text-right tabular-nums font-bold">{formatCurrency(totalValue)}</TableCell>
-                </TableRow>
-              </TableBody>
-            </Table>
-          </div>
+      {/* Frame vendors table */}
+      {data.frameVendors.length > 0 && renderVendorTable(
+        data.frameVendors,
+        "Frame Vendors — Invoice Tracked",
+        { lines: frameTotalLines, value: frameTotalValue }
+      )}
 
-          {/* All clear badge */}
-          {data.unmapped.filter(u => u.vendor_id === "UNMAPPED" || u.vendor_id === "").length === 0 && (
-            <div className="flex items-center gap-2 px-4 py-3 text-xs text-emerald-500">
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              Zero Unknown/NULL vendor_id rows — all receiving lines mapped ✓
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      {/* Accessories vendors table */}
+      {data.accessoryVendors.length > 0 && renderVendorTable(
+        data.accessoryVendors,
+        "Accessories Vendors — No Invoice Tracking",
+        { lines: data.accessoryVendors.reduce((s, v) => s + v.lines, 0), value: data.accessoryVendors.reduce((s, v) => s + v.received_value, 0) }
+      )}
+
+      {/* All clear badge */}
+      {data.unmapped.filter(u => u.vendor_id === "UNMAPPED" || u.vendor_id === "").length === 0 && (
+        <div className="flex items-center gap-2 px-4 py-3 text-xs text-emerald-500">
+          <CheckCircle2 className="h-3.5 w-3.5" />
+          Zero Unknown/NULL vendor_id rows — all receiving lines mapped ✓
+        </div>
+      )}
     </div>
   );
 }
