@@ -74,11 +74,20 @@ export function VendorCoveragePanel() {
         .select("id", { count: "exact", head: true })
         .ilike("vendor", "%blenders%");
 
+      const frameVendors = Array.from(groups.values())
+        .filter(v => v.vendor_type === 'frame')
+        .sort((a, b) => b.received_value - a.received_value);
+      const accessoryVendors = Array.from(groups.values())
+        .filter(v => v.vendor_type === 'accessories')
+        .sort((a, b) => b.received_value - a.received_value);
+
       return {
-        vendors: Array.from(groups.values()).sort((a, b) => b.received_value - a.received_value),
+        frameVendors,
+        accessoryVendors,
         unmapped,
         blendersHasInvoices: (blendersInvoices ?? 0) > 0,
         blendersData: groups.get("blenders") ?? null,
+        directImport,
       };
     },
   });
