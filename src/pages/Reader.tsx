@@ -137,6 +137,12 @@ export default function ReaderPage() {
           );
         } catch { /* silent */ }
 
+        // Auto-run SKU check and attach results
+        try {
+          const skuResult = await runQuickSKUCheck(parsed.line_items || []);
+          setSkuResults(prev => new Map(prev).set(docId, skuResult));
+        } catch { /* silent */ }
+
         queryClient.invalidateQueries({ queryKey: ["vendor_invoices"] });
         queryClient.invalidateQueries({ queryKey: ["invoice_stats"] });
         toast.success(`📷 Photo invoice extracted: ${invoice.vendor} — ${invoice.invoice_number}`);
