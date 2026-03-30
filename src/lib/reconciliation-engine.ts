@@ -3,6 +3,13 @@ import type { VendorInvoice, LineItem } from "@/lib/supabase-queries";
 import { getLineItems } from "@/lib/supabase-queries";
 import { fetchAllRows } from "@/lib/supabase-fetch-all";
 
+/** Safely coerce a value to number — treats "", null, undefined, NaN as 0 */
+function safeNum(v: any): number {
+  if (v === null || v === undefined || v === "") return 0;
+  const n = Number(v);
+  return isNaN(n) ? 0 : n;
+}
+
 // Vendor → Brand mapping
 const VENDOR_BRAND_MAP: Record<string, string[]> = {
   Luxottica: ["RAY-BAN", "OAKLEY", "OLIVER PEOPLES", "RALPH", "VOGUE", "PERSOL"],
@@ -102,9 +109,9 @@ export async function runFullReconciliation(
       if (!matchedRecLines || matchedRecLines.length === 0) continue;
 
       const recLine = matchedRecLines[0];
-      const invoicedQty = li.qty_shipped ?? li.qty_ordered ?? li.qty ?? 0;
-      const orderedQty = recLine.order_qty ?? 0;
-      const receivedQty = recLine.received_qty ?? 0;
+      const invoicedQty = safeNum(li.qty_shipped) || safeNum(li.qty_ordered) || safeNum(li.qty);
+      const orderedQty = safeNum(recLine.order_qty);
+      const receivedQty = safeNum(recLine.received_qty);
 
       // CHECK 1 — QTY_MISMATCH
       if (invoicedQty !== orderedQty && orderedQty > 0) {
@@ -125,13 +132,13 @@ export async function runFullReconciliation(
           invoiced_qty: invoicedQty,
           received_qty: receivedQty,
           qty_delta: delta,
-          amount_at_risk: Math.abs(delta) * (li.unit_price ?? 0),
+          amount_at_risk: Math.abs(delta) * safeNum(li.unit_price),
         });
       }
 
       // CHECK 2 — PRICE_MISMATCH
-      const invoicedPrice = li.unit_price ?? 0;
-      const orderedPrice = recLine.unit_cost ?? 0;
+      const invoicedPrice = safeNum(li.unit_price);
+      const orderedPrice = safeNum(recLine.unit_cost);
       if (orderedPrice > 0 && Math.abs(invoicedPrice - orderedPrice) > 0.50) {
         const priceDelta = invoicedPrice - orderedPrice;
         const atRisk = priceDelta * invoicedQty;
@@ -250,7 +257,7 @@ export async function runFullReconciliation(
   for (const inv of invoices) {
     const lines = getLineItems(inv);
     if (lines.length === 0) continue;
-    const lineSum = lines.reduce((s, li) => s + (li.line_total ?? 0), 0);
+    const lineSum = lines.reduce((s, li) => s + safeNum(li.line_total), 0);
     const delta = inv.total - lineSum;
     if (Math.abs(delta) > 1) {
       discrepancies.push({
