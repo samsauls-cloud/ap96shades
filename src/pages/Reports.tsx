@@ -94,6 +94,8 @@ export default function ReportsPage() {
           <POFulfillmentReport invoices={invoices} />
         ) : tab === "vendorspend" ? (
           <VendorSpendReport invoices={invoices} payments={activePayments} />
+        ) : tab === "backorder" ? (
+          <BackorderTracker recLines={recLines} recSessions={recSessions} invoices={invoices} />
         ) : (
           <CashFlowForecast payments={activePayments} today={today} />
         )}
