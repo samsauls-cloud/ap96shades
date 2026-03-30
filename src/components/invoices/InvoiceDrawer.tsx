@@ -8,7 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Trash2, Copy, Download, DollarSign, Loader2, ScanSearch } from "lucide-react";
+import { Trash2, Copy, Download, DollarSign, Loader2, ScanSearch, FileCheck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { StatusBadge, DocTypeBadge } from "./Badges";
@@ -20,6 +20,7 @@ import { formatCurrency, formatDate, getLineItems, getTotalUnits, lineItemsToCSV
 import { generatePaymentsForInvoice, fetchPaymentsForInvoice } from "@/lib/payment-queries";
 import { hasTermsEngine } from "@/lib/payment-terms";
 import { supabase } from "@/integrations/supabase/client";
+import { LinkRealInvoice } from "./LinkRealInvoice";
 
 interface Props {
   invoice: VendorInvoice | null;
@@ -126,14 +127,26 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
           </SheetTitle>
         </SheetHeader>
 
-        {/* Proforma banner */}
+        {/* Proforma banner + link action */}
         {isProforma(inv) && (
-          <div className="mb-4 p-3 rounded-lg bg-destructive/10 border border-destructive/30">
-            <p className="text-sm font-semibold text-destructive flex items-center gap-2">
-              🚫 PROFORMA — NOT INCLUDED IN AP TOTALS
-            </p>
-            <p className="text-xs text-muted-foreground mt-1">
-              Real invoice expected. When received, upload the financial invoice to replace this.
+          <>
+            <div className="mb-4 p-3 rounded-lg bg-destructive/10 border border-destructive/30">
+              <p className="text-sm font-semibold text-destructive flex items-center gap-2">
+                🚫 PROFORMA — NOT INCLUDED IN AP TOTALS
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Real invoice expected. When received, upload the financial invoice to replace this.
+              </p>
+            </div>
+            <LinkRealInvoice proforma={inv} onLinked={onUpdate} />
+          </>
+        )}
+
+        {/* Linked proforma banner (shown on real invoices) */}
+        {(inv as any).linked_proforma_id && (
+          <div className="mb-4 p-3 rounded-lg bg-primary/5 border border-primary/20">
+            <p className="text-xs text-primary font-medium flex items-center gap-1.5">
+              <FileCheck className="h-3.5 w-3.5" /> Proforma on file: {inv.po_number || inv.invoice_number}
             </p>
           </div>
         )}

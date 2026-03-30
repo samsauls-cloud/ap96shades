@@ -871,10 +871,12 @@ export type Database = {
           last_shipment_file: string | null
           lightspeed_po_number: string | null
           line_items: Json
+          linked_proforma_id: string | null
           notes: string | null
           payment_terms: string | null
           po_number: string | null
           po_total_invoiced: number | null
+          proforma_superseded_by: string | null
           received_date: string | null
           recon_notes: string | null
           recon_run_id: string | null
@@ -919,10 +921,12 @@ export type Database = {
           last_shipment_file?: string | null
           lightspeed_po_number?: string | null
           line_items?: Json
+          linked_proforma_id?: string | null
           notes?: string | null
           payment_terms?: string | null
           po_number?: string | null
           po_total_invoiced?: number | null
+          proforma_superseded_by?: string | null
           received_date?: string | null
           recon_notes?: string | null
           recon_run_id?: string | null
@@ -967,10 +971,12 @@ export type Database = {
           last_shipment_file?: string | null
           lightspeed_po_number?: string | null
           line_items?: Json
+          linked_proforma_id?: string | null
           notes?: string | null
           payment_terms?: string | null
           po_number?: string | null
           po_total_invoiced?: number | null
+          proforma_superseded_by?: string | null
           received_date?: string | null
           recon_notes?: string | null
           recon_run_id?: string | null
@@ -991,6 +997,20 @@ export type Database = {
           vendor_brands?: string[] | null
         }
         Relationships: [
+          {
+            foreignKeyName: "vendor_invoices_linked_proforma_id_fkey"
+            columns: ["linked_proforma_id"]
+            isOneToOne: false
+            referencedRelation: "vendor_invoices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vendor_invoices_proforma_superseded_by_fkey"
+            columns: ["proforma_superseded_by"]
+            isOneToOne: false
+            referencedRelation: "vendor_invoices"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "vendor_invoices_reconciled_session_id_fkey"
             columns: ["reconciled_session_id"]
