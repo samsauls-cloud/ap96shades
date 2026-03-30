@@ -316,7 +316,23 @@ export async function runTwoWayMatchEngine(
 export async function persistMatchResults(results: TwoWayMatchResult[]): Promise<number> {
   let saved = 0;
   for (const r of results) {
-    const matchStatus = r.confidence === "low" ? "pending_review" : "matched";
+    const baseStatus = r.confidence === "low" ? "pending_review" : "matched";
+
+    // For non-low confidence matches, check for discrepancies (qty/price)
+    let matchStatus = baseStatus;
+    if (baseStatus === "matched") {
+      // Check if this invoice has open discrepancies from reconciliation
+      const { data: discreps } = await supabase
+        .from("reconciliation_discrepancies")
+        .select("id")
+        .eq("invoice_id", r.invoiceId)
+        .eq("resolution_status", "open")
+        .limit(1);
+      if (discreps && discreps.length > 0) {
+        matchStatus = "matched_exception";
+      }
+    }
+
     // Update invoice side
     const { error: invErr } = await supabase
       .from("vendor_invoices")
@@ -335,7 +351,7 @@ export async function persistMatchResults(results: TwoWayMatchResult[]): Promise
       await supabase
         .from("po_receiving_lines")
         .update({
-          invoice_match_status: matchStatus,
+          invoice_match_status: matchStatus === "matched_exception" ? "matched" : matchStatus,
           matched_invoice_id: r.invoiceId,
         } as any)
         .eq("id", lid);
