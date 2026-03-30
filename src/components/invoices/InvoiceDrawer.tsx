@@ -8,17 +8,17 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Trash2, Copy, Download, DollarSign, Loader2, ScanSearch, FileCheck } from "lucide-react";
+import { Trash2, Copy, Download, DollarSign, Loader2, ScanSearch, FileCheck, AlertCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { StatusBadge, DocTypeBadge } from "./Badges";
 import { MatchReportSection } from "./MatchReportSection";
 import { TagInput } from "./TagInput";
 import { SKUCheckTab } from "./SKUCheckTab";
+import { TermsConfirmationPanel } from "./TermsConfirmationPanel";
 import type { VendorInvoice, InvoiceStatus } from "@/lib/supabase-queries";
 import { formatCurrency, formatDate, getLineItems, getTotalUnits, lineItemsToCSV, updateInvoiceStatus, updateInvoiceNotes, updateInvoiceTags, fetchDistinctTags, deleteInvoice, isProforma } from "@/lib/supabase-queries";
 import { generatePaymentsForInvoice, fetchPaymentsForInvoice } from "@/lib/payment-queries";
-import { hasTermsEngine } from "@/lib/payment-terms";
 import { supabase } from "@/integrations/supabase/client";
 import { LinkRealInvoice } from "./LinkRealInvoice";
 
