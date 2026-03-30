@@ -767,7 +767,7 @@ export default function AuditPage() {
                 const lsVendors = new Set((recSessions as any[]).map(s => s.vendor));
                 const invoiceVendors = new Set(invoiceStats.byVendor.map(([v]) => v));
                 const unmappedInvoiceVendors = Array.from(invoiceVendors).filter(v => {
-                  const aliases = VENDOR_ALIASES[v] ?? [v];
+                  const aliases = getVendorAliases(v);
                   return !aliases.some(a => lsVendors.has(a));
                 });
                 const unmappedLsVendors = Array.from(lsVendors).filter(v => {
