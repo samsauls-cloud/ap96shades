@@ -35,6 +35,7 @@ const App = () => (
             <Route path="/invoices/receiving" element={<ReceivingPage />} />
             <Route path="/reconciliation" element={<ReconciliationPage />} />
             <Route path="/import/lightspeed" element={<LightspeedImportPage />} />
+            <Route path="/audit" element={<AuditPage />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>

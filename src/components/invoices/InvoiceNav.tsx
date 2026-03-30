@@ -54,6 +54,7 @@ export function InvoiceNav() {
     { to: "/invoices/reports", label: "Reports", icon: FileBarChart },
     { to: "/invoices/receiving", label: "Receiving", icon: PackageCheck },
     { to: "/reconciliation", label: "Reconciliation", icon: Shield, badge: totalBadge, badgeContent: reconBadgeContent() },
+    { to: "/audit", label: "Audit", icon: ClipboardCheck },
   ];
 
   const handleLogout = () => {
