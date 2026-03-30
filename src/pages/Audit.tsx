@@ -129,6 +129,8 @@ export default function AuditPage() {
       invoiceCount: inv.length,
       poCount: pos.length,
       invoiceTotal: invTotal,
+      needsReviewTotal,
+      needsReviewCount: needsReviewInv.length,
       hasPO,
       noPO,
       byVendor: Array.from(byVendor.entries()).sort((a, b) => b[1].value - a[1].value),
