@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { AlertCircle, CheckCircle2, DollarSign, Clock, Ban, AlertTriangle } from "lucide-react";
 import { formatCurrency } from "@/lib/supabase-queries";
-import { type InvoicePayment, type PaymentHistoryEntry, recordPayment, setPaymentDisputed, setPaymentVoid } from "@/lib/payment-queries";
+import { type InvoicePayment, type PaymentHistoryEntry, recordPayment, setPaymentDisputed, setPaymentVoid, markPaymentPaid } from "@/lib/payment-queries";
 import { toast } from "sonner";
 import { PaymentStatusBadge } from "./PaymentStatusBadge";
 
@@ -56,6 +56,20 @@ export function RecordPaymentModal({ payment, open, onOpenChange, onComplete }: 
     try {
       await recordPayment(payment.id, parsedAmount, paymentDate, method, reference, note, "Staff");
       toast.success(`✓ Payment of ${formatCurrency(parsedAmount)} recorded for ${payment.invoice_number}`);
+      onComplete();
+      onOpenChange(false);
+    } catch (e: any) {
+      toast.error(`Failed: ${e.message}`);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleQuickMarkPaid = async () => {
+    setSubmitting(true);
+    try {
+      await markPaymentPaid(payment.id);
+      toast.success(`✓ ${payment.invoice_number} marked as paid (${formatCurrency(payment.amount_due)})`);
       onComplete();
       onOpenChange(false);
     } catch (e: any) {
@@ -203,7 +217,12 @@ export function RecordPaymentModal({ payment, open, onOpenChange, onComplete }: 
             </div>
 
             {/* Quick Actions */}
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
+              {balance > 0 && (
+                <Button size="sm" className="text-xs h-8 bg-green-600 hover:bg-green-700 text-white" onClick={handleQuickMarkPaid} disabled={submitting}>
+                  <CheckCircle2 className="h-3 w-3 mr-1" /> Mark Paid
+                </Button>
+              )}
               {balance > 0 && parsedAmount !== balance && (
                 <Button variant="outline" size="sm" className="text-xs h-8" onClick={() => setAmount(balance.toFixed(2))}>
                   <CheckCircle2 className="h-3 w-3 mr-1" /> Pay Full Balance
