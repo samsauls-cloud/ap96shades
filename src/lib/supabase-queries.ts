@@ -79,6 +79,7 @@ export async function fetchInvoices(filters: InvoiceFilters) {
   if (filters.dateTo) query = query.lte("invoice_date", filters.dateTo);
   if (filters.minTotal !== undefined) query = query.gte("total", filters.minTotal);
   if (filters.maxTotal !== undefined) query = query.lte("total", filters.maxTotal);
+  if (filters.source) query = query.eq("import_source", filters.source);
 
   const sortField = filters.sortField || "invoice_date";
   const sortDir = filters.sortDir === "asc" ? true : false;
