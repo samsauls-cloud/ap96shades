@@ -60,6 +60,9 @@ export function VendorCoveragePanel() {
         groups.set(vid, cur);
       }
 
+      // Check for Direct Import vendor
+      const directImport = groups.get("china_direct") ?? null;
+
       // Check for unmapped
       const unmapped = Array.from(groups.values()).filter(
         g => g.vendor_id === "UNMAPPED" || g.vendor_id === "" || !aliasMap.has(g.vendor_id)
