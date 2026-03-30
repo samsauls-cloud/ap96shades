@@ -260,7 +260,7 @@ export async function runTwoWayMatchEngine(
               s + (Number(l.received_cost) || Number(l.ordered_cost) || 0), 0);
             if (sessionTotal <= 0) continue;
             const pctDiff = Math.abs(invTotal - sessionTotal) / invTotal;
-            if (pctDiff > 0.05) continue; // >5% difference
+            if (pctDiff > 0.10) continue; // >10% difference
             const session = sessionMap.get(sid);
             if (!session) continue;
             const sessionDate = new Date(session.created_at);
