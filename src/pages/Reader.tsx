@@ -125,6 +125,7 @@ export default function ReaderPage() {
           status: "done", vendor: invoice.vendor, doc_type: invoice.doc_type,
           invoice_number: invoice.invoice_number, total: invoice.total || 0,
           line_items_count: lineItemsCount, dbId: saved.id,
+          invoiceData: invoice,
           extendedInfo: needsReview
             ? "⚠ Some fields may need verification — photo quality affected extraction."
             : undefined,
