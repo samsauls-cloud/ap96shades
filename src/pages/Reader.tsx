@@ -58,7 +58,7 @@ export default function ReaderPage() {
   };
 
   const isAcceptedFile = (f: File) =>
-    f.type === "application/pdf" || f.name.toLowerCase().endsWith(".csv") || f.type === "text/csv";
+    (f.type === "application/pdf" || f.name.toLowerCase().endsWith(".csv") || f.type === "text/csv") && !isImageFile(f);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -215,13 +215,6 @@ export default function ReaderPage() {
 
         const config = getRetryConfig(err);
         if (attempt > config.maxRetries) {
-          if (err.isParseError && attempt <= config.maxRetries + 1) {
-            updateDoc(docId, {
-              status: "retrying" as DocStatus,
-              error: `⚠ Parse error on ${file.name} — retrying...`,
-            });
-            continue;
-          }
           const label = err.isRateLimit ? `Rate limited after ${config.maxRetries} retries` :
                        err.isTimeout ? `Timed out after ${config.maxRetries} retries` :
                        err.message || "Unknown error";
