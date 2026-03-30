@@ -929,12 +929,12 @@ export default function ReaderPage() {
                   }`}
                 >
                   <CardContent className="p-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        {statusIcon(d)}
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-medium">{d.filename}</span>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-start gap-2 sm:gap-3 min-w-0 flex-1">
+                        <div className="mt-0.5 shrink-0">{statusIcon(d)}</div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-1 sm:gap-2">
+                            <span className="text-sm font-medium truncate max-w-[180px] sm:max-w-none">{d.filename}</span>
                             {(d.status === "done" || d.status === "staged" || d.status === "extended") && <DocTypeBadge docType={d.doc_type} />}
                             {d.status === "staged" && (
                               <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-500 font-medium">STAGED</span>
@@ -944,33 +944,33 @@ export default function ReaderPage() {
                             )}
                           </div>
                           {(d.status === "done" || d.status === "staged") && (
-                            <p className="text-[10px] text-muted-foreground">
+                            <p className="text-[10px] text-muted-foreground break-words">
                               {d.vendor} — {d.invoice_number} — {formatCurrency(d.total)} — {d.line_items_count} items
                             </p>
                           )}
                           {d.status === "extended" && d.extendedInfo && (
-                            <p className="text-[10px] text-blue-500">{d.extendedInfo}</p>
+                            <p className="text-[10px] text-blue-500 break-words">{d.extendedInfo}</p>
                           )}
                           {d.status === "duplicate" && (
-                            <p className="text-[10px] text-muted-foreground">
-                              ✗ TRUE DUPLICATE SKIPPED — identical line items. Invoice {d.invoice_number} from {d.vendor} (DB id: {d.duplicateDbId}). File: {d.filename}
+                            <p className="text-[10px] text-muted-foreground break-words">
+                              ✗ TRUE DUPLICATE SKIPPED — identical line items. Invoice {d.invoice_number} from {d.vendor}
                             </p>
                           )}
                           {(d.status === "retrying" || d.status === "waiting-retry") && (
-                            <p className="text-[10px] text-amber-500">{d.error}</p>
+                            <p className="text-[10px] text-amber-500 break-words">{d.error}</p>
                           )}
                           {d.status === "error" && (
-                            <p className="text-[10px] text-status-unpaid">{d.error}</p>
+                            <p className="text-[10px] text-status-unpaid break-words">{d.error}</p>
                           )}
                           {d.poLinkInfo && (
-                            <p className="text-[10px] text-primary flex items-center gap-1 mt-0.5">
-                              <Package className="h-3 w-3" /> {d.poLinkInfo}
+                            <p className="text-[10px] text-primary flex items-center gap-1 mt-0.5 break-words">
+                              <Package className="h-3 w-3 shrink-0" /> {d.poLinkInfo}
                             </p>
                           )}
                         </div>
                       </div>
                       {(d.status === "done" || d.status === "extended") && d.dbId && (
-                        <Link to="/invoices" className="flex items-center gap-1 text-xs text-primary hover:underline">
+                        <Link to="/invoices" className="flex items-center gap-1 text-xs text-primary hover:underline shrink-0">
                           View <ExternalLink className="h-3 w-3" />
                         </Link>
                       )}
