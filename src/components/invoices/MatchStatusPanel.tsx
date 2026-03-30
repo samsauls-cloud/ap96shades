@@ -214,6 +214,7 @@ export function MatchStatusPanel() {
                     <TableHead className="text-[10px] font-semibold text-right">Waiting Receipt</TableHead>
                     <TableHead className="text-[10px] font-semibold text-right">Exceptions</TableHead>
                     <TableHead className="text-[10px] font-semibold text-right">Pending Review</TableHead>
+                    <TableHead className="text-[10px] font-semibold text-right">Receipts Waiting Invoice</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
