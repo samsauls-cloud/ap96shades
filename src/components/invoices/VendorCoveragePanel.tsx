@@ -26,9 +26,9 @@ export function VendorCoveragePanel() {
         .from("vendor_alias_map")
         .select("vendor_id, vendor_name");
 
-      const aliasMap = new Map<string, string>();
+      const aliasMap = new Map<string, { name: string; type: string }>();
       for (const a of aliases ?? []) {
-        aliasMap.set(a.vendor_id, a.vendor_name);
+        aliasMap.set(a.vendor_id, { name: a.vendor_name, type: (a as any).vendor_type ?? 'frame' });
       }
 
       // Get all receiving lines grouped
