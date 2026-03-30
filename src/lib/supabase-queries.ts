@@ -38,6 +38,7 @@ export interface InvoiceFilters {
   sortDir?: "asc" | "desc";
   page?: number;
   perPage?: number;
+  source?: string;
 }
 
 export function getLineItems(inv: VendorInvoice): LineItem[] {
