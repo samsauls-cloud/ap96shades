@@ -20,6 +20,7 @@ import { formatCurrency, formatDate, getLineItems, getTotalUnits, lineItemsToCSV
 import { generatePaymentsForInvoice, fetchPaymentsForInvoice } from "@/lib/payment-queries";
 import { hasTermsEngine } from "@/lib/payment-terms";
 import { supabase } from "@/integrations/supabase/client";
+import { LinkRealInvoice } from "./LinkRealInvoice";
 
 interface Props {
   invoice: VendorInvoice | null;
