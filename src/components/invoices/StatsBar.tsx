@@ -17,6 +17,7 @@ export function StatsBar({ stats }: { stats: InvoiceStats | undefined }) {
     { label: "POs", value: s.total_pos.toString(), icon: ShoppingCart, accent: "text-doc-po" },
     { label: "Total Units", value: Number(s.total_units).toLocaleString(), icon: Package, accent: "text-primary" },
     { label: "Unpaid Balance", value: formatCurrency(s.unpaid_balance), icon: AlertCircle, accent: "text-status-unpaid" },
+    ...(s.needs_review_count > 0 ? [{ label: "⚠️ Needs Review", value: `${s.needs_review_count} (${formatCurrency(s.needs_review_value)})`, icon: AlertCircle, accent: "text-amber-500" }] : []),
   ];
 
   return (

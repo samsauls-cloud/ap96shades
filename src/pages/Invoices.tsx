@@ -170,6 +170,9 @@ export default function InvoicesPage() {
           </Button>
         </div>
 
+        {/* Needs Review Queue */}
+        <NeedsReviewQueue onOpenInvoice={setSelectedInvoice} />
+
         {isLoading ? (
           <div className="flex justify-center py-20">
             <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
