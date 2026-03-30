@@ -65,6 +65,20 @@ export function RecordPaymentModal({ payment, open, onOpenChange, onComplete }: 
     }
   };
 
+  const handleQuickMarkPaid = async () => {
+    setSubmitting(true);
+    try {
+      await markPaymentPaid(payment.id);
+      toast.success(`✓ ${payment.invoice_number} marked as paid (${formatCurrency(payment.amount_due)})`);
+      onComplete();
+      onOpenChange(false);
+    } catch (e: any) {
+      toast.error(`Failed: ${e.message}`);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const handleDispute = async () => {
     if (!disputeReason.trim()) return;
     setSubmitting(true);
