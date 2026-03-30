@@ -58,6 +58,32 @@ export default function InvoicesPage() {
     }
   }, [invoices, selectedInvoice]);
 
+  // Deep-link: auto-open invoice drawer from ?open=<id>
+  useEffect(() => {
+    const openId = searchParams.get("open");
+    if (!openId || openHandledRef.current) return;
+    // Try to find in current page first
+    const found = invoices.find(i => i.id === openId);
+    if (found) {
+      setSelectedInvoice(found);
+      openHandledRef.current = true;
+      searchParams.delete("open");
+      setSearchParams(searchParams, { replace: true });
+    } else if (!isLoading) {
+      // Fetch directly if not on current page
+      import("@/integrations/supabase/client").then(({ supabase }) => {
+        supabase.from("vendor_invoices").select("*").eq("id", openId).maybeSingle().then(({ data: inv }) => {
+          if (inv) {
+            setSelectedInvoice(inv as VendorInvoice);
+          }
+          openHandledRef.current = true;
+          searchParams.delete("open");
+          setSearchParams(searchParams, { replace: true });
+        });
+      });
+    }
+  }, [searchParams, invoices, isLoading]);
+
   const handleSort = useCallback((field: string) => {
     setFilters(prev => ({
       ...prev,
