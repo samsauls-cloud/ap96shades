@@ -131,12 +131,14 @@ export default function ReaderPage() {
             : undefined,
         });
 
-        // Auto-generate payments
-        try {
-          await generatePaymentsForInvoice(
-            saved.id, invoice.invoice_date, invoice.total || 0, invoice.vendor, invoice.invoice_number, invoice.po_number ?? null
-          );
-        } catch { /* silent */ }
+        // Auto-generate payments — skip for proformas
+        if (!isProforma({ doc_type: invoice.doc_type || "" })) {
+          try {
+            await generatePaymentsForInvoice(
+              saved.id, invoice.invoice_date, invoice.total || 0, invoice.vendor, invoice.invoice_number, invoice.po_number ?? null
+            );
+          } catch { /* silent */ }
+        }
 
         // Auto-run SKU check and attach results
         try {

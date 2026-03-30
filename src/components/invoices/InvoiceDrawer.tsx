@@ -299,8 +299,8 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
           staleReason={(inv as any).recon_stale_reason}
           enteredAfterRecon={(inv as any).entered_after_recon === true}
         />
-        {/* Payment schedule */}
-        {hasTermsEngine(inv.vendor) && (
+        {/* Payment schedule — never show for proformas */}
+        {!isProforma(inv) && hasTermsEngine(inv.vendor) && (
           <div className="mb-4">
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-xs font-semibold text-muted-foreground">Payment Schedule</h3>
