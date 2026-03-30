@@ -19,11 +19,13 @@ interface VendorMatchSummary {
   vendor: string;
   totalInvoices: number;
   matched: number;
+  matchedException: number;
   waitingReceipt: number;
   pendingReview: number;
   receiptsWaitingInvoice: number;
   matchedValue: number;
   waitingValue: number;
+  exceptionValue: number;
 }
 
 export function MatchStatusPanel() {
@@ -54,8 +56,8 @@ export function MatchStatusPanel() {
       const vendorMap = new Map<string, VendorMatchSummary>();
       const ensureVendor = (v: string) => {
         if (!vendorMap.has(v)) vendorMap.set(v, {
-          vendor: v, totalInvoices: 0, matched: 0, waitingReceipt: 0,
-          pendingReview: 0, receiptsWaitingInvoice: 0, matchedValue: 0, waitingValue: 0,
+          vendor: v, totalInvoices: 0, matched: 0, matchedException: 0, waitingReceipt: 0,
+          pendingReview: 0, receiptsWaitingInvoice: 0, matchedValue: 0, waitingValue: 0, exceptionValue: 0,
         });
         return vendorMap.get(v)!;
       };
@@ -67,6 +69,7 @@ export function MatchStatusPanel() {
         vs.totalInvoices++;
         const ms = inv.match_status ?? "unmatched";
         if (ms === "matched") { vs.matched++; vs.matchedValue += Number(inv.total) || 0; }
+        else if (ms === "matched_exception") { vs.matchedException++; vs.exceptionValue += Number(inv.total) || 0; }
         else if (ms === "pending_review") { vs.pendingReview++; vs.waitingValue += Number(inv.total) || 0; }
         else { vs.waitingReceipt++; vs.waitingValue += Number(inv.total) || 0; waitingInvoices.push(inv); }
       }
@@ -208,9 +211,10 @@ export function MatchStatusPanel() {
                   <TableHead className="text-[10px] font-semibold">Vendor</TableHead>
                   <TableHead className="text-[10px] font-semibold text-right">Invoices</TableHead>
                   <TableHead className="text-[10px] font-semibold text-right">Matched</TableHead>
-                  <TableHead className="text-[10px] font-semibold text-right">Waiting Receipt</TableHead>
-                  <TableHead className="text-[10px] font-semibold text-right">Pending Review</TableHead>
-                  <TableHead className="text-[10px] font-semibold text-right">Receipts Waiting Invoice</TableHead>
+                    <TableHead className="text-[10px] font-semibold text-right">Waiting Receipt</TableHead>
+                    <TableHead className="text-[10px] font-semibold text-right">Exceptions</TableHead>
+                    <TableHead className="text-[10px] font-semibold text-right">Pending Review</TableHead>
+                    <TableHead className="text-[10px] font-semibold text-right">Receipts Waiting Invoice</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -220,6 +224,7 @@ export function MatchStatusPanel() {
                     <TableCell className="text-xs text-right tabular-nums">{v.totalInvoices}</TableCell>
                     <TableCell className="text-xs text-right tabular-nums text-emerald-500 font-semibold">{v.matched}</TableCell>
                     <TableCell className={`text-xs text-right tabular-nums font-semibold ${cellColor(v.waitingReceipt)}`}>{v.waitingReceipt}</TableCell>
+                    <TableCell className={`text-xs text-right tabular-nums font-semibold ${v.matchedException > 0 ? "text-destructive" : "text-muted-foreground"}`}>{v.matchedException}</TableCell>
                     <TableCell className={`text-xs text-right tabular-nums font-semibold ${cellColor(v.pendingReview)}`}>{v.pendingReview}</TableCell>
                     <TableCell className={`text-xs text-right tabular-nums font-semibold ${cellColor(v.receiptsWaitingInvoice)}`}>{v.receiptsWaitingInvoice}</TableCell>
                   </TableRow>

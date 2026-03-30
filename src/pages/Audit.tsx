@@ -97,7 +97,11 @@ export default function AuditPage() {
   const invoiceStats = (() => {
     const inv = invoices.filter((i: any) => i.doc_type === "INVOICE");
     const pos = invoices.filter((i: any) => i.doc_type === "PO");
-    const invTotal = inv.reduce((s: number, i: any) => s + (Number(i.total) || 0), 0);
+    // AP totals only include confirmed-terms invoices (exclude proforma + needs_review)
+    const confirmedInv = inv.filter((i: any) => i.terms_status === "confirmed");
+    const needsReviewInv = inv.filter((i: any) => i.terms_status === "needs_review");
+    const invTotal = confirmedInv.reduce((s: number, i: any) => s + (Number(i.total) || 0), 0);
+    const needsReviewTotal = needsReviewInv.reduce((s: number, i: any) => s + (Number(i.total) || 0), 0);
     const hasPO = inv.filter((i: any) => i.po_number && i.po_number.trim() !== "").length;
     const noPO = inv.filter((i: any) => !i.po_number || i.po_number.trim() === "").length;
 
@@ -125,6 +129,8 @@ export default function AuditPage() {
       invoiceCount: inv.length,
       poCount: pos.length,
       invoiceTotal: invTotal,
+      needsReviewTotal,
+      needsReviewCount: needsReviewInv.length,
       hasPO,
       noPO,
       byVendor: Array.from(byVendor.entries()).sort((a, b) => b[1].value - a[1].value),
@@ -348,11 +354,16 @@ export default function AuditPage() {
               <Card className="bg-card border-border">
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between mb-1">
-                    <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Total AP Value</span>
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Confirmed AP Liability</span>
                     <DollarSign className="h-3.5 w-3.5 text-primary opacity-70" />
                   </div>
                   <p className="text-lg font-bold tracking-tight">{formatCurrency(invoiceStats.invoiceTotal)}</p>
-                  <p className="text-[10px] text-muted-foreground">{invoiceStats.invoiceCount} invoices</p>
+                  <p className="text-[10px] text-muted-foreground">
+                    {invoiceStats.invoiceCount} invoices (confirmed terms)
+                    {invoiceStats.needsReviewCount > 0 && (
+                      <span className="text-amber-500 ml-1">+ {formatCurrency(invoiceStats.needsReviewTotal)} needs review</span>
+                    )}
+                  </p>
                 </CardContent>
               </Card>
               <Card className="bg-card border-destructive/30">

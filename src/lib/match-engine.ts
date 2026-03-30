@@ -190,7 +190,7 @@ export async function runTwoWayMatchEngine(
         if (matchedLines.length > 0) {
           const matchedUPCs = new Set(matchedLines.map(l => stripLeadingZeros(l.upc ?? "")));
           const overlapPct = Math.round((matchedUPCs.size / invoiceUPCs.size) * 100);
-          if (overlapPct >= 50) {
+          if (overlapPct >= 60) {
             const sessionIds = new Set(matchedLines.map(l => l.session_id).filter(Boolean));
             bestMatch = {
               invoiceId: inv.id,
@@ -260,12 +260,12 @@ export async function runTwoWayMatchEngine(
               s + (Number(l.received_cost) || Number(l.ordered_cost) || 0), 0);
             if (sessionTotal <= 0) continue;
             const pctDiff = Math.abs(invTotal - sessionTotal) / invTotal;
-            if (pctDiff > 0.05) continue; // >5% difference
+            if (pctDiff > 0.10) continue; // >10% difference
             const session = sessionMap.get(sid);
             if (!session) continue;
             const sessionDate = new Date(session.created_at);
             const daysDiff = Math.abs((invDate.getTime() - sessionDate.getTime()) / 86400000);
-            if (daysDiff > 60) continue;
+            if (daysDiff > 90) continue;
             bestMatch = {
               invoiceId: inv.id,
               invoiceNumber: inv.invoice_number,
@@ -316,7 +316,23 @@ export async function runTwoWayMatchEngine(
 export async function persistMatchResults(results: TwoWayMatchResult[]): Promise<number> {
   let saved = 0;
   for (const r of results) {
-    const matchStatus = r.confidence === "low" ? "pending_review" : "matched";
+    const baseStatus = r.confidence === "low" ? "pending_review" : "matched";
+
+    // For non-low confidence matches, check for discrepancies (qty/price)
+    let matchStatus = baseStatus;
+    if (baseStatus === "matched") {
+      // Check if this invoice has open discrepancies from reconciliation
+      const { data: discreps } = await supabase
+        .from("reconciliation_discrepancies")
+        .select("id")
+        .eq("invoice_id", r.invoiceId)
+        .eq("resolution_status", "open")
+        .limit(1);
+      if (discreps && discreps.length > 0) {
+        matchStatus = "matched_exception";
+      }
+    }
+
     // Update invoice side
     const { error: invErr } = await supabase
       .from("vendor_invoices")
@@ -335,7 +351,7 @@ export async function persistMatchResults(results: TwoWayMatchResult[]): Promise
       await supabase
         .from("po_receiving_lines")
         .update({
-          invoice_match_status: matchStatus,
+          invoice_match_status: matchStatus === "matched_exception" ? "matched" : matchStatus,
           matched_invoice_id: r.invoiceId,
         } as any)
         .eq("id", lid);
