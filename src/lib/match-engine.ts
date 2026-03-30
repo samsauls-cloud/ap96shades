@@ -330,14 +330,14 @@ export async function persistMatchResults(results: TwoWayMatchResult[]): Promise
 
     if (invErr) continue;
 
-    // Update receiving side
+    // Update receiving side (po_receiving_lines)
     for (const lid of r.receivingLineIds) {
       await supabase
-        .from("lightspeed_receiving")
+        .from("po_receiving_lines")
         .update({
           invoice_match_status: matchStatus,
           matched_invoice_id: r.invoiceId,
-        })
+        } as any)
         .eq("id", lid);
     }
     saved++;
