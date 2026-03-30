@@ -39,6 +39,11 @@ export default function ReportsPage() {
     queryFn: fetchPayments,
   });
 
+  const { data: invoices = [], isLoading: loadingInv } = useQuery({
+    queryKey: ["report_invoices"],
+    queryFn: () => fetchAllRows<VendorInvoice>("vendor_invoices"),
+  });
+
   const activePayments = payments.filter(p => p.payment_status !== "void");
   const vendors = [...new Set(payments.map(p => p.vendor))].sort();
   const today = new Date();
@@ -49,6 +54,8 @@ export default function ReportsPage() {
     { key: "history" as const, label: "Payment History", icon: DollarSign },
     { key: "outstanding" as const, label: "Outstanding", icon: FileBarChart },
     { key: "cashflow" as const, label: "Cash Flow Forecast", icon: TrendingUp },
+    { key: "fulfillment" as const, label: "PO Fulfillment", icon: PackageCheck },
+    { key: "vendorspend" as const, label: "Vendor Spend", icon: Users },
   ];
 
   return (
@@ -63,7 +70,7 @@ export default function ReportsPage() {
           ))}
         </div>
 
-        {isLoading ? (
+        {(isLoading || loadingInv) ? (
           <div className="flex items-center justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
         ) : tab === "aging" ? (
           <AgingReport payments={activePayments} today={today} />
@@ -71,6 +78,10 @@ export default function ReportsPage() {
           <PaymentHistoryReport payments={payments} vendors={vendors} vendorFilter={vendorFilter} setVendorFilter={setVendorFilter} methodFilter={methodFilter} setMethodFilter={setMethodFilter} dateFrom={dateFrom} setDateFrom={setDateFrom} dateTo={dateTo} setDateTo={setDateTo} />
         ) : tab === "outstanding" ? (
           <OutstandingReport payments={activePayments} today={today} vendors={vendors} vendorFilter={vendorFilter} setVendorFilter={setVendorFilter} />
+        ) : tab === "fulfillment" ? (
+          <POFulfillmentReport invoices={invoices} />
+        ) : tab === "vendorspend" ? (
+          <VendorSpendReport invoices={invoices} payments={activePayments} />
         ) : (
           <CashFlowForecast payments={activePayments} today={today} />
         )}
