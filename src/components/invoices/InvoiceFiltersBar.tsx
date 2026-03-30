@@ -64,6 +64,8 @@ export function InvoiceFiltersBar({ filters, onChange, vendors, tags = [] }: Pro
             <SelectItem value="csv_import">CSV Import</SelectItem>
           </SelectContent>
         </Select>
+
+        <Select value={filters.status || "__all"} onValueChange={v => update({ status: v === "__all" ? undefined : v })}>
           <SelectTrigger className="w-full sm:w-[120px] bg-secondary border-border text-xs h-8">
             <SelectValue placeholder="Status" />
           </SelectTrigger>
