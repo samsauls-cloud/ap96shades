@@ -1,0 +1,2 @@
+ALTER TABLE vendor_invoices ADD COLUMN IF NOT EXISTS linked_proforma_id uuid REFERENCES vendor_invoices(id);
+ALTER TABLE vendor_invoices ADD COLUMN IF NOT EXISTS proforma_superseded_by uuid REFERENCES vendor_invoices(id);
