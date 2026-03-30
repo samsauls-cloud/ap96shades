@@ -2,13 +2,17 @@ import { getLineItems } from "@/lib/supabase-queries";
 
 /* ── Vendor alias map ── */
 const VENDOR_ALIASES: Record<string, string[]> = {
-  Luxottica: ["Luxottica", "Chanel"],
-  Kering: ["Kering"],
-  "Maui Jim": ["Maui Jim"],
-  Safilo: ["Safilo"],
-  Marcolin: ["Marcolin"],
-  Marchon: ["Marchon", "Nike"],
+  Luxottica: ["Luxottica", "Chanel", "Costa Del Mar", "Costa", "Ray-Ban", "Oakley", "Prada", "Versace", "Coach", "Burberry", "Michael Kors", "Tiffany", "Vogue", "Persol", "DKNY", "Dolce & Gabbana", "Emporio Armani", "Giorgio Armani"],
+  Kering: ["Kering", "Gucci", "Saint Laurent", "Balenciaga", "Bottega Veneta", "Alexander McQueen"],
+  "Maui Jim": ["Maui Jim", "Maui"],
+  Safilo: ["Safilo", "Carrera", "Fossil", "Hugo Boss", "Jimmy Choo"],
+  Marcolin: ["Marcolin", "Tom Ford", "Guess", "Swarovski", "Montblanc"],
+  Marchon: ["Marchon", "Nike", "Columbia", "Ferragamo", "Flexon", "Lacoste"],
   "Blenders Eyewear": ["Blenders Eyewear", "Blenders"],
+  "Smith Optics": ["Smith Optics", "Smith"],
+  Revo: ["Revo"],
+  DITA: ["DITA", "Dita"],
+  "Direct Import": ["Direct Import", "China"],
 };
 
 export function getVendorAliases(vendor: string): string[] {
