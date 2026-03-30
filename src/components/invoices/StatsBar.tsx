@@ -7,6 +7,7 @@ export function StatsBar({ stats }: { stats: InvoiceStats | undefined }) {
   const s = stats ?? {
     total_documents: 0, total_invoices: 0, total_pos: 0,
     total_ap_value: 0, total_units: 0, unpaid_balance: 0,
+    needs_review_count: 0, needs_review_value: 0,
   };
 
   const items = [
