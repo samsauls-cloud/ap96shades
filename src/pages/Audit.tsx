@@ -506,14 +506,20 @@ export default function AuditPage() {
                   <p className="text-[10px] text-muted-foreground">{paymentStats.totalUnpaidCount} unpaid installments</p>
                 </CardContent>
               </Card>
-              <Card className="bg-card border-border">
+              <Card className="bg-card border-emerald-500/30">
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between mb-1">
-                    <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">LS Match Rate</span>
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-500">LS Match Coverage</span>
                     <PackageCheck className="h-3.5 w-3.5 text-emerald-500 opacity-70" />
                   </div>
-                  <p className="text-lg font-bold tracking-tight">{lsMatches.fullyReceived + lsMatches.partial}/{lsMatches.results.length}</p>
-                  <p className="text-[10px] text-muted-foreground">{lsMatches.notFound} unmatched</p>
+                  <p className="text-lg font-bold tracking-tight">
+                    {lsMatches.results.length > 0
+                      ? `${((lsMatches.fullyReceived + lsMatches.partial) / lsMatches.results.length * 100).toFixed(1)}%`
+                      : "—"}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground">
+                    {lsMatches.fullyReceived + lsMatches.partial} of {lsMatches.results.length} invoices matched
+                  </p>
                 </CardContent>
               </Card>
             </div>
