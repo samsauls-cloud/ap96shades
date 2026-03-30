@@ -330,12 +330,14 @@ export default function ReaderPage() {
           dbId: saved.id,
         });
 
-        // Auto-generate payment installments
-        try {
-          await generatePaymentsForInvoice(
-            saved.id, invoice.invoice_date, invoice.total || 0, invoice.vendor, invoice.invoice_number, invoice.po_number ?? null
-          );
-        } catch { /* silent — payments are secondary */ }
+        // Auto-generate payment installments — skip for proformas
+        if (!isProforma({ doc_type: invoice.doc_type || "" })) {
+          try {
+            await generatePaymentsForInvoice(
+              saved.id, invoice.invoice_date, invoice.total || 0, invoice.vendor, invoice.invoice_number, invoice.po_number ?? null
+            );
+          } catch { /* silent — payments are secondary */ }
+        }
 
         // Auto-check for pending matches against partially reconciled sessions
         try {
