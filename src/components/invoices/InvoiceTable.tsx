@@ -83,7 +83,16 @@ export function InvoiceTable({ invoices, filters, onSort, onRowClick, totalCount
                 className="border-border cursor-pointer hover:bg-accent/50 transition-colors"
                 onClick={() => onRowClick(inv)}
               >
-                <TableCell><DocTypeBadge docType={inv.doc_type} /></TableCell>
+                <TableCell>
+                  <div className="flex items-center gap-1">
+                    <DocTypeBadge docType={inv.doc_type} />
+                    {inv.import_source === "photo_capture" && (
+                      <span title="Photo capture" className="text-[9px] px-1 py-0.5 rounded bg-amber-500/10 text-amber-500 border border-amber-500/20">
+                        <Camera className="h-2.5 w-2.5 inline" />
+                      </span>
+                    )}
+                  </div>
+                </TableCell>
                 <TableCell className="font-medium text-sm">{inv.vendor}</TableCell>
                 <TableCell className="font-mono text-xs">{inv.invoice_number}</TableCell>
                 <TableCell className="text-xs text-muted-foreground">{inv.po_number || "—"}</TableCell>
