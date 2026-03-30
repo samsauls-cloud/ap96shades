@@ -19,11 +19,13 @@ interface VendorMatchSummary {
   vendor: string;
   totalInvoices: number;
   matched: number;
+  matchedException: number;
   waitingReceipt: number;
   pendingReview: number;
   receiptsWaitingInvoice: number;
   matchedValue: number;
   waitingValue: number;
+  exceptionValue: number;
 }
 
 export function MatchStatusPanel() {
