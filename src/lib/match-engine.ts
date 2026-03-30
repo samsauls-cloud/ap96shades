@@ -190,7 +190,7 @@ export async function runTwoWayMatchEngine(
         if (matchedLines.length > 0) {
           const matchedUPCs = new Set(matchedLines.map(l => stripLeadingZeros(l.upc ?? "")));
           const overlapPct = Math.round((matchedUPCs.size / invoiceUPCs.size) * 100);
-          if (overlapPct >= 50) {
+          if (overlapPct >= 60) {
             const sessionIds = new Set(matchedLines.map(l => l.session_id).filter(Boolean));
             bestMatch = {
               invoiceId: inv.id,
