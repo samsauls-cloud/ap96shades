@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import {
   AlertTriangle, CheckCircle2, Database, FileText, CreditCard,
   PackageCheck, ChevronDown, ChevronRight, Loader2, Zap, Download,
-  DollarSign, Search as SearchIcon,
+  DollarSign, Search as SearchIcon, Link2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
