@@ -773,7 +773,7 @@ export default function AuditPage() {
                 const unmappedLsVendors = Array.from(lsVendors).filter(v => {
                   // Check if any invoice vendor aliases contain this LS vendor
                   return !Array.from(invoiceVendors).some(iv => {
-                    const aliases = VENDOR_ALIASES[iv] ?? [iv];
+                    const aliases = getVendorAliases(iv);
                     return aliases.includes(v);
                   });
                 });
