@@ -344,8 +344,10 @@ export type Database = {
         Row: {
           created_at: string
           id: string
+          invoice_match_status: string
           item_description: string | null
           manufact_sku: string | null
+          matched_invoice_id: string | null
           not_received_qty: number | null
           po_number: string | null
           received_qty: number | null
@@ -358,8 +360,10 @@ export type Database = {
         Insert: {
           created_at?: string
           id?: string
+          invoice_match_status?: string
           item_description?: string | null
           manufact_sku?: string | null
+          matched_invoice_id?: string | null
           not_received_qty?: number | null
           po_number?: string | null
           received_qty?: number | null
@@ -372,8 +376,10 @@ export type Database = {
         Update: {
           created_at?: string
           id?: string
+          invoice_match_status?: string
           item_description?: string | null
           manufact_sku?: string | null
+          matched_invoice_id?: string | null
           not_received_qty?: number | null
           po_number?: string | null
           received_qty?: number | null
@@ -475,10 +481,12 @@ export type Database = {
           discrepancy_type: string | null
           ean: string | null
           id: string
+          invoice_match_status: string
           item_description: string | null
           lightspeed_status: string | null
           manufact_sku: string | null
           match_status: string | null
+          matched_invoice_id: string | null
           matched_invoice_line: Json | null
           not_received_qty: number | null
           notes: string | null
@@ -504,10 +512,12 @@ export type Database = {
           discrepancy_type?: string | null
           ean?: string | null
           id?: string
+          invoice_match_status?: string
           item_description?: string | null
           lightspeed_status?: string | null
           manufact_sku?: string | null
           match_status?: string | null
+          matched_invoice_id?: string | null
           matched_invoice_line?: Json | null
           not_received_qty?: number | null
           notes?: string | null
@@ -533,10 +543,12 @@ export type Database = {
           discrepancy_type?: string | null
           ean?: string | null
           id?: string
+          invoice_match_status?: string
           item_description?: string | null
           lightspeed_status?: string | null
           manufact_sku?: string | null
           match_status?: string | null
+          matched_invoice_id?: string | null
           matched_invoice_line?: Json | null
           not_received_qty?: number | null
           notes?: string | null
@@ -899,6 +911,10 @@ export type Database = {
           lightspeed_po_number: string | null
           line_items: Json
           linked_proforma_id: string | null
+          match_confidence: string | null
+          match_notes: string | null
+          match_status: string
+          matched_session_ids: string[] | null
           notes: string | null
           payment_terms: string | null
           payment_terms_extracted: Json | null
@@ -954,6 +970,10 @@ export type Database = {
           lightspeed_po_number?: string | null
           line_items?: Json
           linked_proforma_id?: string | null
+          match_confidence?: string | null
+          match_notes?: string | null
+          match_status?: string
+          matched_session_ids?: string[] | null
           notes?: string | null
           payment_terms?: string | null
           payment_terms_extracted?: Json | null
@@ -1009,6 +1029,10 @@ export type Database = {
           lightspeed_po_number?: string | null
           line_items?: Json
           linked_proforma_id?: string | null
+          match_confidence?: string | null
+          match_notes?: string | null
+          match_status?: string
+          matched_session_ids?: string[] | null
           notes?: string | null
           payment_terms?: string | null
           payment_terms_extracted?: Json | null

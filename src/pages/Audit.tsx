@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import {
   AlertTriangle, CheckCircle2, Database, FileText, CreditCard,
   PackageCheck, ChevronDown, ChevronRight, Loader2, Zap, Download,
-  DollarSign, Search as SearchIcon,
+  DollarSign, Search as SearchIcon, Link2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,6 +18,7 @@ import {
 import { InvoiceNav } from "@/components/invoices/InvoiceNav";
 import { ReconciliationAuditPanel } from "@/components/invoices/ReconciliationAuditPanel";
 import { VendorCoveragePanel } from "@/components/invoices/VendorCoveragePanel";
+import { MatchStatusPanel } from "@/components/invoices/MatchStatusPanel";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchAllRows } from "@/lib/supabase-fetch-all";
 import { formatCurrency, formatDate, getLineItems } from "@/lib/supabase-queries";
@@ -399,6 +400,11 @@ export default function AuditPage() {
               recSessions={recSessions as any[]}
               recLines={recLines as any[]}
             />
+
+            {/* ── Two-Way Match Status ── */}
+            <Section title="Invoice ↔ Receipt Match Status" icon={Link2} defaultOpen>
+              <MatchStatusPanel />
+            </Section>
 
             {/* ── Vendor Receiving Coverage ── */}
             <Section title="Vendor Receiving Coverage" icon={PackageCheck}>
