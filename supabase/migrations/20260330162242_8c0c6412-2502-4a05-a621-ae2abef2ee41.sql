@@ -1,0 +1,1 @@
+UPDATE invoice_payments SET payment_status = 'paid', is_paid = true, amount_paid = amount_due, balance_remaining = 0, paid_date = CURRENT_DATE, last_payment_date = CURRENT_DATE WHERE id = '0bde2d3a-08bd-4b43-a64e-1f5c92bbca05';
