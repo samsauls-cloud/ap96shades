@@ -137,8 +137,8 @@ export async function runFullReconciliation(
       }
 
       // CHECK 2 — PRICE_MISMATCH
-      const invoicedPrice = li.unit_price ?? 0;
-      const orderedPrice = recLine.unit_cost ?? 0;
+      const invoicedPrice = safeNum(li.unit_price);
+      const orderedPrice = safeNum(recLine.unit_cost);
       if (orderedPrice > 0 && Math.abs(invoicedPrice - orderedPrice) > 0.50) {
         const priceDelta = invoicedPrice - orderedPrice;
         const atRisk = priceDelta * invoicedQty;
