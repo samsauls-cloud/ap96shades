@@ -712,16 +712,16 @@ export default function ReaderPage() {
           onDragOver={e => e.preventDefault()}
           onDrop={handleDrop}
         >
-          <CardContent className="p-8 flex flex-col items-center justify-center text-center">
+          <CardContent className="p-6 sm:p-8 flex flex-col items-center justify-center text-center">
             <div className="flex items-center gap-3 mb-3">
-              <Upload className="h-10 w-10 text-muted-foreground" />
-              <FileSpreadsheet className="h-8 w-8 text-muted-foreground" />
+              <Upload className="h-8 w-8 sm:h-10 sm:w-10 text-muted-foreground" />
+              <FileSpreadsheet className="h-6 w-6 sm:h-8 sm:w-8 text-muted-foreground" />
             </div>
             <p className="text-sm font-medium mb-1">Drop PDF invoices or CSV POs here</p>
             <p className="text-xs text-muted-foreground mb-3">PDFs are extracted via AI · CSVs are parsed as Lightspeed POs (Marchon 10% discount auto-applied)</p>
-            <label>
+            <label className="w-full sm:w-auto">
               <input type="file" accept=".pdf,.csv" multiple onChange={handleFileInput} className="hidden" />
-              <Button variant="outline" size="sm" className="text-xs" asChild>
+              <Button variant="outline" size="default" className="text-sm w-full sm:w-auto h-12 sm:h-10" asChild>
                 <span>Choose Files</span>
               </Button>
             </label>
@@ -729,7 +729,7 @@ export default function ReaderPage() {
               <div className="mt-4 space-y-1">
                 <p className="text-xs font-semibold">{queue.length} file(s) queued:</p>
                 {queue.map((f, i) => (
-                  <p key={i} className="text-xs text-muted-foreground">{f.name}</p>
+                  <p key={i} className="text-xs text-muted-foreground truncate max-w-[250px]">{f.name}</p>
                 ))}
               </div>
             )}
