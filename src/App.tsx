@@ -13,6 +13,7 @@ import ReportsPage from "./pages/Reports.tsx";
 import ReceivingPage from "./pages/Receiving.tsx";
 import ReconciliationPage from "./pages/Reconciliation.tsx";
 import LightspeedImportPage from "./pages/LightspeedImport.tsx";
+import AuditPage from "./pages/Audit.tsx";
 import NotFound from "./pages/NotFound.tsx";
 
 const queryClient = new QueryClient();
@@ -34,6 +35,7 @@ const App = () => (
             <Route path="/invoices/receiving" element={<ReceivingPage />} />
             <Route path="/reconciliation" element={<ReconciliationPage />} />
             <Route path="/import/lightspeed" element={<LightspeedImportPage />} />
+            <Route path="/audit" element={<AuditPage />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>

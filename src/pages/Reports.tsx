@@ -6,13 +6,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Loader2, Download, FileBarChart, Clock, DollarSign, TrendingUp } from "lucide-react";
-import { formatCurrency, formatDate } from "@/lib/supabase-queries";
+import { Loader2, Download, FileBarChart, Clock, DollarSign, TrendingUp, PackageCheck, Users } from "lucide-react";
+import { formatCurrency, formatDate, getLineItems } from "@/lib/supabase-queries";
+import type { VendorInvoice } from "@/lib/supabase-queries";
 import { fetchPayments, type InvoicePayment, isOverdue, getDaysOverdue } from "@/lib/payment-queries";
 import { PaymentStatusBadge } from "@/components/invoices/PaymentStatusBadge";
-import { addDays, startOfWeek, format, isWithinInterval } from "date-fns";
+import { fetchAllRows } from "@/lib/supabase-fetch-all";
+import { addDays, startOfWeek, format, subMonths, isWithinInterval } from "date-fns";
 
-type ReportTab = "aging" | "history" | "outstanding" | "cashflow";
+type ReportTab = "aging" | "history" | "outstanding" | "cashflow" | "fulfillment" | "vendorspend";
 
 function exportCSV(rows: string[][], filename: string) {
   const csv = rows.map(r => r.map(c => `"${String(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
@@ -37,6 +39,11 @@ export default function ReportsPage() {
     queryFn: fetchPayments,
   });
 
+  const { data: invoices = [], isLoading: loadingInv } = useQuery({
+    queryKey: ["report_invoices"],
+    queryFn: () => fetchAllRows<VendorInvoice>("vendor_invoices"),
+  });
+
   const activePayments = payments.filter(p => p.payment_status !== "void");
   const vendors = [...new Set(payments.map(p => p.vendor))].sort();
   const today = new Date();
@@ -47,6 +54,8 @@ export default function ReportsPage() {
     { key: "history" as const, label: "Payment History", icon: DollarSign },
     { key: "outstanding" as const, label: "Outstanding", icon: FileBarChart },
     { key: "cashflow" as const, label: "Cash Flow Forecast", icon: TrendingUp },
+    { key: "fulfillment" as const, label: "PO Fulfillment", icon: PackageCheck },
+    { key: "vendorspend" as const, label: "Vendor Spend", icon: Users },
   ];
 
   return (
@@ -61,7 +70,7 @@ export default function ReportsPage() {
           ))}
         </div>
 
-        {isLoading ? (
+        {(isLoading || loadingInv) ? (
           <div className="flex items-center justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
         ) : tab === "aging" ? (
           <AgingReport payments={activePayments} today={today} />
@@ -69,6 +78,10 @@ export default function ReportsPage() {
           <PaymentHistoryReport payments={payments} vendors={vendors} vendorFilter={vendorFilter} setVendorFilter={setVendorFilter} methodFilter={methodFilter} setMethodFilter={setMethodFilter} dateFrom={dateFrom} setDateFrom={setDateFrom} dateTo={dateTo} setDateTo={setDateTo} />
         ) : tab === "outstanding" ? (
           <OutstandingReport payments={activePayments} today={today} vendors={vendors} vendorFilter={vendorFilter} setVendorFilter={setVendorFilter} />
+        ) : tab === "fulfillment" ? (
+          <POFulfillmentReport invoices={invoices} />
+        ) : tab === "vendorspend" ? (
+          <VendorSpendReport invoices={invoices} payments={activePayments} />
         ) : (
           <CashFlowForecast payments={activePayments} today={today} />
         )}
@@ -359,6 +372,184 @@ function CashFlowForecast({ payments, today }: { payments: InvoicePayment[]; tod
                   <TableCell className="text-xs font-medium">{w.label}</TableCell>
                   <TableCell className={`text-xs text-right tabular-nums ${w.total > 0 ? "font-semibold" : "text-muted-foreground"}`}>{formatCurrency(w.total)}</TableCell>
                   <TableCell className="text-xs text-right tabular-nums font-bold">{formatCurrency(w.cumulative)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/* ── PO Fulfillment Report ── */
+function POFulfillmentReport({ invoices }: { invoices: VendorInvoice[] }) {
+  const rows = useMemo(() => {
+    const poMap = new Map<string, { vendor: string; poNumber: string; orderedQty: number; shippedQty: number; totalValue: number; invoiceCount: number }>();
+    for (const inv of invoices) {
+      if (inv.doc_type !== "INVOICE" || !inv.po_number) continue;
+      const key = `${inv.vendor}::${inv.po_number}`;
+      const cur = poMap.get(key) ?? { vendor: inv.vendor, poNumber: inv.po_number, orderedQty: 0, shippedQty: 0, totalValue: 0, invoiceCount: 0 };
+      const lines = getLineItems(inv);
+      for (const li of lines) {
+        cur.orderedQty += li.qty_ordered ?? li.qty ?? 0;
+        cur.shippedQty += li.qty_shipped ?? li.qty_ordered ?? li.qty ?? 0;
+      }
+      cur.totalValue += inv.total;
+      cur.invoiceCount++;
+      poMap.set(key, cur);
+    }
+    return Array.from(poMap.values()).sort((a, b) => b.totalValue - a.totalValue);
+  }, [invoices]);
+
+  const handleExport = () => {
+    const header = ["Vendor", "PO #", "Invoices", "Ordered Qty", "Shipped Qty", "Fill Rate %", "Backorder Qty", "Total Value"];
+    const csvRows = rows.map(r => {
+      const fillRate = r.orderedQty > 0 ? ((r.shippedQty / r.orderedQty) * 100).toFixed(1) : "0";
+      const backorder = Math.max(0, r.orderedQty - r.shippedQty);
+      return [r.vendor, r.poNumber, String(r.invoiceCount), String(r.orderedQty), String(r.shippedQty), fillRate, String(backorder), r.totalValue.toFixed(2)];
+    });
+    exportCSV([header, ...csvRows], `po_fulfillment_${format(new Date(), "yyyy-MM-dd")}.csv`);
+  };
+
+  return (
+    <Card className="bg-card border-border">
+      <CardHeader className="pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <CardTitle className="text-sm font-semibold">PO Fulfillment Report ({rows.length} POs)</CardTitle>
+        <Button size="sm" variant="outline" className="text-xs h-7 w-full sm:w-auto" onClick={handleExport}><Download className="h-3 w-3 mr-1" /> Export CSV</Button>
+      </CardHeader>
+      <CardContent className="p-0">
+        <div className="overflow-auto max-h-[600px]">
+          <Table>
+            <TableHeader>
+              <TableRow className="border-border">
+                <TableHead className="text-[10px] font-semibold">Vendor</TableHead>
+                <TableHead className="text-[10px] font-semibold">PO #</TableHead>
+                <TableHead className="text-[10px] font-semibold text-right">Invoices</TableHead>
+                <TableHead className="text-[10px] font-semibold text-right">Ordered</TableHead>
+                <TableHead className="text-[10px] font-semibold text-right">Shipped</TableHead>
+                <TableHead className="text-[10px] font-semibold text-right">Fill Rate</TableHead>
+                <TableHead className="text-[10px] font-semibold text-right">Backorder</TableHead>
+                <TableHead className="text-[10px] font-semibold text-right">Total Value</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.length === 0 ? (
+                <TableRow><TableCell colSpan={8} className="text-center text-xs text-muted-foreground py-8">No PO data available</TableCell></TableRow>
+              ) : rows.map((r, i) => {
+                const fillRate = r.orderedQty > 0 ? (r.shippedQty / r.orderedQty) * 100 : 0;
+                const backorder = Math.max(0, r.orderedQty - r.shippedQty);
+                return (
+                  <TableRow key={i} className={`border-border ${fillRate < 100 ? "bg-amber-500/5" : ""}`}>
+                    <TableCell className="text-xs">{r.vendor}</TableCell>
+                    <TableCell className="text-xs font-mono">{r.poNumber}</TableCell>
+                    <TableCell className="text-xs text-right tabular-nums">{r.invoiceCount}</TableCell>
+                    <TableCell className="text-xs text-right tabular-nums">{r.orderedQty}</TableCell>
+                    <TableCell className="text-xs text-right tabular-nums">{r.shippedQty}</TableCell>
+                    <TableCell className={`text-xs text-right tabular-nums font-semibold ${fillRate < 100 ? "text-amber-500" : "text-emerald-500"}`}>{fillRate.toFixed(1)}%</TableCell>
+                    <TableCell className={`text-xs text-right tabular-nums ${backorder > 0 ? "text-destructive font-semibold" : ""}`}>{backorder}</TableCell>
+                    <TableCell className="text-xs text-right tabular-nums font-medium">{formatCurrency(r.totalValue)}</TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/* ── Vendor Spend Summary ── */
+function VendorSpendReport({ invoices, payments }: { invoices: VendorInvoice[]; payments: InvoicePayment[] }) {
+  const report = useMemo(() => {
+    const now = new Date();
+    const months: string[] = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = subMonths(now, i);
+      months.push(format(d, "yyyy-MM"));
+    }
+
+    const vendors = [...new Set((invoices as any[]).map(i => i.vendor))].sort();
+    const vendorData = vendors.map(vendor => {
+      const vendorInv = (invoices as any[]).filter(i => i.vendor === vendor && i.doc_type === "INVOICE");
+      const vendorPay = payments.filter(p => p.vendor === vendor);
+
+      const byMonth = months.map(m => {
+        const monthInv = vendorInv.filter(i => (i.invoice_date as string).startsWith(m));
+        const monthPaid = vendorPay
+          .filter(p => p.payment_status === "paid" && p.paid_date && (p.paid_date as string).startsWith(m))
+          .reduce((s, p) => s + (p.amount_paid ?? 0), 0);
+        return {
+          month: m,
+          invoiced: monthInv.reduce((s: number, i: any) => s + (Number(i.total) || 0), 0),
+          paid: monthPaid,
+        };
+      });
+
+      const totalInvoiced = vendorInv.reduce((s: number, i: any) => s + (Number(i.total) || 0), 0);
+      const totalPaid = vendorPay.filter(p => p.payment_status === "paid").reduce((s, p) => s + (p.amount_paid ?? 0), 0);
+      const outstanding = vendorPay.filter(p => p.payment_status !== "paid" && p.payment_status !== "void").reduce((s, p) => s + p.balance_remaining, 0);
+
+      return { vendor, byMonth, totalInvoiced, totalPaid, outstanding };
+    });
+
+    return { months, vendorData };
+  }, [invoices, payments]);
+
+  const handleExport = () => {
+    const header = ["Vendor", ...report.months.flatMap(m => [`${m} Invoiced`, `${m} Paid`]), "Total Invoiced", "Total Paid", "Outstanding"];
+    const rows = report.vendorData.map(v => [
+      v.vendor,
+      ...v.byMonth.flatMap(m => [m.invoiced.toFixed(2), m.paid.toFixed(2)]),
+      v.totalInvoiced.toFixed(2),
+      v.totalPaid.toFixed(2),
+      v.outstanding.toFixed(2),
+    ]);
+    exportCSV([header, ...rows], `vendor_spend_${format(new Date(), "yyyy-MM-dd")}.csv`);
+  };
+
+  return (
+    <Card className="bg-card border-border">
+      <CardHeader className="pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <CardTitle className="text-sm font-semibold">Vendor Spend Summary — Rolling 6 Months</CardTitle>
+        <Button size="sm" variant="outline" className="text-xs h-7 w-full sm:w-auto" onClick={handleExport}><Download className="h-3 w-3 mr-1" /> Export CSV</Button>
+      </CardHeader>
+      <CardContent className="p-0">
+        <div className="overflow-auto">
+          <Table>
+            <TableHeader>
+              <TableRow className="border-border">
+                <TableHead className="text-[10px] font-semibold sticky left-0 bg-card z-10">Vendor</TableHead>
+                {report.months.map(m => (
+                  <TableHead key={m} className="text-[10px] font-semibold text-right" colSpan={2}>
+                    {format(new Date(m + "-01"), "MMM yyyy")}
+                  </TableHead>
+                ))}
+                <TableHead className="text-[10px] font-semibold text-right">Total Invoiced</TableHead>
+                <TableHead className="text-[10px] font-semibold text-right">Total Paid</TableHead>
+                <TableHead className="text-[10px] font-semibold text-right">Outstanding</TableHead>
+              </TableRow>
+              <TableRow className="border-border">
+                <TableHead className="sticky left-0 bg-card z-10" />
+                {report.months.flatMap(m => [
+                  <TableHead key={`${m}-inv`} className="text-[9px] text-muted-foreground text-right">Inv</TableHead>,
+                  <TableHead key={`${m}-paid`} className="text-[9px] text-muted-foreground text-right">Paid</TableHead>,
+                ])}
+                <TableHead /><TableHead /><TableHead />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {report.vendorData.map(v => (
+                <TableRow key={v.vendor} className="border-border">
+                  <TableCell className="text-xs font-medium sticky left-0 bg-card z-10">{v.vendor}</TableCell>
+                  {v.byMonth.flatMap((m, i) => [
+                    <TableCell key={`${i}-inv`} className="text-[10px] text-right tabular-nums">{m.invoiced > 0 ? formatCurrency(m.invoiced) : "—"}</TableCell>,
+                    <TableCell key={`${i}-paid`} className="text-[10px] text-right tabular-nums text-emerald-500">{m.paid > 0 ? formatCurrency(m.paid) : "—"}</TableCell>,
+                  ])}
+                  <TableCell className="text-xs text-right tabular-nums font-semibold">{formatCurrency(v.totalInvoiced)}</TableCell>
+                  <TableCell className="text-xs text-right tabular-nums font-semibold text-emerald-500">{formatCurrency(v.totalPaid)}</TableCell>
+                  <TableCell className="text-xs text-right tabular-nums font-semibold text-amber-500">{formatCurrency(v.outstanding)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
