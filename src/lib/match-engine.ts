@@ -265,7 +265,7 @@ export async function runTwoWayMatchEngine(
             if (!session) continue;
             const sessionDate = new Date(session.created_at);
             const daysDiff = Math.abs((invDate.getTime() - sessionDate.getTime()) / 86400000);
-            if (daysDiff > 60) continue;
+            if (daysDiff > 90) continue;
             bestMatch = {
               invoiceId: inv.id,
               invoiceNumber: inv.invoice_number,
