@@ -874,6 +874,8 @@ export type Database = {
           linked_proforma_id: string | null
           notes: string | null
           payment_terms: string | null
+          payment_terms_extracted: Json | null
+          payment_terms_source: string | null
           po_number: string | null
           po_total_invoiced: number | null
           proforma_superseded_by: string | null
@@ -888,10 +890,13 @@ export type Database = {
           reconciliation_status: string | null
           ship_to: string | null
           shipment_count: number
+          shipping_terms: string | null
           status: string
           subtotal: number | null
           tags: string[] | null
           tax: number | null
+          terms_confidence: string | null
+          terms_status: string
           total: number
           vendor: string
           vendor_brands: string[] | null
@@ -924,6 +929,8 @@ export type Database = {
           linked_proforma_id?: string | null
           notes?: string | null
           payment_terms?: string | null
+          payment_terms_extracted?: Json | null
+          payment_terms_source?: string | null
           po_number?: string | null
           po_total_invoiced?: number | null
           proforma_superseded_by?: string | null
@@ -938,10 +945,13 @@ export type Database = {
           reconciliation_status?: string | null
           ship_to?: string | null
           shipment_count?: number
+          shipping_terms?: string | null
           status?: string
           subtotal?: number | null
           tags?: string[] | null
           tax?: number | null
+          terms_confidence?: string | null
+          terms_status?: string
           total?: number
           vendor: string
           vendor_brands?: string[] | null
@@ -974,6 +984,8 @@ export type Database = {
           linked_proforma_id?: string | null
           notes?: string | null
           payment_terms?: string | null
+          payment_terms_extracted?: Json | null
+          payment_terms_source?: string | null
           po_number?: string | null
           po_total_invoiced?: number | null
           proforma_superseded_by?: string | null
@@ -988,10 +1000,13 @@ export type Database = {
           reconciliation_status?: string | null
           ship_to?: string | null
           shipment_count?: number
+          shipping_terms?: string | null
           status?: string
           subtotal?: number | null
           tags?: string[] | null
           tax?: number | null
+          terms_confidence?: string | null
+          terms_status?: string
           total?: number
           vendor?: string
           vendor_brands?: string[] | null
