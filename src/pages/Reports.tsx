@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Loader2, Download, FileBarChart, Clock, DollarSign, TrendingUp, PackageCheck, Users } from "lucide-react";
+import { Loader2, Download, FileBarChart, Clock, DollarSign, TrendingUp, PackageCheck, Users, AlertTriangle } from "lucide-react";
 import { formatCurrency, formatDate, getLineItems } from "@/lib/supabase-queries";
 import type { VendorInvoice } from "@/lib/supabase-queries";
 import { fetchPayments, type InvoicePayment, isOverdue, getDaysOverdue } from "@/lib/payment-queries";

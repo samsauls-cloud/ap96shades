@@ -528,6 +528,148 @@ export default function ReconciliationPage() {
           </Table>
         </div>
 
+        {/* ⚠ Discrepancies Section */}
+        <div>
+          <h2 className="text-sm font-bold mb-3 flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-amber-500" />
+            Billing Discrepancies from Lightspeed Receiving
+          </h2>
+          {(() => {
+            // Build discrepancy rows from po_receiving_lines
+            const discRows = (recLines as any[]).filter(l =>
+              l.billing_discrepancy === true || (Number(l.discrepancy_amount) || 0) !== 0 || (Number(l.not_received_qty) || 0) > 0
+            ).map(l => {
+              // Find session and linked invoice
+              const session = (sessions as any[]).find(s => s.id === l.session_id);
+              const invId = session?.reconciled_invoice_id;
+              const inv = invId ? (invoices as any[]).find(i => i.id === invId) : null;
+              return {
+                ...l,
+                vendor: inv?.vendor ?? session?.vendor ?? "—",
+                invoiceNumber: inv?.invoice_number ?? "—",
+                poNumber: inv?.po_number ?? "—",
+                discAmount: Number(l.discrepancy_amount) || 0,
+                notReceivedQty: Number(l.not_received_qty) || 0,
+              };
+            }).sort((a, b) => Math.abs(b.discAmount) - Math.abs(a.discAmount));
+
+            const totalDiscDollars = discRows.reduce((s, r) => s + r.discAmount, 0);
+            const priceMismatches = discRows.filter(r => r.billing_discrepancy === true).length;
+            const qtyShortages = discRows.filter(r => r.notReceivedQty > 0).length;
+            const totalNotReceived = discRows.reduce((s, r) => s + r.notReceivedQty, 0);
+
+            const exportDiscCSV = () => {
+              const header = "Vendor,Invoice #,PO #,Item,UPC,SKU,Order Qty,Received Qty,Not Received,LS Unit Cost,Discrepancy Type,Discrepancy Amount,Billing Discrepancy";
+              const rows = discRows.map(r => [
+                r.vendor, r.invoiceNumber, r.poNumber, r.item_description ?? "", r.upc ?? "", r.manufact_sku ?? "",
+                r.order_qty ?? 0, r.received_qty ?? 0, r.notReceivedQty, r.unit_cost ?? 0,
+                r.discrepancy_type ?? "", r.discAmount.toFixed(2), r.billing_discrepancy ? "YES" : "NO",
+              ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(","));
+              const csv = [header, ...rows].join("\n");
+              const blob = new Blob([csv], { type: "text/csv" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a"); a.href = url; a.download = "billing_discrepancies.csv"; a.click();
+              URL.revokeObjectURL(url);
+              toast.success("Discrepancies exported");
+            };
+
+            return (
+              <>
+                {/* Summary cards */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                  <Card className="bg-card border-border">
+                    <CardContent className="p-3">
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Discrepancy Impact</span>
+                      <p className="text-lg font-bold tracking-tight text-destructive">{formatCurrency(Math.abs(totalDiscDollars))}</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="bg-card border-border">
+                    <CardContent className="p-3">
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Price Mismatches</span>
+                      <p className="text-lg font-bold tracking-tight">{priceMismatches}</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="bg-card border-border">
+                    <CardContent className="p-3">
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Qty Shortages</span>
+                      <p className="text-lg font-bold tracking-tight text-amber-500">{qtyShortages}</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="bg-card border-border">
+                    <CardContent className="p-3">
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Units Not Received</span>
+                      <p className="text-lg font-bold tracking-tight">{totalNotReceived}</p>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <div className="flex justify-end mb-2">
+                  <Button variant="outline" size="sm" className="text-xs h-8 gap-1.5" onClick={exportDiscCSV}>
+                    <Download className="h-3.5 w-3.5" /> Export Discrepancies CSV
+                  </Button>
+                </div>
+
+                <div className="rounded-lg border border-border bg-card overflow-auto max-h-[500px]">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="border-border hover:bg-transparent">
+                        <TableHead className="text-[10px] font-semibold">Vendor</TableHead>
+                        <TableHead className="text-[10px] font-semibold">Invoice #</TableHead>
+                        <TableHead className="text-[10px] font-semibold">Item</TableHead>
+                        <TableHead className="text-[10px] font-semibold">UPC</TableHead>
+                        <TableHead className="text-[10px] font-semibold text-right">Order</TableHead>
+                        <TableHead className="text-[10px] font-semibold text-right">Received</TableHead>
+                        <TableHead className="text-[10px] font-semibold text-right">Not Rcvd</TableHead>
+                        <TableHead className="text-[10px] font-semibold text-right">Unit Cost</TableHead>
+                        <TableHead className="text-[10px] font-semibold">Type</TableHead>
+                        <TableHead className="text-[10px] font-semibold text-right">Disc. Amt</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {discRows.length === 0 ? (
+                        <TableRow><TableCell colSpan={10} className="text-center py-8 text-muted-foreground text-sm">No discrepancies found</TableCell></TableRow>
+                      ) : discRows.slice(0, 200).map((r, i) => {
+                        const isBilling = r.billing_discrepancy === true;
+                        const isShort = r.notReceivedQty > 0;
+                        const bgClass = isBilling && isShort
+                          ? "bg-orange-500/8 hover:bg-orange-500/12"
+                          : isBilling
+                          ? "bg-destructive/5 hover:bg-destructive/10"
+                          : isShort
+                          ? "bg-amber-500/5 hover:bg-amber-500/10"
+                          : "";
+                        return (
+                          <TableRow key={`disc-${i}`} className={`border-border ${bgClass}`}>
+                            <TableCell className="text-[10px]">{r.vendor}</TableCell>
+                            <TableCell className="text-[10px] font-mono">{r.invoiceNumber}</TableCell>
+                            <TableCell className="text-[10px] max-w-[150px] truncate">{r.item_description ?? "—"}</TableCell>
+                            <TableCell className="text-[10px] font-mono">{r.upc ?? "—"}</TableCell>
+                            <TableCell className="text-[10px] text-right tabular-nums">{r.order_qty ?? 0}</TableCell>
+                            <TableCell className="text-[10px] text-right tabular-nums">{r.received_qty ?? 0}</TableCell>
+                            <TableCell className={`text-[10px] text-right tabular-nums ${isShort ? "text-amber-500 font-semibold" : ""}`}>{r.notReceivedQty || "—"}</TableCell>
+                            <TableCell className="text-[10px] text-right tabular-nums">{formatCurrency(Number(r.unit_cost) || 0)}</TableCell>
+                            <TableCell className="text-[10px]">
+                              <Badge variant="outline" className={`text-[9px] ${isBilling ? "bg-destructive/15 text-destructive border-destructive/30" : "bg-amber-500/15 text-amber-600 border-amber-500/30"}`}>
+                                {r.discrepancy_type ?? (isShort ? "short" : "—")}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className={`text-[10px] text-right tabular-nums font-semibold ${r.discAmount !== 0 ? "text-destructive" : ""}`}>
+                              {r.discAmount !== 0 ? formatCurrency(r.discAmount) : "—"}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+                {discRows.length > 200 && (
+                  <p className="text-[10px] text-muted-foreground mt-1">Showing 200 of {discRows.length} — export CSV for full list</p>
+                )}
+              </>
+            );
+          })()}
+        </div>
+
         {/* Run History */}
         <div>
           <h2 className="text-sm font-bold mb-3">Run History</h2>
