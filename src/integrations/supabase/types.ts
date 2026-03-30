@@ -164,6 +164,42 @@ export type Database = {
           },
         ]
       }
+      inventory_snapshots: {
+        Row: {
+          brand: string | null
+          created_at: string
+          id: string
+          item_description: string | null
+          model_number: string | null
+          quantity_on_hand: number | null
+          snapshot_date: string | null
+          store_id: string | null
+          upc: string | null
+        }
+        Insert: {
+          brand?: string | null
+          created_at?: string
+          id?: string
+          item_description?: string | null
+          model_number?: string | null
+          quantity_on_hand?: number | null
+          snapshot_date?: string | null
+          store_id?: string | null
+          upc?: string | null
+        }
+        Update: {
+          brand?: string | null
+          created_at?: string
+          id?: string
+          item_description?: string | null
+          model_number?: string | null
+          quantity_on_hand?: number | null
+          snapshot_date?: string | null
+          store_id?: string | null
+          upc?: string | null
+        }
+        Relationships: []
+      }
       invoice_payments: {
         Row: {
           amount_due: number
@@ -301,6 +337,51 @@ export type Database = {
           size?: string | null
           upc?: string | null
           wholesale_price?: number | null
+        }
+        Relationships: []
+      }
+      lightspeed_receiving: {
+        Row: {
+          created_at: string
+          id: string
+          item_description: string | null
+          manufact_sku: string | null
+          not_received_qty: number | null
+          po_number: string | null
+          received_qty: number | null
+          receiving_status: string | null
+          session_id: string | null
+          unit_cost: number | null
+          upc: string | null
+          vendor_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          item_description?: string | null
+          manufact_sku?: string | null
+          not_received_qty?: number | null
+          po_number?: string | null
+          received_qty?: number | null
+          receiving_status?: string | null
+          session_id?: string | null
+          unit_cost?: number | null
+          upc?: string | null
+          vendor_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          item_description?: string | null
+          manufact_sku?: string | null
+          not_received_qty?: number | null
+          po_number?: string | null
+          received_qty?: number | null
+          receiving_status?: string | null
+          session_id?: string | null
+          unit_cost?: number | null
+          upc?: string | null
+          vendor_id?: string | null
         }
         Relationships: []
       }

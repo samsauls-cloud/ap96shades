@@ -63,18 +63,19 @@ export function SKUCheckTab({ invoice }: Props) {
       return;
     }
 
-    // Fetch all three sources in parallel
-    const [assortmentData, planogramData, receivingData] = await Promise.all([
-      fetchAssortment(allCodes),
+    // Fetch all four sources in parallel
+    const [itemMasterData, planogramData, receivingData, inventoryData] = await Promise.all([
+      fetchItemMaster(allCodes),
       fetchPlanogram(allCodes),
       fetchReceiving(allCodes),
+      fetchInventory(allCodes),
     ]);
 
     // Build lookup maps
-    const assortmentMap = new Map<string, any>();
-    assortmentData.forEach(r => {
-      if (r.upc) assortmentMap.set(r.upc, r);
-      if (r.model) assortmentMap.set(r.model, r);
+    const itemMasterMap = new Map<string, any>();
+    itemMasterData.forEach(r => {
+      if (r.upc) itemMasterMap.set(r.upc, r);
+      if (r.model_number) itemMasterMap.set(r.model_number, r);
     });
 
     const planogramMap = new Map<string, any>();
@@ -89,48 +90,48 @@ export function SKUCheckTab({ invoice }: Props) {
       if (r.manufact_sku) receivingMap.set(r.manufact_sku, r);
     });
 
+    const inventoryMap = new Map<string, any>();
+    inventoryData.forEach(r => {
+      if (r.upc) inventoryMap.set(r.upc, r);
+    });
+
     // Process each line item
     const result = lineItems.map(li => {
       const upc = li.upc || "";
       const sku = li.item_number || li.sku || "";
       const lookupKeys = [upc, sku].filter(Boolean);
 
-      const assortment = lookupKeys.reduce<any>((found, key) => found || assortmentMap.get(key), null);
+      const itemMaster = lookupKeys.reduce<any>((found, key) => found || itemMasterMap.get(key), null);
       const planogram = lookupKeys.reduce<any>((found, key) => found || planogramMap.get(key), null);
       const receiving = lookupKeys.reduce<any>((found, key) => found || receivingMap.get(key), null);
+      const inventory = lookupKeys.reduce<any>((found, key) => found || inventoryMap.get(key), null);
 
       // Determine status
       let status: SKUStatus = "not_in_system";
+      const qtyOnHand = inventory?.quantity_on_hand ?? 0;
 
       if (planogram && (planogram.is_vendor_discontinued || planogram.is_discontinued)) {
         status = "discontinued";
+      } else if (inventory && qtyOnHand > 0) {
+        status = "have_it";
       } else if (planogram && planogram.go_out_location) {
         status = "on_floor";
-      } else if (assortment) {
-        status = "have_it";
       } else if (receiving && (receiving.received_qty || 0) > 0 && !planogram) {
         status = "received_not_shelved";
+      } else if (itemMaster && !receiving) {
+        status = "billed_not_received";
       } else if (receiving && (receiving.not_received_qty || 0) > 0) {
         status = "billed_not_received";
-      } else if (!assortment && !planogram && !receiving) {
+      } else if (!itemMaster && !planogram && !receiving && !inventory) {
         status = "not_in_system";
-      }
-
-      // If on invoice but no receiving record and not in system
-      if (!receiving && !assortment && !planogram) {
-        status = "not_in_system";
-      } else if (!receiving || (receiving.not_received_qty || 0) > 0) {
-        if (status === "not_in_system" && (assortment || planogram)) {
-          status = "billed_not_received";
-        }
       }
 
       // Cost variance
       const invoicePrice = li.unit_price ?? 0;
-      const refCost = receiving?.unit_cost ?? assortment?.wholesale ?? null;
+      const refCost = receiving?.unit_cost ?? itemMaster?.wholesale_price ?? null;
       let costVariance: number | null = null;
       let costVariancePercent: number | null = null;
-      if (refCost != null && invoicePrice > 0) {
+      if (refCost != null && invoicePrice > 0 && refCost > 0) {
         costVariance = invoicePrice - refCost;
         costVariancePercent = (costVariance / refCost) * 100;
       }
@@ -141,7 +142,7 @@ export function SKUCheckTab({ invoice }: Props) {
         description: li.description || li.brand ? `${li.brand || ""} ${li.model || ""}`.trim() : "—",
         billedQty: li.qty_shipped ?? li.qty_ordered ?? li.qty ?? 0,
         billedCost: invoicePrice,
-        onHand: assortment ? "✓" : "—",
+        onHand: inventory ? `${qtyOnHand}` : (itemMaster ? "✓" : "—"),
         onFloor: planogram?.go_out_location || "—",
         received: receiving ? `${receiving.received_qty ?? 0}` : "—",
         status,
@@ -262,11 +263,11 @@ export function SKUCheckTab({ invoice }: Props) {
   );
 }
 
-async function fetchAssortment(codes: string[]) {
+async function fetchItemMaster(codes: string[]) {
   if (codes.length === 0) return [];
   const { data } = await supabase
-    .from("master_assortment")
-    .select("upc, model, wholesale, brand, vendor")
+    .from("item_master")
+    .select("upc, model_number, wholesale_price, retail_price, brand")
     .or(codes.map(c => `upc.eq.${c}`).join(","));
   return data ?? [];
 }
@@ -283,8 +284,17 @@ async function fetchPlanogram(codes: string[]) {
 async function fetchReceiving(codes: string[]) {
   if (codes.length === 0) return [];
   const { data } = await supabase
-    .from("po_receiving_lines")
+    .from("lightspeed_receiving")
     .select("upc, manufact_sku, received_qty, not_received_qty, receiving_status, unit_cost")
+    .or(codes.map(c => `upc.eq.${c}`).join(","));
+  return data ?? [];
+}
+
+async function fetchInventory(codes: string[]) {
+  if (codes.length === 0) return [];
+  const { data } = await supabase
+    .from("inventory_snapshots")
+    .select("upc, quantity_on_hand, store_id, snapshot_date")
     .or(codes.map(c => `upc.eq.${c}`).join(","));
   return data ?? [];
 }
