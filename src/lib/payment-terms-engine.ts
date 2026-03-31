@@ -149,7 +149,7 @@ export function buildEomSplitSchedule(
   };
 }
 
-
+export function buildLuxEomSingleSchedule(
   documentDate: Date,
   totalAmount: number
 ): PaymentSchedule {
