@@ -331,6 +331,16 @@ export async function generatePaymentsForInvoice(
 
   const { error } = await supabase.from("invoice_payments").insert(rows);
   if (error) throw error;
+
+  // Sync earliest due_date back to vendor_invoices
+  if (rows.length > 0) {
+    const firstDueDate = rows.sort((a, b) => a.due_date.localeCompare(b.due_date))[0].due_date;
+    await supabase
+      .from("vendor_invoices")
+      .update({ due_date: firstDueDate } as any)
+      .eq("id", invoiceId);
+  }
+
   return rows.length;
 }
 
