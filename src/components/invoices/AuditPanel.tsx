@@ -106,7 +106,7 @@ export function AuditPanel({ audit, onRefresh, isLoading, totalInvoices, highlig
   const handleGenerateSingle = async (inv: AuditResult["missingPayments"][0]) => {
     setGeneratingId(inv.id);
     try {
-      const count = await generatePaymentsForInvoice(inv.id, inv.invoice_date, inv.total, inv.vendor, inv.invoice_number, null);
+      const count = await generatePaymentsForInvoice(inv.id, inv.invoice_date, inv.total, inv.vendor, inv.invoice_number, inv.po_number, inv.payment_terms);
       toast.success(`Generated ${count} payments for ${inv.invoice_number}`);
       onRefresh();
     } catch (e: any) {
