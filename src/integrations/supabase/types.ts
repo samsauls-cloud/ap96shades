@@ -931,6 +931,7 @@ export type Database = {
           credit_due: number | null
           currency: string
           doc_type: string
+          due_date: string | null
           entered_after_recon: boolean | null
           filename: string | null
           final_bill_amount: number | null
@@ -994,6 +995,7 @@ export type Database = {
           credit_due?: number | null
           currency?: string
           doc_type?: string
+          due_date?: string | null
           entered_after_recon?: boolean | null
           filename?: string | null
           final_bill_amount?: number | null
@@ -1057,6 +1059,7 @@ export type Database = {
           credit_due?: number | null
           currency?: string
           doc_type?: string
+          due_date?: string | null
           entered_after_recon?: boolean | null
           filename?: string | null
           final_bill_amount?: number | null
