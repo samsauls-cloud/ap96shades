@@ -958,6 +958,7 @@ export type Database = {
           payment_terms: string | null
           payment_terms_extracted: Json | null
           payment_terms_source: string | null
+          pdf_url: string | null
           po_number: string | null
           po_total_invoiced: number | null
           proforma_superseded_by: string | null
@@ -1020,6 +1021,7 @@ export type Database = {
           payment_terms?: string | null
           payment_terms_extracted?: Json | null
           payment_terms_source?: string | null
+          pdf_url?: string | null
           po_number?: string | null
           po_total_invoiced?: number | null
           proforma_superseded_by?: string | null
@@ -1082,6 +1084,7 @@ export type Database = {
           payment_terms?: string | null
           payment_terms_extracted?: Json | null
           payment_terms_source?: string | null
+          pdf_url?: string | null
           po_number?: string | null
           po_total_invoiced?: number | null
           proforma_superseded_by?: string | null
