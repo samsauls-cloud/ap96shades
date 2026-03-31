@@ -326,14 +326,9 @@ function computeLuxEomSingleDueDate(invoiceDate: string): { baseline: Date; due:
   return { baseline, due };
 }
 
-/** Check if vendor is a Luxottica brand */
+/** Check if vendor is a Luxottica brand — delegates to registry */
 function isLuxotticaVendor(normalizedVendor: string): boolean {
-  const v = normalizedVendor.toLowerCase();
-  return v.includes('luxottica') || v.includes('ray-ban') || v.includes('rayban')
-    || v.includes('oakley') || v.includes('costa') || v.includes('chanel')
-    || v.includes('prada') || v.includes('versace') || v.includes('coach')
-    || v.includes('burberry') || v.includes('michael kors') || v.includes('persol')
-    || v.includes('miu miu') || v.includes('oliver peoples') || v.includes('ralph');
+  return isLuxFromRegistry(normalizedVendor);
 }
 
 /** @deprecated Use calculateInstallmentsFromTerms with structured terms instead */
