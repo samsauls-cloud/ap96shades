@@ -219,6 +219,7 @@ export default function InvoicesPage() {
             }}
           >
             <Calendar className="h-3 w-3" /> By Due Date
+          </Button>
           <div className="flex-1" />
           <Button variant="outline" size="sm" className="text-xs h-7" onClick={exportFilteredCSV}>
             <Download className="h-3 w-3 mr-1" /> <span className="hidden sm:inline">Export Filtered</span> CSV
