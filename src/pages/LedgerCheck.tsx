@@ -122,11 +122,12 @@ export default function LedgerCheckPage() {
         }));
       }));
 
-      // Deduplicate by document number
+      // Deduplicate by composite key (document number + account + amount)
       const seen = new Set<string>();
       const parsed = allParsed.flat().filter(p => {
-        if (seen.has(p.documentNumber)) return false;
-        seen.add(p.documentNumber);
+        const key = `${p.documentNumber}|${p.account}|${p.amount}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
         return true;
       });
 
