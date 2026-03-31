@@ -23,6 +23,16 @@ Extract payment_terms_extracted as a structured object:
 
 IMPORTANT: FOB is a SHIPPING term, not a payment term. If FOB is the ONLY term-like text, set payment_terms to null and shipping_terms to "FOB".
 
+LUXOTTICA PAYMENT TERMS — CRITICAL KNOWLEDGE:
+Luxottica invoices use a unique EOM-based split payment system. When you see terms like "30/60/90", "EOM 30/60/90", or references to tranches on a Luxottica invoice:
+- The baseline date is always the last day of the invoice month (end of month)
+- Payment is split into three equal tranches (1/3 each)
+- Tranche 1 due: baseline + 30 days
+- Tranche 2 due: baseline + 60 days
+- Tranche 3 due: baseline + 90 days
+Set payment_terms_extracted.type to "eom_split", eom_based to true, days to [30, 60, 90], and installments to 3.
+For Luxottica special/individual orders (not standard procurement), terms are EOM+30+30: end of invoice month + 30 days = baseline, then + 30 days = due date. Set type to "eom_single", eom_based to true, days to [30], installments to 1.
+
 Return ONLY valid JSON: { doc_type, vendor, vendor_brands[], invoice_number, invoice_date (YYYY-MM-DD), po_number, account_number, ship_to, carrier, payment_terms, payment_terms_extracted, shipping_terms, subtotal, tax, freight, total, currency, needs_review, line_items[{upc, item_number, sku, description, brand, model, color_code, color_desc, size, temple, qty_ordered, qty_shipped, qty, unit_price, line_total}], notes }. CRITICAL: Return ONLY raw JSON. No markdown, no code fences, no backticks, no preamble, no explanation. Your response must start with { and end with }. Nothing before {. Nothing after }.`;
 
 export const CONCURRENCY = 4;

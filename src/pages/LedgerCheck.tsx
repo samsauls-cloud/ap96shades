@@ -30,6 +30,8 @@ import {
   PackageCheck, DollarSign,
 } from "lucide-react";
 import { toast } from "sonner";
+import { resolvePaymentSchedule, type PaymentSchedule } from "@/lib/payment-terms-engine";
+import { Calendar } from "lucide-react";
 
 /* ─── types ─── */
 
@@ -51,6 +53,7 @@ interface LedgerRow {
   matchedTags?: string[];
   specialOrderReceived?: boolean;
   matchedStatus?: string;
+  schedule?: PaymentSchedule;
 }
 
 /* ─── helpers ─── */
@@ -184,6 +187,13 @@ export default function LedgerCheckPage() {
           matchedTags: found?.tags,
           specialOrderReceived: found?.specialOrderReceived,
           matchedStatus: found?.status,
+          schedule: resolvePaymentSchedule(
+            'Luxottica',
+            cat,
+            new Date(p.docDate),
+            p.amount,
+            null
+          ),
         };
       });
     },
@@ -651,6 +661,46 @@ export default function LedgerCheckPage() {
               </div>
             )}
 
+            {/* Next payment callout */}
+            {(() => {
+              const procRows = ledgerRows.filter(
+                (r) => r.category === "Procurement" && r.schedule?.next_due
+              );
+              if (procRows.length === 0) return null;
+              const earliest = procRows.reduce((best, r) => {
+                const d = r.schedule!.next_due!.due_date.getTime();
+                const b = best.schedule!.next_due!.due_date.getTime();
+                return d < b ? r : best;
+              });
+              const nextDue = earliest.schedule!.next_due!;
+              const trancheAmount = procRows
+                .filter(
+                  (r) =>
+                    r.schedule!.next_due!.due_date.getTime() ===
+                    nextDue.due_date.getTime()
+                )
+                .reduce(
+                  (s, r) =>
+                    s + r.amount * r.schedule!.next_due!.amount_fraction,
+                  0
+                );
+              const fmt = nextDue.due_date.toLocaleDateString("en-US", {
+                month: "short",
+                day: "numeric",
+              });
+              return (
+                <div className="flex items-center gap-2 p-3 rounded-lg border border-blue-300 bg-blue-50 dark:bg-blue-950/30 dark:border-blue-800 text-sm">
+                  <Calendar className="h-4 w-4 text-blue-600 shrink-0" />
+                  <span className="text-blue-800 dark:text-blue-300 font-medium">
+                    Next payment due: {fmt} — $
+                    {Math.abs(trancheAmount).toLocaleString("en-US", {
+                      minimumFractionDigits: 2,
+                    })}
+                  </span>
+                </div>
+              );
+            })()}
+
             {/* Tabs + search + actions */}
             <div className="flex flex-wrap items-center gap-3">
               <Tabs
@@ -722,6 +772,7 @@ export default function LedgerCheckPage() {
                     <TableHead>Document #</TableHead>
                     <TableHead>Doc Date</TableHead>
                     <TableHead>Due Date</TableHead>
+                    <TableHead className="w-[120px]">Next Due</TableHead>
                     <TableHead className="text-right">Amount</TableHead>
                     <TableHead>PO Reference</TableHead>
                     <TableHead>Memo</TableHead>
@@ -753,6 +804,9 @@ export default function LedgerCheckPage() {
                       </TableCell>
                       <TableCell className="text-xs">{row.docDate}</TableCell>
                       <TableCell className="text-xs">{row.dueDate}</TableCell>
+                      <TableCell>
+                        <NextDueCell row={row} />
+                      </TableCell>
                       <TableCell
                         className={`text-right font-mono text-xs ${
                           row.amount < 0 ? "text-blue-600 dark:text-blue-400" : ""
@@ -1046,5 +1100,72 @@ function SpecialOrderActions({
       <PackageCheck className="h-3 w-3" />
       Came In
     </Button>
+  );
+}
+
+function NextDueCell({ row }: { row: LedgerRow }) {
+  const schedule = row.schedule;
+  if (!schedule || row.category === "Credit") {
+    return <span className="text-xs text-muted-foreground">—</span>;
+  }
+  if (schedule.vendor_terms_type === "unknown") {
+    return (
+      <Badge variant="outline" className="text-[10px] text-amber-600 border-amber-300 bg-amber-50 dark:bg-amber-950/30">
+        Review
+      </Badge>
+    );
+  }
+  if (schedule.is_fully_overdue) {
+    return <span className="text-[10px] font-semibold text-destructive">Overdue</span>;
+  }
+  const next = schedule.next_due;
+  if (!next) return <span className="text-xs text-muted-foreground">—</span>;
+
+  const fmt = next.due_date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const days = next.days_until_due;
+
+  let dueBadge: React.ReactNode;
+  if (days < 0) {
+    dueBadge = <Badge variant="outline" className="text-[9px] ml-1 text-destructive border-destructive/30 bg-destructive/10">Overdue</Badge>;
+  } else if (days <= 14) {
+    dueBadge = <Badge variant="outline" className="text-[9px] ml-1 text-amber-600 border-amber-300 bg-amber-50 dark:bg-amber-950/30">Due soon</Badge>;
+  } else {
+    dueBadge = <Badge variant="outline" className="text-[9px] ml-1 text-emerald-600 border-emerald-300 bg-emerald-50 dark:bg-emerald-950/30">in {days}d</Badge>;
+  }
+
+  // Build tooltip content
+  const trancheLines = schedule.tranches.map((t) => {
+    const tFmt = t.due_date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    const tAmt = (schedule.total_amount * t.amount_fraction).toLocaleString("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+    const label = t.ledger_code ? `${t.tranche_label} (${t.ledger_code})` : t.tranche_label;
+    return `${label} — ${tFmt} — $${tAmt}`;
+  });
+  const baselineFmt = schedule.baseline_date
+    ? schedule.baseline_date.toLocaleDateString("en-US", { month: "short", day: "numeric" })
+    : null;
+
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="inline-flex items-center text-xs cursor-help">
+            {fmt}
+            {dueBadge}
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="left" className="max-w-[300px] text-xs space-y-1">
+          <p className="font-semibold">{schedule.human_label}</p>
+          {trancheLines.map((line, i) => (
+            <p key={i}>{line}</p>
+          ))}
+          {baselineFmt && (
+            <p className="text-muted-foreground pt-1">Baseline: {baselineFmt}</p>
+          )}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }
