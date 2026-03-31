@@ -674,10 +674,10 @@ export default function LedgerCheckPage() {
                   {filtered.map((row, i) => (
                     <TableRow key={i}>
                       <TableCell>
-                        <StatusBadge status={row.status} />
+                        <StatusBadge row={row} />
                       </TableCell>
                       <TableCell>
-                        <CategoryBadge category={row.category} />
+                        <CategoryBadge row={row} />
                       </TableCell>
                       <TableCell className="font-mono text-xs">
                         {row.matchedInvoiceId ? (
@@ -780,8 +780,8 @@ function SummaryTile({
   );
 }
 
-function StatusBadge({ status }: { status: LedgerRow["status"] }) {
-  switch (status) {
+function StatusBadge({ row }: { row: LedgerRow }) {
+  switch (row.status) {
     case "matched":
       return (
         <Badge
@@ -794,13 +794,27 @@ function StatusBadge({ status }: { status: LedgerRow["status"] }) {
       );
     case "not_uploaded":
       return (
-        <Badge
-          variant="outline"
-          className="text-amber-600 border-amber-300 bg-amber-50 dark:bg-amber-950/30 text-[10px]"
-        >
-          <AlertTriangle className="h-3 w-3 mr-1" />
-          Not Uploaded
-        </Badge>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Badge
+                variant="outline"
+                className="text-amber-600 border-amber-300 bg-amber-50 dark:bg-amber-950/30 text-[10px] cursor-help"
+              >
+                <AlertTriangle className="h-3 w-3 mr-1" />
+                Not Uploaded
+              </Badge>
+            </TooltipTrigger>
+            <TooltipContent side="right" className="max-w-[280px] text-xs space-y-1">
+              <p className="font-semibold">Document not found in system</p>
+              <p><span className="text-muted-foreground">Doc #:</span> {row.documentNumber}</p>
+              <p><span className="text-muted-foreground">Amount:</span> ${Math.abs(row.amount).toLocaleString("en-US", { minimumFractionDigits: 2 })}</p>
+              {row.poReference && <p><span className="text-muted-foreground">PO Ref:</span> {row.poReference}</p>}
+              {row.memo && <p><span className="text-muted-foreground">Memo:</span> {row.memo}</p>}
+              <p className="text-amber-500 pt-1">Upload this invoice via the Reader to resolve.</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       );
     case "credit":
       return (
@@ -815,8 +829,8 @@ function StatusBadge({ status }: { status: LedgerRow["status"] }) {
   }
 }
 
-function CategoryBadge({ category }: { category: Category }) {
-  switch (category) {
+function CategoryBadge({ row }: { row: LedgerRow }) {
+  switch (row.category) {
     case "Procurement":
       return (
         <Badge variant="secondary" className="text-[10px]">
@@ -826,13 +840,30 @@ function CategoryBadge({ category }: { category: Category }) {
       );
     case "Special Order":
       return (
-        <Badge
-          variant="outline"
-          className="text-amber-600 border-amber-300 bg-amber-50 dark:bg-amber-950/30 text-[10px]"
-        >
-          <Tag className="h-3 w-3 mr-1" />
-          Special Order
-        </Badge>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Badge
+                variant="outline"
+                className="text-amber-600 border-amber-300 bg-amber-50 dark:bg-amber-950/30 text-[10px] cursor-help"
+              >
+                <Tag className="h-3 w-3 mr-1" />
+                Special Order
+              </Badge>
+            </TooltipTrigger>
+            <TooltipContent side="right" className="max-w-[280px] text-xs space-y-1">
+              <p className="font-semibold">Special Order — not a standard PO</p>
+              <p><span className="text-muted-foreground">Doc #:</span> {row.documentNumber}</p>
+              <p><span className="text-muted-foreground">PO Ref:</span> {row.poReference || "—"}</p>
+              {row.status === "not_uploaded" && (
+                <p className="text-amber-500 pt-1">Upload via Reader and add the 'special-order' tag.</p>
+              )}
+              {row.status === "matched" && !(row.matchedTags ?? []).includes("special-order") && (
+                <p className="text-amber-500 pt-1">Uploaded but missing 'special-order' tag — open to add it.</p>
+              )}
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       );
     case "Credit":
       return (
