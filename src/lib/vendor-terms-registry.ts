@@ -28,6 +28,7 @@ export const VENDOR_TERMS_REGISTRY: VendorTermsRule[] = [
     terms_type: 'eom_split',
     offsets: [50, 80, 110],
     description: 'EOM 50/80/110 — 3 equal tranches',
+    // NOTE: overridden to eom_single [20] when payment_terms contains "check 20" or "20 days eom"
   },
   {
     vendor_match: ['maui jim', 'maui'],
@@ -41,6 +42,7 @@ export const VENDOR_TERMS_REGISTRY: VendorTermsRule[] = [
     terms_type: 'days_split',
     offsets: [30, 60, 90],
     description: '30/60/90 — 3 equal tranches from invoice date',
+    // Also matches "bank transfer 30/60/90 inv. date"
   },
   {
     // Luxottica EOM +30 (standing terms — matched when invoice has EOM+30 or no explicit split)
