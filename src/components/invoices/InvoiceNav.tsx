@@ -18,6 +18,7 @@ export function InvoiceNav() {
     { to: "/invoices/receiving", label: "Receiving", icon: PackageCheck },
     { to: "/reconciliation", label: "Reconciliation", icon: Shield },
     { to: "/audit", label: "Audit", icon: ClipboardCheck },
+    { to: "/invoices/ledger-check", label: "Ledger Check", icon: FileSearch },
   ];
 
   const handleLogout = () => {
