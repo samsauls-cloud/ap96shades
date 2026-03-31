@@ -415,8 +415,8 @@ export async function generateAllMissingPayments(): Promise<{ generated: number;
 // ── Audit queries ─────────────────────────────────────────
 
 export interface AuditResult {
-  missingPayments: { id: string; invoice_number: string; vendor: string; total: number; invoice_date: string }[];
-  mathDiscrepancies: { id: string; invoice_number: string; vendor: string; total: number; installmentsSum: number; discrepancy: number }[];
+  missingPayments: { id: string; invoice_number: string; vendor: string; total: number; invoice_date: string; po_number: string | null; payment_terms: string | null }[];
+  mathDiscrepancies: { id: string; invoice_number: string; vendor: string; total: number; installmentsSum: number; discrepancy: number; invoice_date: string; po_number: string | null; payment_terms: string | null }[];
   unknownVendors: { id: string; invoice_number: string; vendor: string; total: number }[];
   duplicateInvoices: { invoice_number: string; vendor: string; count: number }[];
   lastAuditTime: string;
