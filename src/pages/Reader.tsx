@@ -11,6 +11,7 @@ import { Link } from "react-router-dom";
 import { InvoiceNav } from "@/components/invoices/InvoiceNav";
 import { DocTypeBadge } from "@/components/invoices/Badges";
 import { insertInvoice, formatCurrency, type VendorInvoiceInsert, getLineItems, isProforma } from "@/lib/supabase-queries";
+import { supabase } from "@/integrations/supabase/client";
 import { checkPendingMatches } from "@/lib/pending-match";
 import { generatePaymentsForInvoice } from "@/lib/payment-queries";
 import {
