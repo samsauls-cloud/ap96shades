@@ -47,30 +47,39 @@ export default function LedgerCheckPage() {
   };
 
   const handleFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setFileName(file.name);
+    const files = Array.from(e.target.files ?? []);
+    if (!files.length) return;
+    setFileName(files.map(f => f.name).join(", "));
     setProcessing(true);
 
     try {
-      const buf = await file.arrayBuffer();
-      const wb = XLSX.read(buf, { type: "array" });
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const raw: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1 });
-
-      // Skip header row, filter blanks in col A
-      const dataRows = raw.slice(1).filter(r => r[0] != null && String(r[0]).trim() !== "");
-
-      const parsed = dataRows.map(r => ({
-        account: String(r[0] ?? ""),
-        documentNumber: typeof r[1] === "number" ? String(Math.trunc(r[1])) : String(r[1] ?? "").trim(),
-        docDate: r[2] ? formatExcelDate(r[2]) : "",
-        dueDate: r[3] ? formatExcelDate(r[3]) : "",
-        terms: String(r[4] ?? ""),
-        amount: typeof r[5] === "number" ? r[5] : parseFloat(String(r[5] ?? "0").replace(/[,$]/g, "")) || 0,
-        memo: String(r[6] ?? ""),
-        poReference: String(r[7] ?? ""),
+      // Parse all files in parallel
+      const allParsed = await Promise.all(files.map(async (file) => {
+        const buf = await file.arrayBuffer();
+        const wb = XLSX.read(buf, { type: "array" });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const raw: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1 });
+        const dataRows = raw.slice(1).filter(r => r[0] != null && String(r[0]).trim() !== "");
+        return dataRows.map(r => ({
+          account: String(r[0] ?? ""),
+          documentNumber: typeof r[1] === "number" ? String(Math.trunc(r[1])) : String(r[1] ?? "").trim(),
+          docDate: r[2] ? formatExcelDate(r[2]) : "",
+          dueDate: r[3] ? formatExcelDate(r[3]) : "",
+          terms: String(r[4] ?? ""),
+          amount: typeof r[5] === "number" ? r[5] : parseFloat(String(r[5] ?? "0").replace(/[,$]/g, "")) || 0,
+          memo: String(r[6] ?? ""),
+          poReference: String(r[7] ?? ""),
+          sourceFile: file.name,
+        }));
       }));
+
+      // Deduplicate by document number (keep first occurrence)
+      const seen = new Set<string>();
+      const parsed = allParsed.flat().filter(p => {
+        if (seen.has(p.documentNumber)) return false;
+        seen.add(p.documentNumber);
+        return true;
+      });
 
       // Fetch all invoice numbers for comparison
       const docNumbers = parsed.map(p => p.documentNumber).filter(Boolean);
