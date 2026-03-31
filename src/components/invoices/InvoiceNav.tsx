@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { FileText, ScanLine, GitCompare, BarChart3, FileBarChart, PackageCheck, Shield, LogOut, Menu, X, Upload, ClipboardCheck } from "lucide-react";
+import { FileText, ScanLine, GitCompare, BarChart3, FileBarChart, PackageCheck, Shield, LogOut, Menu, X, Upload, ClipboardCheck, FileSearch } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 
@@ -18,6 +18,7 @@ export function InvoiceNav() {
     { to: "/invoices/receiving", label: "Receiving", icon: PackageCheck },
     { to: "/reconciliation", label: "Reconciliation", icon: Shield },
     { to: "/audit", label: "Audit", icon: ClipboardCheck },
+    { to: "/invoices/ledger-check", label: "Ledger Check", icon: FileSearch },
   ];
 
   const handleLogout = () => {
