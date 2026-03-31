@@ -38,6 +38,8 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
   const [pendingStatus, setPendingStatus] = useState<InvoiceStatus | null>(null);
   const [activeTab, setActiveTab] = useState("line-items");
   const [pdfLoadError, setPdfLoadError] = useState(false);
+  const [uploadingPdf, setUploadingPdf] = useState(false);
+  const [localPdfUrl, setLocalPdfUrl] = useState<string | null>(null);
   const inv = invoice;
 
   const { data: allTags = [] } = useQuery({
