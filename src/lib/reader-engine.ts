@@ -254,6 +254,46 @@ export function parsedToInvoice(parsed: any, filename: string, pdfUrl?: string |
   };
 }
 
+export async function uploadPDFToStorage(
+  file: File,
+  vendor: string,
+  invoiceNumber: string
+): Promise<string | null> {
+  try {
+    const safeVendor = (vendor || 'unknown')
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '_')
+      .slice(0, 40);
+    const safeInvoice = (invoiceNumber || 'unknown')
+      .replace(/[^a-zA-Z0-9_\-]/g, '_')
+      .slice(0, 60);
+    const timestamp = Date.now();
+    const path = `${safeVendor}/${safeInvoice}_${timestamp}.pdf`;
+
+    const { data, error } = await supabase.storage
+      .from('invoice-pdfs')
+      .upload(path, file, {
+        contentType: 'application/pdf',
+        upsert: false,
+      });
+
+    if (error) {
+      console.error('PDF storage upload failed:', error.message);
+      return null;
+    }
+
+    // Signed URL valid for 10 years
+    const { data: signed } = await supabase.storage
+      .from('invoice-pdfs')
+      .createSignedUrl(data.path, 60 * 60 * 24 * 365 * 10);
+
+    return signed?.signedUrl ?? null;
+  } catch (err) {
+    console.error('PDF upload error:', err);
+    return null;
+  }
+}
+
 export async function fileToBase64(file: File): Promise<string> {
   const buffer = await file.arrayBuffer();
   const bytes = new Uint8Array(buffer);
