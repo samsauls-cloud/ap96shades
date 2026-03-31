@@ -1,49 +1,13 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { FileText, ScanLine, GitCompare, BarChart3, FileBarChart, PackageCheck, Shield, LogOut, Menu, X, Upload, ClipboardCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { supabase } from "@/integrations/supabase/client";
+
 import { StaleNotificationBanner } from "./StaleNotificationBanner";
 
 export function InvoiceNav() {
   const { pathname } = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [criticalCount, setCriticalCount] = useState(0);
-  const [staleCount, setStaleCount] = useState(0);
-
-  useEffect(() => {
-    const fetchCounts = async () => {
-      const { count: critical } = await supabase
-        .from("reconciliation_discrepancies")
-        .select("*", { count: "exact", head: true })
-        .eq("severity", "critical")
-        .eq("resolution_status", "open");
-      setCriticalCount(critical ?? 0);
-
-      const { count: stale } = await supabase
-        .from("recon_stale_queue")
-        .select("*", { count: "exact", head: true })
-        .eq("status", "pending");
-      setStaleCount(stale ?? 0);
-    };
-    fetchCounts();
-
-    const channel = supabase
-      .channel("recon-nav-badge")
-      .on("postgres_changes", { event: "*", schema: "public", table: "reconciliation_discrepancies" }, () => fetchCounts())
-      .on("postgres_changes", { event: "*", schema: "public", table: "recon_stale_queue" }, () => fetchCounts())
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, []);
-
-  const reconBadgeContent = () => {
-    const parts: string[] = [];
-    if (criticalCount > 0) parts.push(`🔴${criticalCount}`);
-    if (staleCount > 0) parts.push(`🟡${staleCount}`);
-    return parts.join(" ");
-  };
-
-  const totalBadge = criticalCount + staleCount;
 
   const links = [
     { to: "/invoices", label: "Invoice Database", icon: FileText },
@@ -53,7 +17,7 @@ export function InvoiceNav() {
     { to: "/invoices/dashboard", label: "AP Dashboard", icon: BarChart3 },
     { to: "/invoices/reports", label: "Reports", icon: FileBarChart },
     { to: "/invoices/receiving", label: "Receiving", icon: PackageCheck },
-    { to: "/reconciliation", label: "Reconciliation", icon: Shield, badge: totalBadge, badgeContent: reconBadgeContent() },
+    { to: "/reconciliation", label: "Reconciliation", icon: Shield },
     { to: "/audit", label: "Audit", icon: ClipboardCheck },
   ];
 
