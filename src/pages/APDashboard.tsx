@@ -228,7 +228,7 @@ export default function APDashboard() {
   };
 
 
-  const totalInvoiceCount = payments.length > 0 ? [...new Set(payments.map(p => p.invoice_id))].length : 0;
+  
 
   return (
     <div className="min-h-screen bg-background">
