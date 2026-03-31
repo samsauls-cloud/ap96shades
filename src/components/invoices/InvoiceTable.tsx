@@ -117,10 +117,7 @@ export function InvoiceTable({ invoices, filters, onSort, onRowClick, totalCount
                     className="cursor-pointer"
                     onClick={e => {
                       e.stopPropagation();
-                      const reconStatus = (inv as any).recon_status || (inv as any).reconciliation_status || 'pending';
-                      if (reconStatus === 'discrepancy') {
-                        navigate(`/reconciliation?invoice=${inv.invoice_number}`);
-                      }
+                      onRowClick(inv);
                     }}
                   >
                     <ReconStatusBadge
