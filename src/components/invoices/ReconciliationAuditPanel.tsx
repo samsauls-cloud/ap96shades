@@ -189,9 +189,16 @@ export function ReconciliationAuditPanel({ invoices, payments, recSessions, recL
     }
     issues.sort((a, b) => Math.abs(b.gap) - Math.abs(a.gap));
 
-    const status: StatusLevel = issues.some(i => i.type === "MISSING PAYMENTS") ? "error"
+    const missingCount = issues.filter(i => i.type === "MISSING PAYMENTS").length;
+    const mismatchCount = issues.filter(i => i.type === "PAYMENT SUM MISMATCH").length;
+    const status: StatusLevel = missingCount > 0 ? "error"
       : issues.length > 0 ? "warning" : "clean";
-    return { issues, status };
+    const summary = missingCount > 0
+      ? `${missingCount} invoice(s) missing payments${mismatchCount > 0 ? `, ${mismatchCount} with sum mismatch` : ""}`
+      : mismatchCount > 0
+      ? `${mismatchCount} invoice(s) with payment sum mismatch`
+      : "All payment schedules complete";
+    return { issues, status, summary };
   }, [inv, payments]);
 
   /* ═══ Health Score ═══ */
