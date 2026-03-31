@@ -1102,3 +1102,70 @@ function SpecialOrderActions({
     </Button>
   );
 }
+
+function NextDueCell({ row }: { row: LedgerRow }) {
+  const schedule = row.schedule;
+  if (!schedule || row.category === "Credit") {
+    return <span className="text-xs text-muted-foreground">—</span>;
+  }
+  if (schedule.vendor_terms_type === "unknown") {
+    return (
+      <Badge variant="outline" className="text-[10px] text-amber-600 border-amber-300 bg-amber-50 dark:bg-amber-950/30">
+        Review
+      </Badge>
+    );
+  }
+  if (schedule.is_fully_overdue) {
+    return <span className="text-[10px] font-semibold text-destructive">Overdue</span>;
+  }
+  const next = schedule.next_due;
+  if (!next) return <span className="text-xs text-muted-foreground">—</span>;
+
+  const fmt = next.due_date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const days = next.days_until_due;
+
+  let dueBadge: React.ReactNode;
+  if (days < 0) {
+    dueBadge = <Badge variant="outline" className="text-[9px] ml-1 text-destructive border-destructive/30 bg-destructive/10">Overdue</Badge>;
+  } else if (days <= 14) {
+    dueBadge = <Badge variant="outline" className="text-[9px] ml-1 text-amber-600 border-amber-300 bg-amber-50 dark:bg-amber-950/30">Due soon</Badge>;
+  } else {
+    dueBadge = <Badge variant="outline" className="text-[9px] ml-1 text-emerald-600 border-emerald-300 bg-emerald-50 dark:bg-emerald-950/30">in {days}d</Badge>;
+  }
+
+  // Build tooltip content
+  const trancheLines = schedule.tranches.map((t) => {
+    const tFmt = t.due_date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    const tAmt = (schedule.total_amount * t.amount_fraction).toLocaleString("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+    const label = t.ledger_code ? `${t.tranche_label} (${t.ledger_code})` : t.tranche_label;
+    return `${label} — ${tFmt} — $${tAmt}`;
+  });
+  const baselineFmt = schedule.baseline_date
+    ? schedule.baseline_date.toLocaleDateString("en-US", { month: "short", day: "numeric" })
+    : null;
+
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="inline-flex items-center text-xs cursor-help">
+            {fmt}
+            {dueBadge}
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="left" className="max-w-[300px] text-xs space-y-1">
+          <p className="font-semibold">{schedule.human_label}</p>
+          {trancheLines.map((line, i) => (
+            <p key={i}>{line}</p>
+          ))}
+          {baselineFmt && (
+            <p className="text-muted-foreground pt-1">Baseline: {baselineFmt}</p>
+          )}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
