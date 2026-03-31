@@ -102,7 +102,15 @@ export function ReconciliationAuditPanel({ invoices, payments, recSessions, recL
     const status: StatusLevel = crossVendor.length > 0 ? "error"
       : (doubleLinked.length > 0 || qtyVariances.length > 0) ? "warning" : "clean";
 
-    return { crossVendor, doubleLinked, qtyVariances, vendorSummary: Array.from(vendorSummary.entries()).sort((a, b) => b[1].total - a[1].total), status, lsResults };
+    const summary = crossVendor.length > 0
+      ? `${crossVendor.length} cross-vendor mismatch${crossVendor.length !== 1 ? "es" : ""} found`
+      : doubleLinked.length > 0
+      ? `${doubleLinked.length} session(s) linked to multiple invoices`
+      : qtyVariances.length > 0
+      ? `${qtyVariances.length} invoice(s) with qty variances`
+      : "All invoice→session links verified";
+
+    return { crossVendor, doubleLinked, qtyVariances, vendorSummary: Array.from(vendorSummary.entries()).sort((a, b) => b[1].total - a[1].total), status, lsResults, summary };
   }, [inv, invoices, recSessions, recLines]);
 
   /* ═══ AUDIT 2: Missing Lightspeed POs ═══ */
@@ -124,9 +132,21 @@ export function ReconciliationAuditPanel({ invoices, payments, recSessions, recL
     });
 
     // Unknown vendor lines
-    const knownVendorIds = new Set(["3", "5", "14", "15"]);
+    // Derive known vendor IDs dynamically from receiving sessions
+    const knownVendorIds = new Set(
+      (recSessions as any[]).map((s: any) => s.vendor).filter(Boolean)
+    );
+    // Also include vendor_ids actually referenced in recLines
+    for (const l of recLines as any[]) {
+      if (l.vendor_id) knownVendorIds.add(l.vendor_id);
+    }
+    // Filter to lines whose vendor_id doesn't map to any session vendor
+    const sessionVendorIds = new Set((recSessions as any[]).flatMap((s: any) => {
+      // Collect vendor_ids from lines belonging to this session
+      return (recLines as any[]).filter((l: any) => l.session_id === s.id).map((l: any) => l.vendor_id).filter(Boolean);
+    }));
     const unknownLines = (recLines as any[]).filter(l =>
-      !l.vendor_id || !knownVendorIds.has(l.vendor_id)
+      !l.vendor_id || !sessionVendorIds.has(l.vendor_id)
     );
     const unknownByVendorId = new Map<string, any[]>();
     for (const l of unknownLines) {
@@ -136,8 +156,12 @@ export function ReconciliationAuditPanel({ invoices, payments, recSessions, recL
       unknownByVendorId.set(vid, arr);
     }
 
+    const unmatchedValue = unmatched.reduce((s, r) => s + r.invoiceTotal, 0);
     const status: StatusLevel = unmatched.length > 10 ? "error" : unmatched.length > 0 ? "warning" : "clean";
-    return { byVendor: Array.from(byVendor.entries()).sort((a, b) => b[1].totalValue - a[1].totalValue), unmatchedWithPO, unknownByVendorId, unknownLines, status };
+    const summary = unmatched.length > 0
+      ? `${unmatched.length} invoices with no Lightspeed receipt (${formatCurrency(unmatchedValue)})`
+      : "All invoices matched to Lightspeed POs";
+    return { byVendor: Array.from(byVendor.entries()).sort((a, b) => b[1].totalValue - a[1].totalValue), unmatchedWithPO, unknownByVendorId, unknownLines, status, summary };
   }, [audit1.lsResults, inv, recLines]);
 
   /* ═══ AUDIT 3: Payment Schedule Completeness ═══ */
@@ -165,9 +189,16 @@ export function ReconciliationAuditPanel({ invoices, payments, recSessions, recL
     }
     issues.sort((a, b) => Math.abs(b.gap) - Math.abs(a.gap));
 
-    const status: StatusLevel = issues.some(i => i.type === "MISSING PAYMENTS") ? "error"
+    const missingCount = issues.filter(i => i.type === "MISSING PAYMENTS").length;
+    const mismatchCount = issues.filter(i => i.type === "PAYMENT SUM MISMATCH").length;
+    const status: StatusLevel = missingCount > 0 ? "error"
       : issues.length > 0 ? "warning" : "clean";
-    return { issues, status };
+    const summary = missingCount > 0
+      ? `${missingCount} invoice(s) missing payments${mismatchCount > 0 ? `, ${mismatchCount} with sum mismatch` : ""}`
+      : mismatchCount > 0
+      ? `${mismatchCount} invoice(s) with payment sum mismatch`
+      : "All payment schedules complete";
+    return { issues, status, summary };
   }, [inv, payments]);
 
   /* ═══ Health Score ═══ */
@@ -177,21 +208,40 @@ export function ReconciliationAuditPanel({ invoices, payments, recSessions, recL
     <div className="space-y-4">
       {/* Health Score */}
       <Card className={`border-2 ${passing === 3 ? "border-emerald-500/40 bg-emerald-500/5" : passing >= 2 ? "border-amber-500/40 bg-amber-500/5" : "border-destructive/40 bg-destructive/5"}`}>
-        <CardContent className="p-4 flex items-center gap-3">
-          <ShieldCheck className={`h-6 w-6 ${passing === 3 ? "text-emerald-500" : passing >= 2 ? "text-amber-500" : "text-destructive"}`} />
-          <div>
-            <p className="text-sm font-bold">
-              Reconciliation Health: {passing}/3 checks passing
-            </p>
-            <p className="text-[10px] text-muted-foreground">
-              {passing === 3 ? "All reconciliation checks are clean" : `${3 - passing} check(s) need attention`}
-            </p>
+        <CardContent className="p-4 space-y-3">
+          <div className="flex items-center gap-3">
+            <ShieldCheck className={`h-6 w-6 ${passing === 3 ? "text-emerald-500" : passing >= 2 ? "text-amber-500" : "text-destructive"}`} />
+            <div>
+              <p className="text-sm font-bold">
+                Reconciliation Health: {passing}/3 checks passing
+              </p>
+              <p className="text-[10px] text-muted-foreground">
+                {passing === 3 ? "All reconciliation checks are clean" : `${3 - passing} check(s) need attention`}
+              </p>
+            </div>
+            <div className="ml-auto flex gap-1.5">
+              <StatusBadge level={audit1.status} />
+              <StatusBadge level={audit2.status} />
+              <StatusBadge level={audit3.status} />
+            </div>
           </div>
-          <div className="ml-auto flex gap-1.5">
-            <StatusBadge level={audit1.status} />
-            <StatusBadge level={audit2.status} />
-            <StatusBadge level={audit3.status} />
-          </div>
+
+          {/* Inline audit summaries */}
+          {passing < 3 && (
+            <div className="space-y-1.5 pt-1 border-t border-border/50">
+              {[
+                { name: "Engine Accuracy", status: audit1.status, summary: audit1.summary },
+                { name: "Missing LS POs", status: audit2.status, summary: audit2.summary },
+                { name: "Payment Schedules", status: audit3.status, summary: audit3.summary },
+              ].filter(a => a.status !== "clean").map((a, i) => (
+                <div key={i} className="flex items-center gap-2 text-[10px]">
+                  <StatusBadge level={a.status} />
+                  <span className="font-semibold text-foreground">{a.name}</span>
+                  <span className="text-muted-foreground">→ {a.summary}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
 

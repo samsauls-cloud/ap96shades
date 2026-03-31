@@ -398,7 +398,7 @@ export default function AuditPage() {
                       : "—"}
                   </p>
                   <p className="text-[10px] text-muted-foreground">
-                    {lsMatches.fullyReceived + lsMatches.partial} of {lsMatches.results.length} invoices matched
+                    {lsMatches.fullyReceived} fully + {lsMatches.partial} partial of {lsMatches.results.length} invoices
                   </p>
                 </CardContent>
               </Card>
@@ -516,40 +516,38 @@ export default function AuditPage() {
                 </Card>
               ) : (
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> All 133 invoices show status = "unpaid" — no paid/credited invoices reducing the total.
+                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> All {invoiceStats.invoiceCount} invoices show status = "unpaid" — no paid/credited invoices reducing the total.
                 </div>
               )}
 
-              {/* $8K Gap explanation + Missing Invoice Finder */}
-              <Card className="bg-card border-primary/30">
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <DollarSign className="h-4 w-4 text-primary" />
-                    <span className="text-xs font-semibold">Missing Invoice Finder — $8K Gap Analysis</span>
-                  </div>
-                  <div className="text-[10px] text-muted-foreground space-y-1">
-                    <p>Excel AP tracker: <span className="font-semibold text-foreground">$597,131.71</span></p>
-                    <p>System total: <span className="font-semibold text-foreground">{formatCurrency(invoiceStats.invoiceTotal)}</span></p>
-                    <p>Gap: <span className="font-semibold text-destructive">{formatCurrency(597131.71 - invoiceStats.invoiceTotal)}</span></p>
-                    <div className="h-px bg-border/50 my-2" />
-                    <p className="font-medium text-foreground">
-                      {invoiceStats.duplicates.length === 0 && invoiceStats.nonUnpaid.length === 0
-                        ? "No duplicates or paid-status invoices found. Gap likely from invoices in Excel not yet uploaded to the system."
-                        : "See duplicate and status sections above for potential explanations."}
-                    </p>
-                    <p>Check Excel tracker for invoices dated before <span className="font-mono text-foreground">{invoiceStats.byVendor.length > 0
-                      ? (() => {
-                          const dates = (invoices as any[]).filter(i => i.doc_type === "INVOICE").map(i => i.invoice_date).sort();
-                          return dates[0] ?? "—";
-                        })()
-                      : "—"}</span> or from vendors with unexpectedly low totals above.</p>
-                  </div>
-                </CardContent>
-              </Card>
+              {/* Invoices without payment schedules summary */}
+              {paymentStats.invoicesMissingPayments.length > 0 && (
+                <Card className="bg-card border-amber-500/30">
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <DollarSign className="h-4 w-4 text-amber-500" />
+                      <span className="text-xs font-semibold text-amber-500">
+                        {paymentStats.invoicesMissingPayments.length} Invoice(s) Without Payment Schedules
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-muted-foreground space-y-1">
+                      <p>
+                        Total value not yet scheduled: <span className="font-semibold text-foreground">
+                          {formatCurrency((paymentStats.invoicesMissingPayments as any[]).reduce((s: number, i: any) => s + (Number(i.total) || 0), 0))}
+                        </span>
+                      </p>
+                      <p>These invoices may belong to vendors without a payment terms engine, or may need manual schedule creation.</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
 
               {/* Payment Sum vs Invoice Sum comparison */}
               {(() => {
-                const paymentSum = (payments as any[]).reduce((s: number, p: any) => s + (Number(p.amount_due) || 0), 0);
+                // Only compare confirmed-terms invoices against their payments to avoid false gaps
+                const confirmedInv = (invoices as any[]).filter((i: any) => i.doc_type === "INVOICE" && i.terms_status === "confirmed");
+                const confirmedIds = new Set(confirmedInv.map((i: any) => i.id));
+                const paymentSum = (payments as any[]).filter((p: any) => confirmedIds.has(p.invoice_id)).reduce((s: number, p: any) => s + (Number(p.amount_due) || 0), 0);
                 const invoiceSum = invoiceStats.invoiceTotal;
                 const diff = invoiceSum - paymentSum;
                 return (
