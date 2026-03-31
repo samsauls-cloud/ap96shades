@@ -18,7 +18,7 @@ import {
   RETRY_WAITS_429, RETRY_WAITS_OTHER, MAX_RETRIES_429, MAX_RETRIES_OTHER,
   RETRY_COOLDOWN,
   type ProcessedDoc, type DocStatus, type BatchStats, type FileDocPair,
-  callAnthropicAPI, parsedToInvoice,
+  callAnthropicAPI, parsedToInvoice, uploadPDFToStorage,
   fileToBase64, batchInsertInvoices, sleep, runRollingQueue, getRetryConfig,
 } from "@/lib/reader-engine";
 import {
@@ -99,7 +99,7 @@ export default function ReaderPage() {
       try {
         const { base64, mediaType } = await imageToBase64(file);
         const parsed = await callAnthropicImageAPI(apiKey, base64, mediaType);
-        const invoice = parsedToInvoice(parsed, file.name);
+        const invoice = parsedToInvoice(parsed, file.name, null);
         invoice.import_source = "photo_capture";
 
         const lineItemsCount = (parsed.line_items || []).length;
@@ -218,7 +218,20 @@ export default function ReaderPage() {
         }
 
         const parsed = await tryCall();
-        const invoice = parsedToInvoice(parsed, file.name);
+        // Upload PDF to storage (non-blocking)
+        let pdfUrl: string | null = null;
+        if (file.type === 'application/pdf') {
+          try {
+            pdfUrl = await uploadPDFToStorage(
+              file,
+              parsed.vendor || 'unknown',
+              parsed.invoice_number || file.name
+            );
+          } catch {
+            console.warn('PDF storage upload failed, continuing without PDF URL');
+          }
+        }
+        const invoice = parsedToInvoice(parsed, file.name, pdfUrl);
         return { invoice, parsed };
       } catch (err: any) {
         lastError = err;
