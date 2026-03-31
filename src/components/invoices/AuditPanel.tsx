@@ -2,12 +2,15 @@ import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { AlertTriangle, CheckCircle2, XCircle, Loader2, RefreshCw, ShieldCheck, ShieldAlert } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { AlertTriangle, CheckCircle2, XCircle, Loader2, RefreshCw, ShieldCheck, ShieldAlert, ChevronDown, ChevronRight } from "lucide-react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { formatCurrency, formatDate } from "@/lib/supabase-queries";
 import { generatePaymentsForInvoice, recalculatePaymentsForInvoice, type AuditResult } from "@/lib/payment-queries";
 import { toast } from "sonner";
 
 type AuditStatus = "clean" | "warning" | "error";
+type IssueCategory = "missingPayments" | "mathDiscrepancies" | "unknownVendors" | "duplicateInvoices";
 
 function getAuditStatus(audit: AuditResult): AuditStatus {
   if (audit.mathDiscrepancies.length > 0) return "error";
@@ -19,6 +22,27 @@ function getIssueCount(audit: AuditResult): number {
   return audit.missingPayments.length + audit.mathDiscrepancies.length + audit.unknownVendors.length + audit.duplicateInvoices.length;
 }
 
+interface IssueDef {
+  key: IssueCategory;
+  count: number;
+  label: string;
+  color: string;
+  bgColor: string;
+}
+
+function getIssueChips(audit: AuditResult): IssueDef[] {
+  const chips: IssueDef[] = [];
+  if (audit.mathDiscrepancies.length > 0)
+    chips.push({ key: "mathDiscrepancies", count: audit.mathDiscrepancies.length, label: "Math Discrepancies", color: "text-red-600 dark:text-red-400", bgColor: "bg-red-500/10 hover:bg-red-500/20 border-red-500/30" });
+  if (audit.missingPayments.length > 0)
+    chips.push({ key: "missingPayments", count: audit.missingPayments.length, label: "Missing Payments", color: "text-yellow-600 dark:text-yellow-400", bgColor: "bg-yellow-500/10 hover:bg-yellow-500/20 border-yellow-500/30" });
+  if (audit.unknownVendors.length > 0)
+    chips.push({ key: "unknownVendors", count: audit.unknownVendors.length, label: "Unknown Vendors", color: "text-orange-600 dark:text-orange-400", bgColor: "bg-orange-500/10 hover:bg-orange-500/20 border-orange-500/30" });
+  if (audit.duplicateInvoices.length > 0)
+    chips.push({ key: "duplicateInvoices", count: audit.duplicateInvoices.length, label: "Duplicates", color: "text-red-600 dark:text-red-400", bgColor: "bg-red-500/10 hover:bg-red-500/20 border-red-500/30" });
+  return chips;
+}
+
 interface Props {
   audit: AuditResult | null;
   onRefresh: () => void;
@@ -26,10 +50,10 @@ interface Props {
   totalInvoices: number;
 }
 
-export function AuditBanner({ audit, totalInvoices }: { audit: AuditResult | null; totalInvoices: number }) {
+/* ═══ Banner ═══ */
+export function AuditBanner({ audit, totalInvoices, onScrollTo }: { audit: AuditResult | null; totalInvoices: number; onScrollTo?: (category: IssueCategory) => void }) {
   if (!audit) return null;
   const status = getAuditStatus(audit);
-  const issues = getIssueCount(audit);
   const time = new Date(audit.lastAuditTime).toLocaleTimeString();
 
   if (status === "clean") {
@@ -43,50 +67,38 @@ export function AuditBanner({ audit, totalInvoices }: { audit: AuditResult | nul
     );
   }
 
-  if (status === "error") {
-    const errorDetails: string[] = [];
-    if (audit.mathDiscrepancies.length > 0)
-      errorDetails.push(`${audit.mathDiscrepancies.length} math discrepanc${audit.mathDiscrepancies.length !== 1 ? "ies" : "y"} (${audit.mathDiscrepancies.map(d => d.invoice_number).slice(0, 3).join(", ")}${audit.mathDiscrepancies.length > 3 ? "…" : ""})`);
-    if (audit.missingPayments.length > 0)
-      errorDetails.push(`${audit.missingPayments.length} missing payment schedule${audit.missingPayments.length !== 1 ? "s" : ""}`);
-    if (audit.duplicateInvoices.length > 0)
-      errorDetails.push(`${audit.duplicateInvoices.length} duplicate${audit.duplicateInvoices.length !== 1 ? "s" : ""}`);
-    if (audit.unknownVendors.length > 0)
-      errorDetails.push(`${audit.unknownVendors.length} unknown vendor${audit.unknownVendors.length !== 1 ? "s" : ""}`);
-    return (
-      <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/20">
-        <ShieldAlert className="h-4 w-4 text-red-500 shrink-0" />
-        <p className="text-xs font-medium text-red-600 dark:text-red-400">
-          🚨 {errorDetails.join(" · ")}
-        </p>
-      </div>
-    );
-  }
-
-  const details: string[] = [];
-  if (audit.missingPayments.length > 0)
-    details.push(`${audit.missingPayments.length} missing payment schedule${audit.missingPayments.length !== 1 ? "s" : ""}`);
-  if (audit.mathDiscrepancies.length > 0)
-    details.push(`${audit.mathDiscrepancies.length} math discrepanc${audit.mathDiscrepancies.length !== 1 ? "ies" : "y"}`);
-  if (audit.unknownVendors.length > 0)
-    details.push(`${audit.unknownVendors.length} unknown vendor${audit.unknownVendors.length !== 1 ? "s" : ""}`);
-  if (audit.duplicateInvoices.length > 0)
-    details.push(`${audit.duplicateInvoices.length} duplicate invoice${audit.duplicateInvoices.length !== 1 ? "s" : ""}`);
+  const chips = getIssueChips(audit);
 
   return (
-    <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
-      <AlertTriangle className="h-4 w-4 text-yellow-500 shrink-0" />
-      <p className="text-xs font-medium text-yellow-600 dark:text-yellow-400">
-        ⚠ {details.join(" · ")}
-      </p>
+    <div className={`flex flex-wrap items-center gap-2 px-4 py-2.5 rounded-lg border ${status === "error" ? "bg-red-500/10 border-red-500/20" : "bg-yellow-500/10 border-yellow-500/20"}`}>
+      {status === "error" ? (
+        <ShieldAlert className="h-4 w-4 text-red-500 shrink-0" />
+      ) : (
+        <AlertTriangle className="h-4 w-4 text-yellow-500 shrink-0" />
+      )}
+      <span className={`text-xs font-medium ${status === "error" ? "text-red-600 dark:text-red-400" : "text-yellow-600 dark:text-yellow-400"}`}>
+        {status === "error" ? "🚨" : "⚠"} Issues found:
+      </span>
+      {chips.map(chip => (
+        <button
+          key={chip.key}
+          onClick={() => onScrollTo?.(chip.key)}
+          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-semibold transition-colors cursor-pointer ${chip.bgColor} ${chip.color}`}
+        >
+          {chip.count} {chip.label}
+        </button>
+      ))}
     </div>
   );
 }
 
-export function AuditPanel({ audit, onRefresh, isLoading, totalInvoices }: Props) {
+/* ═══ Panel ═══ */
+export function AuditPanel({ audit, onRefresh, isLoading, totalInvoices, highlightSection }: Props & { highlightSection?: IssueCategory | null }) {
   const [generatingId, setGeneratingId] = useState<string | null>(null);
   const [recalcId, setRecalcId] = useState<string | null>(null);
   const [confirmRecalc, setConfirmRecalc] = useState<{ id: string; invoiceNumber: string; vendor: string; total: number; invoiceDate: string; poNumber: string | null } | null>(null);
+  const [sortField, setSortField] = useState<string>("vendor");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
   if (!audit) return null;
   const issues = getIssueCount(audit);
@@ -121,6 +133,31 @@ export function AuditPanel({ audit, onRefresh, isLoading, totalInvoices }: Props
       setRecalcId(null);
     }
   };
+
+  // Sortable helper
+  const sortItems = <T extends Record<string, any>>(items: T[], field: string): T[] => {
+    return [...items].sort((a, b) => {
+      const av = a[field], bv = b[field];
+      if (typeof av === "number" && typeof bv === "number") return sortDir === "asc" ? av - bv : bv - av;
+      return sortDir === "asc" ? String(av ?? "").localeCompare(String(bv ?? "")) : String(bv ?? "").localeCompare(String(av ?? ""));
+    });
+  };
+
+  const toggleSort = (field: string) => {
+    if (sortField === field) setSortDir(d => d === "asc" ? "desc" : "asc");
+    else { setSortField(field); setSortDir("asc"); }
+  };
+
+  const SortHeader = ({ field, children, className }: { field: string; children: React.ReactNode; className?: string }) => (
+    <TableHead className={`text-[10px] cursor-pointer select-none hover:text-foreground transition-colors ${className ?? ""}`} onClick={() => toggleSort(field)}>
+      <span className="inline-flex items-center gap-0.5">
+        {children}
+        {sortField === field && <span className="text-[8px]">{sortDir === "asc" ? "▲" : "▼"}</span>}
+      </span>
+    </TableHead>
+  );
+
+  const isHighlighted = (cat: IssueCategory) => highlightSection === cat;
 
   return (
     <Card className="bg-card border-border">
@@ -159,7 +196,7 @@ export function AuditPanel({ audit, onRefresh, isLoading, totalInvoices }: Props
 
         {/* 1. Missing Payments */}
         {audit.missingPayments.length > 0 && (
-          <div>
+          <div id="audit-missingPayments" className={`rounded-lg p-3 transition-colors ${isHighlighted("missingPayments") ? "ring-2 ring-yellow-500/50 bg-yellow-500/5" : ""}`}>
             <p className="text-xs font-semibold mb-2 flex items-center gap-1.5">
               <AlertTriangle className="h-3.5 w-3.5 text-yellow-500" />
               Invoices Without Payment Schedules ({audit.missingPayments.length})
@@ -169,15 +206,15 @@ export function AuditPanel({ audit, onRefresh, isLoading, totalInvoices }: Props
               <Table>
                 <TableHeader>
                   <TableRow className="border-border">
-                    <TableHead className="text-[10px]">Invoice #</TableHead>
-                    <TableHead className="text-[10px]">Vendor</TableHead>
-                    <TableHead className="text-[10px] text-right">Total</TableHead>
-                    <TableHead className="text-[10px]">Date</TableHead>
+                    <SortHeader field="invoice_number">Invoice #</SortHeader>
+                    <SortHeader field="vendor">Vendor</SortHeader>
+                    <SortHeader field="total" className="text-right">Total</SortHeader>
+                    <SortHeader field="invoice_date">Date</SortHeader>
                     <TableHead className="text-[10px] text-right">Action</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {audit.missingPayments.map(inv => (
+                  {sortItems(audit.missingPayments, sortField).map(inv => (
                     <TableRow key={inv.id} className="border-border">
                       <TableCell className="text-xs font-mono">{inv.invoice_number}</TableCell>
                       <TableCell className="text-xs">{inv.vendor}</TableCell>
@@ -212,7 +249,7 @@ export function AuditPanel({ audit, onRefresh, isLoading, totalInvoices }: Props
 
         {/* 2. Math Discrepancies */}
         {audit.mathDiscrepancies.length > 0 && (
-          <div>
+          <div id="audit-mathDiscrepancies" className={`rounded-lg p-3 transition-colors ${isHighlighted("mathDiscrepancies") ? "ring-2 ring-red-500/50 bg-red-500/5" : ""}`}>
             <p className="text-xs font-semibold mb-2 flex items-center gap-1.5">
               <XCircle className="h-3.5 w-3.5 text-red-500" />
               Payment Math Discrepancies ({audit.mathDiscrepancies.length})
@@ -221,16 +258,16 @@ export function AuditPanel({ audit, onRefresh, isLoading, totalInvoices }: Props
               <Table>
                 <TableHeader>
                   <TableRow className="border-border">
-                    <TableHead className="text-[10px]">Invoice #</TableHead>
-                    <TableHead className="text-[10px]">Vendor</TableHead>
-                    <TableHead className="text-[10px] text-right">Invoice Total</TableHead>
-                    <TableHead className="text-[10px] text-right">Installments Sum</TableHead>
-                    <TableHead className="text-[10px] text-right">Discrepancy</TableHead>
+                    <SortHeader field="invoice_number">Invoice #</SortHeader>
+                    <SortHeader field="vendor">Vendor</SortHeader>
+                    <SortHeader field="total" className="text-right">Invoice Total</SortHeader>
+                    <SortHeader field="installmentsSum" className="text-right">Installments Sum</SortHeader>
+                    <SortHeader field="discrepancy" className="text-right">Discrepancy</SortHeader>
                     <TableHead className="text-[10px] text-right">Action</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {audit.mathDiscrepancies.map(d => (
+                  {sortItems(audit.mathDiscrepancies, sortField).map(d => (
                     <TableRow key={d.id} className="border-border bg-red-500/5">
                       <TableCell className="text-xs font-mono">{d.invoice_number}</TableCell>
                       <TableCell className="text-xs">{d.vendor}</TableCell>
@@ -272,7 +309,7 @@ export function AuditPanel({ audit, onRefresh, isLoading, totalInvoices }: Props
 
         {/* 3. Unknown Vendors */}
         {audit.unknownVendors.length > 0 && (
-          <div>
+          <div id="audit-unknownVendors" className={`rounded-lg p-3 transition-colors ${isHighlighted("unknownVendors") ? "ring-2 ring-orange-500/50 bg-orange-500/5" : ""}`}>
             <p className="text-xs font-semibold mb-2 flex items-center gap-1.5">
               <AlertTriangle className="h-3.5 w-3.5 text-orange-500" />
               Unknown Vendors ({audit.unknownVendors.length})
@@ -291,7 +328,7 @@ export function AuditPanel({ audit, onRefresh, isLoading, totalInvoices }: Props
 
         {/* 4. Duplicate Invoices */}
         {audit.duplicateInvoices.length > 0 && (
-          <div>
+          <div id="audit-duplicateInvoices" className={`rounded-lg p-3 transition-colors ${isHighlighted("duplicateInvoices") ? "ring-2 ring-red-500/50 bg-red-500/5" : ""}`}>
             <p className="text-xs font-semibold mb-2 flex items-center gap-1.5">
               <XCircle className="h-3.5 w-3.5 text-red-500" />
               Duplicate Invoices ({audit.duplicateInvoices.length})
