@@ -1,5 +1,6 @@
 import { lastDayOfMonth, addDays, format } from "date-fns";
 import { normalizeVendor } from "@/lib/invoice-dedup";
+import { getVendorTermsRule, isLuxotticaVendor as isLuxFromRegistry } from "@/lib/vendor-terms-registry";
 
 // ── Structured payment terms (extracted from invoices) ────
 export interface ExtractedTerms {
