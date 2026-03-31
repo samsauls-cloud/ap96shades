@@ -96,7 +96,7 @@ export function AuditBanner({ audit, totalInvoices, onScrollTo }: { audit: Audit
 export function AuditPanel({ audit, onRefresh, isLoading, totalInvoices, highlightSection }: Props & { highlightSection?: IssueCategory | null }) {
   const [generatingId, setGeneratingId] = useState<string | null>(null);
   const [recalcId, setRecalcId] = useState<string | null>(null);
-  const [confirmRecalc, setConfirmRecalc] = useState<{ id: string; invoiceNumber: string; vendor: string; total: number; invoiceDate: string; poNumber: string | null } | null>(null);
+  const [confirmRecalc, setConfirmRecalc] = useState<{ id: string; invoiceNumber: string; vendor: string; total: number; invoiceDate: string; poNumber: string | null; paymentTerms: string | null } | null>(null);
   const [sortField, setSortField] = useState<string>("vendor");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
@@ -106,7 +106,7 @@ export function AuditPanel({ audit, onRefresh, isLoading, totalInvoices, highlig
   const handleGenerateSingle = async (inv: AuditResult["missingPayments"][0]) => {
     setGeneratingId(inv.id);
     try {
-      const count = await generatePaymentsForInvoice(inv.id, inv.invoice_date, inv.total, inv.vendor, inv.invoice_number, null);
+      const count = await generatePaymentsForInvoice(inv.id, inv.invoice_date, inv.total, inv.vendor, inv.invoice_number, inv.po_number, inv.payment_terms);
       toast.success(`Generated ${count} payments for ${inv.invoice_number}`);
       onRefresh();
     } catch (e: any) {
@@ -122,7 +122,8 @@ export function AuditPanel({ audit, onRefresh, isLoading, totalInvoices, highlig
     try {
       const count = await recalculatePaymentsForInvoice(
         confirmRecalc.id, confirmRecalc.invoiceDate, confirmRecalc.total,
-        confirmRecalc.vendor, confirmRecalc.invoiceNumber, confirmRecalc.poNumber
+        confirmRecalc.vendor, confirmRecalc.invoiceNumber, confirmRecalc.poNumber,
+        confirmRecalc.paymentTerms
       );
       toast.success(`Recalculated: ${count} new installments for ${confirmRecalc.invoiceNumber}`);
       setConfirmRecalc(null);
@@ -277,7 +278,7 @@ export function AuditPanel({ audit, onRefresh, isLoading, totalInvoices, highlig
                       <TableCell className="text-right">
                         <Button size="sm" variant="outline" className="text-[10px] h-6" onClick={() => setConfirmRecalc({
                           id: d.id, invoiceNumber: d.invoice_number, vendor: d.vendor,
-                          total: d.total, invoiceDate: "", poNumber: null,
+                          total: d.total, invoiceDate: d.invoice_date, poNumber: d.po_number, paymentTerms: d.payment_terms,
                         })}>
                           Fix
                         </Button>

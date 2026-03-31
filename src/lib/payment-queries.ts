@@ -415,8 +415,8 @@ export async function generateAllMissingPayments(): Promise<{ generated: number;
 // ── Audit queries ─────────────────────────────────────────
 
 export interface AuditResult {
-  missingPayments: { id: string; invoice_number: string; vendor: string; total: number; invoice_date: string }[];
-  mathDiscrepancies: { id: string; invoice_number: string; vendor: string; total: number; installmentsSum: number; discrepancy: number }[];
+  missingPayments: { id: string; invoice_number: string; vendor: string; total: number; invoice_date: string; po_number: string | null; payment_terms: string | null }[];
+  mathDiscrepancies: { id: string; invoice_number: string; vendor: string; total: number; installmentsSum: number; discrepancy: number; invoice_date: string; po_number: string | null; payment_terms: string | null }[];
   unknownVendors: { id: string; invoice_number: string; vendor: string; total: number }[];
   duplicateInvoices: { invoice_number: string; vendor: string; count: number }[];
   lastAuditTime: string;
@@ -425,7 +425,7 @@ export interface AuditResult {
 export async function runFullAudit(): Promise<AuditResult> {
   const { data: allInvoices } = await supabase
     .from("vendor_invoices")
-    .select("id, invoice_number, vendor, total, invoice_date, doc_type");
+    .select("id, invoice_number, vendor, total, invoice_date, doc_type, po_number, payment_terms");
   const { data: allPayments } = await supabase
     .from("invoice_payments")
     .select("invoice_id, amount_due");
@@ -446,6 +446,8 @@ export async function runFullAudit(): Promise<AuditResult> {
     vendor: normalizeVendor(inv.vendor),
     total: inv.total,
     invoice_date: inv.invoice_date,
+    po_number: (inv as any).po_number ?? null,
+    payment_terms: (inv as any).payment_terms ?? null,
   }));
 
   // 2. Math discrepancies
@@ -469,6 +471,9 @@ export async function runFullAudit(): Promise<AuditResult> {
           total: inv.total,
           installmentsSum: sum,
           discrepancy: diff,
+          invoice_date: inv.invoice_date,
+          po_number: (inv as any).po_number ?? null,
+          payment_terms: (inv as any).payment_terms ?? null,
         });
       }
     }
