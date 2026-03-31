@@ -5,9 +5,7 @@ import { toast } from "sonner";
 import { InvoiceNav } from "@/components/invoices/InvoiceNav";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AlertCircle, Calendar, Loader2, RefreshCw, DollarSign } from "lucide-react";
 import { formatCurrency, formatDate, fetchDistinctVendors } from "@/lib/supabase-queries";
 import { fetchPayments, type InvoicePayment, generateAllMissingPayments } from "@/lib/payment-queries";
@@ -32,6 +30,7 @@ function useServerDate() {
 // ── Rolling months from server date ───────────────────
 interface RollingMonth {
   label: string;
+  shortLabel: string;
   startDate: Date;
   endDate: Date;
 }
@@ -42,6 +41,7 @@ function getRollingMonths(serverDateStr: string): RollingMonth[] {
     const d = new Date(base.getFullYear(), base.getMonth() + offset, 1);
     return {
       label: d.toLocaleString("default", { month: "long", year: "numeric" }),
+      shortLabel: d.toLocaleString("default", { month: "short", year: "numeric" }),
       startDate: new Date(d.getFullYear(), d.getMonth(), 1),
       endDate: new Date(d.getFullYear(), d.getMonth() + 1, 0),
     };
@@ -53,12 +53,25 @@ function isInMonth(dueDate: string, month: RollingMonth): boolean {
   return d >= month.startDate && d <= month.endDate;
 }
 
+// ── Vendor color map ──────────────────────────────────
+const VENDOR_COLORS: Record<string, string> = {
+  "Kering": "bg-red-600",
+  "Luxottica": "bg-amber-600",
+  "Marcolin": "bg-teal-600",
+  "Maui Jim": "bg-yellow-500",
+  "Safilo": "bg-green-600",
+};
+
+function getVendorColor(vendor: string): string {
+  return VENDOR_COLORS[vendor] || "bg-primary";
+}
+
 export default function APDashboard() {
   const queryClient = useQueryClient();
   const [generating, setGenerating] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState<InvoicePayment | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
-  const [vendorFilter, setVendorFilter] = useState<string>("all");
+  const [showDetail, setShowDetail] = useState(false);
   const midnightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const midnightIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const minuteIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -69,11 +82,6 @@ export default function APDashboard() {
   const { data: payments = [], isLoading } = useQuery({
     queryKey: ["invoice_payments"],
     queryFn: fetchPayments,
-  });
-
-  const { data: vendors = [] } = useQuery({
-    queryKey: ["distinct_vendors"],
-    queryFn: fetchDistinctVendors,
   });
 
   // ── Realtime subscriptions ──────────────────────────
@@ -126,29 +134,54 @@ export default function APDashboard() {
   }, [refreshAll, queryClient]);
 
   const calendarMonths = getRollingMonths(effectiveDate);
-
-  // ── Derived data ──────────────────────────────────────
   const activePayments = payments.filter(p => p.payment_status !== "void");
-  const filteredPayments = vendorFilter === "all" ? activePayments : activePayments.filter(p => p.vendor === vendorFilter);
 
-  const outstanding = activePayments.filter(p => p.balance_remaining > 0);
-  const totalOutstanding = outstanding.reduce((s, p) => s + p.balance_remaining, 0);
-  const overduePayments = filteredPayments.filter(p =>
+  // ── Vendor × Month grid data ─────────────────────────
+  const { vendorGrid, allVendorTotals, grandTotal } = useMemo(() => {
+    const vendorMap = new Map<string, Map<number, { totalDue: number; remaining: number }>>();
+
+    for (const p of activePayments) {
+      if (!vendorMap.has(p.vendor)) {
+        vendorMap.set(p.vendor, new Map());
+      }
+      const vm = vendorMap.get(p.vendor)!;
+      for (let mi = 0; mi < calendarMonths.length; mi++) {
+        if (!vm.has(mi)) vm.set(mi, { totalDue: 0, remaining: 0 });
+        if (isInMonth(p.due_date, calendarMonths[mi])) {
+          const cell = vm.get(mi)!;
+          cell.totalDue += p.amount_due;
+          cell.remaining += p.balance_remaining;
+        }
+      }
+    }
+
+    // Sort vendors alphabetically
+    const sortedVendors = Array.from(vendorMap.keys()).sort();
+
+    const grid = sortedVendors.map(vendor => {
+      const vm = vendorMap.get(vendor)!;
+      const months = calendarMonths.map((_, mi) => vm.get(mi) || { totalDue: 0, remaining: 0 });
+      const fourMonthTotal = months.reduce((s, m) => s + m.remaining, 0);
+      return { vendor, months, fourMonthTotal };
+    });
+
+    // All vendors totals row
+    const allVendorTotals = calendarMonths.map((_, mi) => {
+      return grid.reduce((acc, row) => ({
+        totalDue: acc.totalDue + row.months[mi].totalDue,
+        remaining: acc.remaining + row.months[mi].remaining,
+      }), { totalDue: 0, remaining: 0 });
+    });
+
+    const grandTotal = allVendorTotals.reduce((s, m) => s + m.remaining, 0);
+
+    return { vendorGrid: grid, allVendorTotals, grandTotal };
+  }, [activePayments, calendarMonths]);
+
+  // ── Overdue payments ─────────────────────────────────
+  const overduePayments = activePayments.filter(p =>
     p.due_date < effectiveDate && p.balance_remaining > 0 && p.payment_status !== "paid" && p.payment_status !== "overpaid"
   );
-
-  // Per-month summaries
-  const monthSummaries = useMemo(() => {
-    return calendarMonths.map(m => {
-      const mp = filteredPayments.filter(p => isInMonth(p.due_date, m));
-      const totalDue = mp.reduce((s, p) => s + p.amount_due, 0);
-      const totalPaid = mp.reduce((s, p) => s + p.amount_paid, 0);
-      const remaining = mp.reduce((s, p) => s + p.balance_remaining, 0);
-      return { month: m, payments: mp, totalDue, totalPaid, remaining, count: mp.length };
-    });
-  }, [filteredPayments, calendarMonths]);
-
-  const maxMonthDue = Math.max(...monthSummaries.map(m => m.totalDue), 1);
 
   const handlePaymentClick = (payment: InvoicePayment) => {
     setSelectedPayment(payment);
@@ -168,35 +201,47 @@ export default function APDashboard() {
     }
   };
 
+  // Month column header colors
+  const monthHeaderColors = [
+    "bg-slate-700 text-white",
+    "bg-slate-600 text-white",
+    "bg-slate-500 text-white",
+    "bg-slate-400 text-white",
+  ];
+
   return (
     <div className="min-h-screen bg-background">
       <InvoiceNav />
       <div className="max-w-[1600px] mx-auto px-4 sm:px-6 py-6 space-y-6">
 
-        {/* Top bar: AP total + vendor filter + generate button */}
+        {/* ── Header ───────────────────────────────────── */}
         <div className="flex flex-col sm:flex-row sm:items-center gap-3">
           <div className="flex items-center gap-3">
-            <DollarSign className="h-5 w-5 text-primary" />
+            <Calendar className="h-5 w-5 text-primary" />
             <div>
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Total Outstanding</p>
-              <p className="text-2xl font-bold tabular-nums">{formatCurrency(totalOutstanding)}</p>
+              <h1 className="text-lg font-bold tracking-tight">ROLLING 4-MONTH PAYMENT CALENDAR</h1>
+              <p className="text-[10px] text-muted-foreground">
+                Months auto-advance · All data pulls live from <span className="font-mono">PAYMENTS</span> · Summary grid + full detail below
+              </p>
             </div>
           </div>
-          <div className="sm:ml-auto flex items-center gap-2 flex-wrap">
-            <Select value={vendorFilter} onValueChange={setVendorFilter}>
-              <SelectTrigger className="h-8 text-xs w-[180px]">
-                <SelectValue placeholder="All Vendors" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Vendors</SelectItem>
-                {vendors.map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
-              </SelectContent>
-            </Select>
+          <div className="sm:ml-auto flex items-center gap-2">
             <Button size="sm" variant="outline" className="h-8 text-xs" onClick={handleGenerateAll} disabled={generating}>
               {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <RefreshCw className="h-3.5 w-3.5 mr-1" />}
               Generate Missing
             </Button>
           </div>
+        </div>
+
+        {/* ── Month date labels ────────────────────────── */}
+        <div className="hidden md:grid grid-cols-[140px_repeat(4,1fr)_100px] gap-0 text-center text-[10px] text-muted-foreground font-mono">
+          <div />
+          {calendarMonths.map(m => (
+            <div key={m.label}>
+              {m.startDate.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "2-digit" })}
+            </div>
+          ))}
+          <div />
         </div>
 
         {isLoading ? (
@@ -205,35 +250,92 @@ export default function APDashboard() {
           </div>
         ) : (
           <div className="space-y-6">
-            {/* ── 4-Month Summary Bars ────────────────────────── */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {monthSummaries.map((ms, i) => {
-                const barPct = maxMonthDue > 0 ? (ms.totalDue / maxMonthDue) * 100 : 0;
-                return (
-                  <Card key={ms.month.label} className="bg-card border-border overflow-hidden">
-                    <CardContent className="p-4 space-y-2">
-                      <p className="text-xs font-semibold">{ms.month.label}</p>
-                      <p className="text-lg font-bold tabular-nums">{formatCurrency(ms.remaining)}</p>
-                      <p className="text-[10px] text-muted-foreground">
-                        {ms.count} payment{ms.count !== 1 ? "s" : ""} · {formatCurrency(ms.totalDue)} total due
-                      </p>
-                      {/* Visual weight bar */}
-                      <div className="w-full h-2 rounded-full bg-muted overflow-hidden">
-                        <div
-                          className="h-full rounded-full bg-primary transition-all duration-500"
-                          style={{ width: `${barPct}%` }}
-                        />
-                      </div>
-                      {ms.totalPaid > 0 && (
-                        <p className="text-[10px] text-green-500">{formatCurrency(ms.totalPaid)} paid</p>
-                      )}
-                    </CardContent>
-                  </Card>
-                );
-              })}
-            </div>
+            {/* ── Vendor × Month Summary Grid ────────────── */}
+            <Card className="bg-card border-border overflow-hidden">
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="border-none">
+                      <TableHead className="bg-slate-800 text-white text-xs font-bold w-[140px] sticky left-0 z-10">
+                        VENDOR
+                      </TableHead>
+                      {calendarMonths.map((m, i) => (
+                        <TableHead
+                          key={m.label}
+                          colSpan={2}
+                          className={`text-center text-xs font-bold ${monthHeaderColors[i]} border-l border-white/20`}
+                        >
+                          {m.label}
+                        </TableHead>
+                      ))}
+                      <TableHead className="bg-amber-700 text-white text-xs font-bold text-center border-l border-white/20">
+                        4-MONTH<br />TOTAL
+                      </TableHead>
+                    </TableRow>
+                    <TableRow className="border-none">
+                      <TableHead className="bg-slate-800 text-white text-[10px] sticky left-0 z-10" />
+                      {calendarMonths.map((m) => (
+                        <React.Fragment key={m.label + "-sub"}>
+                          <TableHead className="bg-slate-800/80 text-white/80 text-[10px] text-right font-semibold border-l border-white/10 px-2">
+                            TOTAL DUE
+                          </TableHead>
+                          <TableHead className="bg-slate-800/80 text-white/80 text-[10px] text-right font-semibold px-2">
+                            REMAINING ↓
+                          </TableHead>
+                        </React.Fragment>
+                      ))}
+                      <TableHead className="bg-amber-700/80 text-white/80 text-[10px] text-right font-semibold border-l border-white/10 px-2" />
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {vendorGrid.map((row) => (
+                      <TableRow key={row.vendor} className="border-border hover:bg-muted/30 transition-colors">
+                        <TableCell className="sticky left-0 bg-card z-10">
+                          <div className="flex items-center gap-2">
+                            <div className={`w-2 h-4 rounded-sm ${getVendorColor(row.vendor)}`} />
+                            <span className="text-xs font-bold">{row.vendor}</span>
+                          </div>
+                        </TableCell>
+                        {row.months.map((cell, mi) => (
+                          <React.Fragment key={mi}>
+                            <TableCell className="text-xs text-right tabular-nums px-2 border-l border-border/40">
+                              {formatCurrency(cell.totalDue)}
+                            </TableCell>
+                            <TableCell className={`text-xs text-right tabular-nums px-2 font-semibold ${cell.remaining > 0 ? "text-foreground" : "text-green-500"}`}>
+                              {formatCurrency(cell.remaining)}
+                            </TableCell>
+                          </React.Fragment>
+                        ))}
+                        <TableCell className="text-xs text-right tabular-nums px-2 font-bold border-l border-border/40">
+                          {formatCurrency(row.fourMonthTotal)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {/* ALL VENDORS total row */}
+                    <TableRow className="border-t-2 border-primary bg-muted/50 font-bold">
+                      <TableCell className="sticky left-0 bg-muted/50 z-10 text-xs font-bold">
+                        ALL VENDORS
+                      </TableCell>
+                      {allVendorTotals.map((cell, mi) => (
+                        <React.Fragment key={mi}>
+                          <TableCell className="text-xs text-right tabular-nums px-2 font-bold border-l border-border/40">
+                            {formatCurrency(cell.totalDue)}
+                          </TableCell>
+                          <TableCell className={`text-xs text-right tabular-nums px-2 font-bold ${cell.remaining > 0 ? "text-foreground" : "text-green-500"}`}>
+                            {formatCurrency(cell.remaining)}
+                          </TableCell>
+                        </React.Fragment>
+                      ))}
+                      <TableCell className="text-xs text-right tabular-nums px-2 font-extrabold border-l border-border/40">
+                        {formatCurrency(grandTotal)}
+                      </TableCell>
+                    </TableRow>
+                  </TableBody>
+                </Table>
+              </div>
+            </Card>
 
-            {/* ── Overdue Panel ────────────────────────────────── */}
+            {/* ── Overdue Panel ────────────────────────────── */}
             {overduePayments.length > 0 && (
               <Card className="border-red-500/30 bg-red-500/5">
                 <CardHeader className="pb-3">
@@ -248,22 +350,38 @@ export default function APDashboard() {
               </Card>
             )}
 
-            {/* ── Monthly Sections (grouped by month) ─────────── */}
-            {monthSummaries.map((ms, mi) => {
-              const monthPayments = ms.payments
+            {/* ── Payment Detail toggle ─────────────────────── */}
+            <div className="flex items-center gap-3">
+              <h2 className="text-sm font-semibold">PAYMENT DETAIL</h2>
+              <Button
+                size="sm"
+                variant={showDetail ? "default" : "outline"}
+                className="h-7 text-[10px]"
+                onClick={() => setShowDetail(!showDetail)}
+              >
+                {showDetail ? "Hide Detail" : "Show Detail"}
+              </Button>
+            </div>
+
+            {/* ── Monthly payment detail sections ──────────── */}
+            {showDetail && calendarMonths.map((month) => {
+              const monthPayments = activePayments
+                .filter(p => isInMonth(p.due_date, month))
                 .sort((a, b) => a.due_date.localeCompare(b.due_date));
               if (monthPayments.length === 0) return null;
+              const monthRemaining = monthPayments.reduce((s, p) => s + p.balance_remaining, 0);
+              const monthPaid = monthPayments.reduce((s, p) => s + p.amount_paid, 0);
               return (
-                <Card key={ms.month.label} className="bg-card border-border">
+                <Card key={month.label} className="bg-card border-border">
                   <CardHeader className="pb-3 sticky top-0 bg-card z-10">
                     <CardTitle className="text-sm font-semibold flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
                       <span className="flex items-center gap-2">
                         <Calendar className="h-4 w-4" />
-                        {ms.month.label} — {monthPayments.length} payment{monthPayments.length !== 1 ? "s" : ""}
+                        {month.label} — {monthPayments.length} payment{monthPayments.length !== 1 ? "s" : ""}
                       </span>
                       <span className="sm:ml-auto text-xs font-normal text-muted-foreground">
-                        Paid: <span className="text-green-500 font-medium">{formatCurrency(ms.totalPaid)}</span>
-                        {" · "}Remaining: <span className={`font-medium ${ms.remaining > 0 ? "text-destructive" : "text-green-500"}`}>{formatCurrency(ms.remaining)}</span>
+                        Paid: <span className="text-green-500 font-medium">{formatCurrency(monthPaid)}</span>
+                        {" · "}Remaining: <span className={`font-medium ${monthRemaining > 0 ? "text-destructive" : "text-green-500"}`}>{formatCurrency(monthRemaining)}</span>
                       </span>
                     </CardTitle>
                   </CardHeader>
@@ -274,7 +392,7 @@ export default function APDashboard() {
               );
             })}
 
-            {filteredPayments.length === 0 && (
+            {activePayments.length === 0 && (
               <Card className="bg-card border-border">
                 <CardContent className="p-8 text-center text-muted-foreground text-sm">
                   No payment schedules found. Upload invoices and click "Generate Missing" to create payment schedules.
