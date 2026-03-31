@@ -61,11 +61,21 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
   const statuses: InvoiceStatus[] = ["unpaid", "paid", "partial", "disputed"];
 
   const handleStatusChange = async (status: InvoiceStatus) => {
+    // Confirm when changing FROM paid to something else
+    if (inv.status === 'paid' && status !== 'paid') {
+      setPendingStatus(status);
+      return;
+    }
+    await applyStatusChange(status);
+  };
+
+  const applyStatusChange = async (status: InvoiceStatus) => {
     try {
       await updateInvoiceStatus(inv.id, status);
       toast.success(`Status updated to ${status}`);
       onUpdate();
     } catch { toast.error("Failed to update status"); }
+    finally { setPendingStatus(null); }
   };
 
   const handleNotesBlur = async () => {
