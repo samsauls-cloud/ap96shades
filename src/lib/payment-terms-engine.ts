@@ -153,16 +153,14 @@ export function buildLuxEomSingleSchedule(
   documentDate: Date,
   totalAmount: number
 ): PaymentSchedule {
-  // Baseline = end of the month FOLLOWING the invoice month
-  const following = new Date(
-    documentDate.getFullYear(),
-    documentDate.getMonth() + 1,  // next month
-    1
-  );
-  const baseline = endOfMonth(following);  // e.g. 3/31 for a Feb invoice
+  // Step 1: EOM = last day of the invoice's OWN month
+  const eom = endOfMonth(documentDate);
 
-  // Due = baseline + 30 days
-  const due = addDays(baseline, 30);       // e.g. 4/30
+  // Step 2: Baseline = EOM + 30 days
+  const baseline = addDays(eom, 30);
+
+  // Step 3: Due = Baseline + 30 days
+  const due = addDays(baseline, 30);
 
   const tranches: PaymentTranche[] = [
     makeTranche(1, 'Full', due, 1.0),
@@ -281,31 +279,18 @@ export function resolvePaymentSchedule(
     || v.includes('burberry') || v.includes('michael kors') || v.includes('persol')
     || v.includes('miu miu') || v.includes('oliver peoples') || v.includes('ralph');
 
-  if (isLux) {
-    const termsLower = (paymentTerms ?? '').toLowerCase().trim();
+if (isLux) {
+    const t = (paymentTerms ?? '').toLowerCase().trim();
 
-    const isEomSingle =
-      termsLower.includes('eom') ||
-      termsLower.includes('end of month') ||
-      termsLower === 'eom +30' ||
-      termsLower === 'eom +30 days' ||
-      termsLower.includes('eom+30');
+    // Explicitly a split: must contain 30/60/90
+    const isSplit = t.includes('30/60/90') || t.includes('split');
 
-    const isSplitThirds =
-      termsLower.includes('30/60/90') ||
-      termsLower.includes('split');
-
-    if (isEomSingle && !isSplitThirds) {
-      return buildLuxEomSingleSchedule(documentDate, totalAmount);
-    }
-    if (category === 'Procurement' && isSplitThirds) {
+    if (isSplit) {
       return buildLuxSplitSchedule(documentDate, totalAmount);
     }
-    if (category === 'Special Order') {
-      return buildLuxEomSingleSchedule(documentDate, totalAmount);
-    }
-    // Procurement with unknown terms — use general schedule
-    return buildGeneralSchedule(documentDate, totalAmount, paymentTerms ?? null);
+
+    // Default for ALL Luxottica — EOM single unless explicitly split
+    return buildLuxEomSingleSchedule(documentDate, totalAmount);
   }
 
   // MARCOLIN — 50/80/110 EOM split

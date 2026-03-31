@@ -313,6 +313,28 @@ export function hasTermsEngine(_vendor: string): boolean {
   return true;
 }
 
+/**
+ * Compute correct EOM+30 due date for Luxottica single-payment invoices.
+ * EOM of invoice month → +30 (baseline) → +30 (due date).
+ */
+function computeLuxEomSingleDueDate(invoiceDate: string): { baseline: Date; due: Date } {
+  const d = new Date(invoiceDate + "T00:00:00");
+  const eom = lastDayOfMonth(d);
+  const baseline = addDays(eom, 30);
+  const due = addDays(baseline, 30);
+  return { baseline, due };
+}
+
+/** Check if vendor is a Luxottica brand */
+function isLuxotticaVendor(normalizedVendor: string): boolean {
+  const v = normalizedVendor.toLowerCase();
+  return v.includes('luxottica') || v.includes('ray-ban') || v.includes('rayban')
+    || v.includes('oakley') || v.includes('costa') || v.includes('chanel')
+    || v.includes('prada') || v.includes('versace') || v.includes('coach')
+    || v.includes('burberry') || v.includes('michael kors') || v.includes('persol')
+    || v.includes('miu miu') || v.includes('oliver peoples') || v.includes('ralph');
+}
+
 /** @deprecated Use calculateInstallmentsFromTerms with structured terms instead */
 export function calculateInstallments(
   invoiceDate: string,
@@ -322,11 +344,38 @@ export function calculateInstallments(
   poNumber: string | null,
   paymentTermsText?: string | null,
 ): PaymentInstallment[] {
-  // Legacy path: parse text and generate
+  const normalized = normalizeVendor(vendor);
   const terms = parsePaymentTermsText(paymentTermsText);
+  const termsLower = (paymentTermsText ?? '').toLowerCase().trim();
+
+  // ── Luxottica special handling ──────────────────────────
+  // EOM+30 is the default for all Luxottica unless explicitly "30/60/90"
+  if (isLuxotticaVendor(normalized)) {
+    const isSplit = termsLower.includes('30/60/90') || termsLower.includes('split');
+
+    if (!isSplit) {
+      // EOM+30 single payment: EOM → +30 (baseline) → +30 (due)
+      const parsedTotal = typeof total === "number" ? total : parseFloat(String(total)) || 0;
+      if (parsedTotal <= 0) return [];
+      const { due } = computeLuxEomSingleDueDate(invoiceDate);
+      return [{
+        vendor: normalized,
+        invoice_number: invoiceNumber,
+        po_number: poNumber,
+        invoice_amount: parsedTotal,
+        invoice_date: invoiceDate,
+        terms: "EOM +30",
+        installment_label: null,
+        due_date: format(due, "yyyy-MM-dd"),
+        amount_due: parsedTotal,
+      }];
+    }
+  }
+
+  // ── Generic path ────────────────────────────────────────
   if (terms.type === "unknown" || terms.days.length === 0) {
     // Fallback to vendor default for legacy compatibility
-    const def = VENDOR_DEFAULTS[normalizeVendor(vendor)];
+    const def = VENDOR_DEFAULTS[normalized];
     if (!def) return [];
     const fallbackTerms: ExtractedTerms = {
       raw_text: paymentTermsText ?? null,
