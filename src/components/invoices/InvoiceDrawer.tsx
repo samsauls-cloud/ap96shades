@@ -145,6 +145,15 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
           <SheetTitle className="flex items-center gap-2">
             <DocTypeBadge docType={inv.doc_type} />
             <span>{inv.vendor} — {inv.invoice_number}</span>
+            {(inv as any).pdf_url && (
+              <Badge
+                variant="outline"
+                className="text-[10px] text-blue-500 border-blue-400/40 bg-blue-500/10 cursor-pointer gap-1"
+                onClick={() => setActiveTab("pdf")}
+              >
+                📄 PDF
+              </Badge>
+            )}
           </SheetTitle>
         </SheetHeader>
 
