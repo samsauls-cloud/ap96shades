@@ -674,7 +674,7 @@ export default function LedgerCheckPage() {
                   {filtered.map((row, i) => (
                     <TableRow key={i}>
                       <TableCell>
-                        <StatusBadge status={row.status} />
+                        <StatusBadge row={row} />
                       </TableCell>
                       <TableCell>
                         <CategoryBadge category={row.category} />
