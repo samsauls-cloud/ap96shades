@@ -137,6 +137,40 @@ export default function InvoicesPage() {
       <InvoiceNav />
       <main className="max-w-[1600px] mx-auto px-4 sm:px-6 py-6 space-y-5">
         <StatsBar stats={stats} />
+
+        {/* Audit Banner + collapsible panel */}
+        <AuditBanner
+          audit={audit ?? null}
+          totalInvoices={stats?.total_invoices ?? 0}
+          onScrollTo={(category) => {
+            setAuditHighlight(category);
+            setAuditPanelOpen(true);
+            setTimeout(() => {
+              document.getElementById(`audit-${category}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+              setTimeout(() => setAuditHighlight(null), 3000);
+            }, 100);
+          }}
+        />
+        {audit && (audit.missingPayments.length > 0 || audit.mathDiscrepancies.length > 0 || audit.unknownVendors.length > 0 || audit.duplicateInvoices.length > 0) && (
+          <div>
+            <button
+              onClick={() => setAuditPanelOpen(o => !o)}
+              className="text-[10px] font-medium text-muted-foreground hover:text-foreground transition-colors mb-2"
+            >
+              {auditPanelOpen ? "▼ Hide audit details" : "▶ Show audit details"}
+            </button>
+            {auditPanelOpen && (
+              <AuditPanel
+                audit={audit}
+                onRefresh={() => refetchAudit()}
+                isLoading={auditLoading}
+                totalInvoices={stats?.total_invoices ?? 0}
+                highlightSection={auditHighlight as any}
+              />
+            )}
+          </div>
+        )}
+
         <InvoiceFiltersBar filters={filters} onChange={setFilters} vendors={vendors} tags={allTags} />
 
         <div className="flex flex-wrap gap-2 items-center">
