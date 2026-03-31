@@ -3,7 +3,6 @@ import { Link, useLocation } from "react-router-dom";
 import { FileText, ScanLine, GitCompare, BarChart3, FileBarChart, PackageCheck, Shield, LogOut, Menu, X, Upload, ClipboardCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-import { StaleNotificationBanner } from "./StaleNotificationBanner";
 
 export function InvoiceNav() {
   const { pathname } = useLocation();
@@ -27,9 +26,7 @@ export function InvoiceNav() {
   };
 
   return (
-    <>
-      <StaleNotificationBanner />
-      <header className="border-b border-border bg-card/80 backdrop-blur-sm sticky top-0 z-20">
+    <header className="border-b border-border bg-card/80 backdrop-blur-sm sticky top-0 z-20">
         <div className="max-w-[1600px] mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <Link to="/invoices" className="flex items-center gap-2">
@@ -106,7 +103,6 @@ export function InvoiceNav() {
             ))}
           </nav>
         )}
-      </header>
-    </>
+    </header>
   );
 }
