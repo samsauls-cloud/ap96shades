@@ -118,7 +118,38 @@ export function buildLuxSplitSchedule(
   };
 }
 
-export function buildLuxEomSingleSchedule(
+/**
+ * Build an EOM split schedule with custom day offsets.
+ * Used for Marcolin (50/80/110) and any vendor with non-standard splits.
+ */
+export function buildEomSplitSchedule(
+  documentDate: Date,
+  totalAmount: number,
+  offsets: number[],
+  vendorLabel: string
+): PaymentSchedule {
+  const baseline = endOfMonth(documentDate);
+  const tranches = offsets.map((offset, i) =>
+    makeTranche(
+      i + 1,
+      `${i + 1}/${offsets.length}`,
+      addDays(baseline, offset),
+      1 / offsets.length
+    )
+  );
+  const next = tranches.find(t => !t.is_overdue) ?? null;
+  return {
+    vendor_terms_type: 'split_thirds',
+    baseline_date: baseline,
+    tranches,
+    next_due: next,
+    total_amount: totalAmount,
+    is_fully_overdue: tranches.every(t => t.is_overdue),
+    human_label: `${vendorLabel} EOM ${offsets.join('/')} — ${offsets.length} tranches`,
+  };
+}
+
+
   documentDate: Date,
   totalAmount: number
 ): PaymentSchedule {
