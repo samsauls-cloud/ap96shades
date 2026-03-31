@@ -17,7 +17,7 @@ export function InvoiceNav() {
     { to: "/invoices/dashboard", label: "AP Dashboard", icon: BarChart3 },
     { to: "/invoices/reports", label: "Reports", icon: FileBarChart },
     { to: "/invoices/receiving", label: "Receiving", icon: PackageCheck },
-    { to: "/reconciliation", label: "Reconciliation", icon: Shield, badge: totalBadge, badgeContent: reconBadgeContent() },
+    { to: "/reconciliation", label: "Reconciliation", icon: Shield },
     { to: "/audit", label: "Audit", icon: ClipboardCheck },
   ];
 
