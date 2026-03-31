@@ -54,11 +54,21 @@ export function AuditBanner({ audit, totalInvoices }: { audit: AuditResult | nul
     );
   }
 
+  const details: string[] = [];
+  if (audit.missingPayments.length > 0)
+    details.push(`${audit.missingPayments.length} missing payment schedule${audit.missingPayments.length !== 1 ? "s" : ""}`);
+  if (audit.mathDiscrepancies.length > 0)
+    details.push(`${audit.mathDiscrepancies.length} math discrepanc${audit.mathDiscrepancies.length !== 1 ? "ies" : "y"}`);
+  if (audit.unknownVendors.length > 0)
+    details.push(`${audit.unknownVendors.length} unknown vendor${audit.unknownVendors.length !== 1 ? "s" : ""}`);
+  if (audit.duplicateInvoices.length > 0)
+    details.push(`${audit.duplicateInvoices.length} duplicate invoice${audit.duplicateInvoices.length !== 1 ? "s" : ""}`);
+
   return (
     <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
       <AlertTriangle className="h-4 w-4 text-yellow-500 shrink-0" />
       <p className="text-xs font-medium text-yellow-600 dark:text-yellow-400">
-        ⚠ {issues} invoice{issues !== 1 ? "s" : ""} need attention — see Audit panel below
+        ⚠ {details.join(" · ")}
       </p>
     </div>
   );
