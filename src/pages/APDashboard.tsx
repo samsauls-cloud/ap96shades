@@ -235,24 +235,6 @@ export default function APDashboard() {
       <InvoiceNav />
       <div className="max-w-[1600px] mx-auto px-4 sm:px-6 py-6 space-y-6">
 
-        {/* Accuracy Banner */}
-        <AuditBanner audit={audit ?? null} totalInvoices={totalInvoiceCount} />
-
-        {/* Generate Missing + Quick Stats */}
-        {audit && audit.missingPayments.length > 0 && (
-          <Card className="bg-card border-border">
-            <CardContent className="p-4">
-              <p className="text-sm text-muted-foreground">
-                📊 <span className="font-medium text-foreground">{audit.missingPayments.length} invoices</span> need payment schedules
-                {serverDate && <> · Server date: <span className="font-mono text-foreground">{serverDate}</span></>}
-              </p>
-              <Button size="sm" variant="outline" className="mt-2 text-xs h-7" onClick={handleGenerateAll} disabled={generating}>
-                {generating ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <RefreshCw className="h-3 w-3 mr-1" />}
-                Generate All Missing Payments
-              </Button>
-            </CardContent>
-          </Card>
-        )}
 
         <div className="flex gap-2 flex-wrap">
           <Button size="sm" variant={activeTab === "summary" ? "default" : "outline"} className="text-xs h-8 flex-1 sm:flex-none" onClick={() => setActiveTab("summary")}>
