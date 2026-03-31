@@ -516,7 +516,7 @@ export default function AuditPage() {
                 </Card>
               ) : (
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> All 133 invoices show status = "unpaid" — no paid/credited invoices reducing the total.
+                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> All {invoiceStats.invoiceCount} invoices show status = "unpaid" — no paid/credited invoices reducing the total.
                 </div>
               )}
 
