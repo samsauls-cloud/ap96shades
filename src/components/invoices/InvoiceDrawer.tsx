@@ -58,6 +58,7 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
       setNotes(inv.notes || "");
       setTags((inv as any).tags ?? []);
       setPdfLoadError(false);
+      setLocalPdfUrl((inv as any).pdf_url ?? null);
       setActiveTab("line-items");
     }
   }, [inv]);
