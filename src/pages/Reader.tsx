@@ -307,7 +307,8 @@ export default function ReaderPage() {
             dedupResult.newItems,
             dedupResult.combinedTotal,
             invoice.invoice_date,
-            file.name
+            file.name,
+            (invoice as any).pdf_url ?? null
           );
         }
         updateDoc(docId, {
