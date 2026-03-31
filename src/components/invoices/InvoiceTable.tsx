@@ -100,6 +100,7 @@ export function InvoiceTable({ invoices, filters, onSort, onRowClick, totalCount
                 <TableCell className="text-xs text-muted-foreground">{inv.po_number || "—"}</TableCell>
                 <TableCell className="text-xs text-muted-foreground">{inv.account_number || "—"}</TableCell>
                 <TableCell className="text-xs">{formatDate(inv.invoice_date)}</TableCell>
+                <TableCell className="text-xs">{(inv as any).due_date ? formatDate((inv as any).due_date) : "—"}</TableCell>
                 <TableCell className="text-xs text-right tabular-nums">{getTotalUnits(inv)}</TableCell>
                 <TableCell className="text-right font-semibold text-sm tabular-nums">{formatCurrency(inv.total)}</TableCell>
                 <TableCell className="text-xs text-muted-foreground">{inv.payment_terms || "—"}</TableCell>
