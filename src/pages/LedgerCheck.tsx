@@ -224,7 +224,7 @@ export default function LedgerCheckPage() {
     a.download = `ledger-check-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-  }, []);
+  }, [filtered]);
 
   const filtered = useMemo(() => {
     return ledgerRows;
