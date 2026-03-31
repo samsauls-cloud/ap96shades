@@ -208,21 +208,40 @@ export function ReconciliationAuditPanel({ invoices, payments, recSessions, recL
     <div className="space-y-4">
       {/* Health Score */}
       <Card className={`border-2 ${passing === 3 ? "border-emerald-500/40 bg-emerald-500/5" : passing >= 2 ? "border-amber-500/40 bg-amber-500/5" : "border-destructive/40 bg-destructive/5"}`}>
-        <CardContent className="p-4 flex items-center gap-3">
-          <ShieldCheck className={`h-6 w-6 ${passing === 3 ? "text-emerald-500" : passing >= 2 ? "text-amber-500" : "text-destructive"}`} />
-          <div>
-            <p className="text-sm font-bold">
-              Reconciliation Health: {passing}/3 checks passing
-            </p>
-            <p className="text-[10px] text-muted-foreground">
-              {passing === 3 ? "All reconciliation checks are clean" : `${3 - passing} check(s) need attention`}
-            </p>
+        <CardContent className="p-4 space-y-3">
+          <div className="flex items-center gap-3">
+            <ShieldCheck className={`h-6 w-6 ${passing === 3 ? "text-emerald-500" : passing >= 2 ? "text-amber-500" : "text-destructive"}`} />
+            <div>
+              <p className="text-sm font-bold">
+                Reconciliation Health: {passing}/3 checks passing
+              </p>
+              <p className="text-[10px] text-muted-foreground">
+                {passing === 3 ? "All reconciliation checks are clean" : `${3 - passing} check(s) need attention`}
+              </p>
+            </div>
+            <div className="ml-auto flex gap-1.5">
+              <StatusBadge level={audit1.status} />
+              <StatusBadge level={audit2.status} />
+              <StatusBadge level={audit3.status} />
+            </div>
           </div>
-          <div className="ml-auto flex gap-1.5">
-            <StatusBadge level={audit1.status} />
-            <StatusBadge level={audit2.status} />
-            <StatusBadge level={audit3.status} />
-          </div>
+
+          {/* Inline audit summaries */}
+          {passing < 3 && (
+            <div className="space-y-1.5 pt-1 border-t border-border/50">
+              {[
+                { name: "Engine Accuracy", status: audit1.status, summary: audit1.summary },
+                { name: "Missing LS POs", status: audit2.status, summary: audit2.summary },
+                { name: "Payment Schedules", status: audit3.status, summary: audit3.summary },
+              ].filter(a => a.status !== "clean").map((a, i) => (
+                <div key={i} className="flex items-center gap-2 text-[10px]">
+                  <StatusBadge level={a.status} />
+                  <span className="font-semibold text-foreground">{a.name}</span>
+                  <span className="text-muted-foreground">→ {a.summary}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
 
