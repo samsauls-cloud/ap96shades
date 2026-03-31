@@ -80,14 +80,6 @@ function isInMonth(dueDate: string, month: RollingMonth): boolean {
   return d >= month.startDate && d <= month.endDate;
 }
 
-// ── Audit hook ────────────────────────────────────────
-function useAuditData() {
-  return useQuery({
-    queryKey: ["ap_full_audit"],
-    queryFn: runFullAudit,
-    staleTime: 30_000,
-  });
-}
 
 const BUCKET_CONFIG = {
   overdue: { label: "OVERDUE", emoji: "🔴", desc: "Pay immediately", color: "text-red-500 bg-red-500/10 border-red-500/20" },
