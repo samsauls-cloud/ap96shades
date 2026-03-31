@@ -26,7 +26,6 @@ export function StaleQueuePanel({ onRunComplete }: Props) {
   const { data: queue = [] } = useQuery({
     queryKey: ["stale_queue"],
     queryFn: fetchStaleQueue,
-    refetchInterval: 15000,
   });
 
   if (queue.length === 0) return null;
