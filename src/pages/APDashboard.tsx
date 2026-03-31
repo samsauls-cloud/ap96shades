@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import React from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { InvoiceNav } from "@/components/invoices/InvoiceNav";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { AlertCircle, Calendar, Loader2, RefreshCw, DollarSign } from "lucide-react";
+import { AlertCircle, Calendar, Loader2, RefreshCw, DollarSign, ChevronDown, ChevronUp } from "lucide-react";
 import { formatCurrency, formatDate, fetchDistinctVendors } from "@/lib/supabase-queries";
 import { fetchPayments, type InvoicePayment, generateAllMissingPayments } from "@/lib/payment-queries";
 import { PaymentStatusBadge } from "@/components/invoices/PaymentStatusBadge";
