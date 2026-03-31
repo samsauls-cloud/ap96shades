@@ -372,6 +372,46 @@ export function calculateInstallments(
     }];
   }
 
+  // ── Marcolin "Check 20 days EoM" — single EOM+20 payment ──
+  if (normalized === 'Marcolin' && (termsLower.includes('check 20') || termsLower.includes('20 days eom') || termsLower.includes('20 days eom'))) {
+    const parsedTotal = typeof total === "number" ? total : parseFloat(String(total)) || 0;
+    if (parsedTotal <= 0) return [];
+    const d = new Date(invoiceDate + "T00:00:00");
+    const eom = lastDayOfMonth(d);
+    const due = addDays(eom, 20);
+    return [{
+      vendor: normalized,
+      invoice_number: invoiceNumber,
+      po_number: poNumber,
+      invoice_amount: parsedTotal,
+      invoice_date: invoiceDate,
+      terms: "Check 20 days EoM",
+      installment_label: null,
+      due_date: format(due, "yyyy-MM-dd"),
+      amount_due: parsedTotal,
+    }];
+  }
+
+  // ── Kering "bank transfer 30/60/90 inv. date" ──────────
+  if (normalized === 'Kering' && termsLower.includes('bank transfer') && termsLower.includes('30/60/90')) {
+    const parsedTotal = typeof total === "number" ? total : parseFloat(String(total)) || 0;
+    if (parsedTotal <= 0) return [];
+    const offsets = [30, 60, 90];
+    const baseAmount = parseFloat((parsedTotal / 3).toFixed(2));
+    const lastAmount = parseFloat((parsedTotal - baseAmount * 2).toFixed(2));
+    return offsets.map((offset, index) => ({
+      vendor: normalized,
+      invoice_number: invoiceNumber,
+      po_number: poNumber,
+      invoice_amount: parsedTotal,
+      invoice_date: invoiceDate,
+      terms: "Bank transfer 30/60/90",
+      installment_label: `${index + 1} of 3`,
+      due_date: format(addDays(new Date(invoiceDate + "T00:00:00"), offset), "yyyy-MM-dd"),
+      amount_due: index === 2 ? lastAmount : baseAmount,
+    }));
+  }
+
   // ── Luxottica special handling ──────────────────────────
   // EOM+30 is the default for all Luxottica unless explicitly "30/60/90"
   if (isLuxotticaVendor(normalized)) {
