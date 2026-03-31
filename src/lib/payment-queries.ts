@@ -429,7 +429,46 @@ export async function generateAllMissingPayments(): Promise<{ generated: number;
     totalGenerated += count;
   }
 
+  // Backfill due_date for any invoices that have payments but no due_date
+  const backfilled = await backfillDueDates();
+  if (backfilled > 0) {
+    console.log(`Backfilled ${backfilled} missing due dates`);
+  }
+
   return { generated: totalGenerated, invoices: missing.length };
+}
+
+/**
+ * Backfill vendor_invoices.due_date from invoice_payments for all invoices
+ * that have payment rows but a null due_date.
+ */
+export async function backfillDueDates(): Promise<number> {
+  const { data: invoicesNeedingDueDate } = await supabase
+    .from("vendor_invoices")
+    .select("id")
+    .is("due_date" as any, null);
+
+  if (!invoicesNeedingDueDate || invoicesNeedingDueDate.length === 0) return 0;
+
+  let updated = 0;
+  for (const inv of invoicesNeedingDueDate) {
+    const { data: payments } = await supabase
+      .from("invoice_payments")
+      .select("due_date")
+      .eq("invoice_id", inv.id)
+      .order("due_date", { ascending: true })
+      .limit(1);
+
+    if (payments && payments.length > 0 && payments[0].due_date) {
+      await supabase
+        .from("vendor_invoices")
+        .update({ due_date: payments[0].due_date } as any)
+        .eq("id", inv.id);
+      updated++;
+    }
+  }
+
+  return updated;
 }
 
 // ── Audit queries ─────────────────────────────────────────
