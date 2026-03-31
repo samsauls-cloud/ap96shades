@@ -471,6 +471,9 @@ export async function runFullAudit(): Promise<AuditResult> {
           total: inv.total,
           installmentsSum: sum,
           discrepancy: diff,
+          invoice_date: inv.invoice_date,
+          po_number: (inv as any).po_number ?? null,
+          payment_terms: (inv as any).payment_terms ?? null,
         });
       }
     }
