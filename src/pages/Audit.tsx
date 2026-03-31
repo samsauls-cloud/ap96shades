@@ -398,7 +398,7 @@ export default function AuditPage() {
                       : "—"}
                   </p>
                   <p className="text-[10px] text-muted-foreground">
-                    {lsMatches.fullyReceived + lsMatches.partial} of {lsMatches.results.length} invoices matched
+                    {lsMatches.fullyReceived} fully + {lsMatches.partial} partial of {lsMatches.results.length} invoices
                   </p>
                 </CardContent>
               </Card>
