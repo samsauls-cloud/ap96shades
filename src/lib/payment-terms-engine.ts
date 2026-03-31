@@ -153,16 +153,14 @@ export function buildLuxEomSingleSchedule(
   documentDate: Date,
   totalAmount: number
 ): PaymentSchedule {
-  // Baseline = end of the month FOLLOWING the invoice month
-  const following = new Date(
-    documentDate.getFullYear(),
-    documentDate.getMonth() + 1,  // next month
-    1
-  );
-  const baseline = endOfMonth(following);  // e.g. 3/31 for a Feb invoice
+  // Step 1: EOM = last day of the invoice's OWN month
+  const eom = endOfMonth(documentDate);
 
-  // Due = baseline + 30 days
-  const due = addDays(baseline, 30);       // e.g. 4/30
+  // Step 2: Baseline = EOM + 30 days
+  const baseline = addDays(eom, 30);
+
+  // Step 3: Due = Baseline + 30 days
+  const due = addDays(baseline, 30);
 
   const tranches: PaymentTranche[] = [
     makeTranche(1, 'Full', due, 1.0),
