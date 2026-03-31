@@ -857,6 +857,45 @@ export type Database = {
         }
         Relationships: []
       }
+      saved_ledger_checks: {
+        Row: {
+          created_at: string
+          credit_count: number
+          id: string
+          matched_count: number
+          name: string
+          not_uploaded_count: number
+          row_count: number
+          rows: Json
+          source_files: string[]
+          total_amount: number
+        }
+        Insert: {
+          created_at?: string
+          credit_count?: number
+          id?: string
+          matched_count?: number
+          name: string
+          not_uploaded_count?: number
+          row_count?: number
+          rows?: Json
+          source_files?: string[]
+          total_amount?: number
+        }
+        Update: {
+          created_at?: string
+          credit_count?: number
+          id?: string
+          matched_count?: number
+          name?: string
+          not_uploaded_count?: number
+          row_count?: number
+          rows?: Json
+          source_files?: string[]
+          total_amount?: number
+        }
+        Relationships: []
+      }
       vendor_alias_map: {
         Row: {
           aliases: string[]
