@@ -252,6 +252,8 @@ export function buildGeneralSchedule(
 
 // ─── MAIN RESOLVER ──────────────────────────────────────────────────────────
 
+import { getVendorTermsRule, isLuxotticaVendor } from './vendor-terms-registry';
+
 export function resolvePaymentSchedule(
   vendor: string,
   category: 'Procurement' | 'Special Order' | 'Credit',
@@ -259,7 +261,6 @@ export function resolvePaymentSchedule(
   totalAmount: number,
   paymentTerms?: string | null
 ): PaymentSchedule {
-  const v = (vendor ?? '').toLowerCase();
 
   if (category === 'Credit' || totalAmount < 0) {
     return {
@@ -273,43 +274,64 @@ export function resolvePaymentSchedule(
     };
   }
 
-  const isLux = v.includes('luxottica') || v.includes('ray-ban') || v.includes('rayban')
-    || v.includes('oakley') || v.includes('costa') || v.includes('chanel')
-    || v.includes('prada') || v.includes('versace') || v.includes('coach')
-    || v.includes('burberry') || v.includes('michael kors') || v.includes('persol')
-    || v.includes('miu miu') || v.includes('oliver peoples') || v.includes('ralph');
+  const termsLower = (paymentTerms ?? '').toLowerCase().trim();
 
-if (isLux) {
-    const t = (paymentTerms ?? '').toLowerCase().trim();
-
-    // Explicitly a split: must contain 30/60/90
-    const isSplit = t.includes('30/60/90') || t.includes('split');
-
-    if (isSplit) {
-      return buildLuxSplitSchedule(documentDate, totalAmount);
+  // ── LUXOTTICA special case: check if explicitly split ──
+  if (isLuxotticaVendor(vendor)) {
+    if (termsLower.includes('30/60/90') || termsLower.includes('split')) {
+      return buildEomSplitSchedule(documentDate, totalAmount, [30, 60, 90], 'EOM 30/60/90 — 3 equal tranches');
     }
-
-    // Default for ALL Luxottica — EOM single unless explicitly split
     return buildLuxEomSingleSchedule(documentDate, totalAmount);
   }
 
-  // MARCOLIN — 50/80/110 EOM split
-  const isMarcolin = v.includes('marcolin') || v.includes('tom ford')
-    || v.includes('guess') || v.includes('swarovski') || v.includes('montblanc');
+  // ── All other vendors: use registry ──
+  const rule = getVendorTermsRule(vendor);
 
-  if (isMarcolin) {
-    const splitMatch = (paymentTerms ?? '').match(/(\d+)[-\/](\d+)[-\/](\d+)/);
-    if (splitMatch) {
-      const offsets = [
-        parseInt(splitMatch[1]),
-        parseInt(splitMatch[2]),
-        parseInt(splitMatch[3]),
-      ];
-      return buildEomSplitSchedule(documentDate, totalAmount, offsets, 'Marcolin');
+  if (rule) {
+    if (rule.terms_type === 'eom_split') {
+      return buildEomSplitSchedule(documentDate, totalAmount, rule.offsets, rule.description);
     }
-    // Fallback: standard Marcolin is 50/80/110 if no terms string available
-    return buildEomSplitSchedule(documentDate, totalAmount, [50, 80, 110], 'Marcolin');
+    if (rule.terms_type === 'days_split') {
+      return buildDaysSplitSchedule(documentDate, totalAmount, rule.offsets, rule.description);
+    }
+    if (rule.terms_type === 'net_single') {
+      const n = rule.offsets[0] || 30;
+      const due = addDays(documentDate, n);
+      const tranches = [makeTranche(1, 'Full', due, 1.0)];
+      return {
+        vendor_terms_type: 'net_single',
+        baseline_date: documentDate,
+        tranches,
+        next_due: tranches[0].is_overdue ? null : tranches[0],
+        total_amount: totalAmount,
+        is_fully_overdue: tranches[0].is_overdue,
+        human_label: rule.description,
+      };
+    }
   }
 
+  // ── Fallback: read from invoice payment_terms string ──
   return buildGeneralSchedule(documentDate, totalAmount, paymentTerms ?? null);
+}
+
+// ─── Days split (no EOM step) ───────────────────────────────────────────────
+
+function buildDaysSplitSchedule(
+  documentDate: Date,
+  totalAmount: number,
+  offsets: number[],
+  label: string
+): PaymentSchedule {
+  const tranches = offsets.map((o, i) =>
+    makeTranche(i + 1, `${i + 1}/${offsets.length}`, addDays(documentDate, o), 1 / offsets.length)
+  );
+  return {
+    vendor_terms_type: 'split_thirds',
+    baseline_date: documentDate,
+    tranches,
+    next_due: tranches.find(t => !t.is_overdue) ?? null,
+    total_amount: totalAmount,
+    is_fully_overdue: tranches.every(t => t.is_overdue),
+    human_label: label,
+  };
 }

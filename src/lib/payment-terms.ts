@@ -1,5 +1,6 @@
 import { lastDayOfMonth, addDays, format } from "date-fns";
 import { normalizeVendor } from "@/lib/invoice-dedup";
+import { getVendorTermsRule, isLuxotticaVendor as isLuxFromRegistry } from "@/lib/vendor-terms-registry";
 
 // ── Structured payment terms (extracted from invoices) ────
 export interface ExtractedTerms {
@@ -49,8 +50,8 @@ export interface VendorTermsDefault {
 export const VENDOR_DEFAULTS: Record<string, VendorTermsDefault> = {
   Luxottica: { type: "eom_split", days: [30, 60, 90], installments: 3, eom_based: true, label: "EOM 30 / 60 / 90" },
   Kering: { type: "net_split", days: [30, 60, 90], installments: 3, eom_based: false, label: "Days 30 / 60 / 90" },
-  "Maui Jim": { type: "eom_split", days: [60, 90, 120, 150], installments: 4, eom_based: true, label: "EOM 60 / 90 / 120 / 150" },
-  Marcolin: { type: "eom_single", days: [20], installments: 1, eom_based: true, label: "EOM 20" },
+  "Maui Jim": { type: "net_split", days: [90, 120, 150], installments: 3, eom_based: false, label: "Days 90 / 120 / 150" },
+  Marcolin: { type: "eom_split", days: [50, 80, 110], installments: 3, eom_based: true, label: "EOM 50 / 80 / 110" },
   Safilo: { type: "eom_single", days: [60], installments: 1, eom_based: true, label: "EOM 60" },
   Marchon: { type: "net_single", days: [30], installments: 1, eom_based: false, label: "Net 30" },
 };
@@ -325,14 +326,9 @@ function computeLuxEomSingleDueDate(invoiceDate: string): { baseline: Date; due:
   return { baseline, due };
 }
 
-/** Check if vendor is a Luxottica brand */
+/** Check if vendor is a Luxottica brand — delegates to registry */
 function isLuxotticaVendor(normalizedVendor: string): boolean {
-  const v = normalizedVendor.toLowerCase();
-  return v.includes('luxottica') || v.includes('ray-ban') || v.includes('rayban')
-    || v.includes('oakley') || v.includes('costa') || v.includes('chanel')
-    || v.includes('prada') || v.includes('versace') || v.includes('coach')
-    || v.includes('burberry') || v.includes('michael kors') || v.includes('persol')
-    || v.includes('miu miu') || v.includes('oliver peoples') || v.includes('ralph');
+  return isLuxFromRegistry(normalizedVendor);
 }
 
 /** @deprecated Use calculateInstallmentsFromTerms with structured terms instead */
