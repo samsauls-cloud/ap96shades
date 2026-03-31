@@ -33,6 +33,9 @@ Luxottica invoices use a unique EOM-based split payment system. When you see ter
 Set payment_terms_extracted.type to "eom_split", eom_based to true, days to [30, 60, 90], and installments to 3.
 For Luxottica special/individual orders (not standard procurement), terms are EOM+30+30: end of invoice month + 30 days = baseline, then + 30 days = due date. Set type to "eom_single", eom_based to true, days to [30], installments to 1.
 
+MARCOLIN PAYMENT TERMS:
+Marcolin uses EOM-based split payment terms written as "Check X-Y-Z days EoM" or "X/Y/Z days EoM" where X, Y, Z are day offsets from end of invoice month. Common Marcolin terms: "50-80-110 days EoM" = three equal tranches due at 50, 80, and 110 days after end of invoice month. Set payment_terms_extracted.type to "eom_split", eom_based to true, days to [X, Y, Z] (the three numbers), installments to 3. Store the raw term text exactly as written. Do NOT extract just one number.
+
 Return ONLY valid JSON: { doc_type, vendor, vendor_brands[], invoice_number, invoice_date (YYYY-MM-DD), po_number, account_number, ship_to, carrier, payment_terms, payment_terms_extracted, shipping_terms, subtotal, tax, freight, total, currency, needs_review, line_items[{upc, item_number, sku, description, brand, model, color_code, color_desc, size, temple, qty_ordered, qty_shipped, qty, unit_price, line_total}], notes }. CRITICAL: Return ONLY raw JSON. No markdown, no code fences, no backticks, no preamble, no explanation. Your response must start with { and end with }. Nothing before {. Nothing after }.`;
 
 export const CONCURRENCY = 4;

@@ -118,6 +118,37 @@ export function buildLuxSplitSchedule(
   };
 }
 
+/**
+ * Build an EOM split schedule with custom day offsets.
+ * Used for Marcolin (50/80/110) and any vendor with non-standard splits.
+ */
+export function buildEomSplitSchedule(
+  documentDate: Date,
+  totalAmount: number,
+  offsets: number[],
+  vendorLabel: string
+): PaymentSchedule {
+  const baseline = endOfMonth(documentDate);
+  const tranches = offsets.map((offset, i) =>
+    makeTranche(
+      i + 1,
+      `${i + 1}/${offsets.length}`,
+      addDays(baseline, offset),
+      1 / offsets.length
+    )
+  );
+  const next = tranches.find(t => !t.is_overdue) ?? null;
+  return {
+    vendor_terms_type: 'split_thirds',
+    baseline_date: baseline,
+    tranches,
+    next_due: next,
+    total_amount: totalAmount,
+    is_fully_overdue: tranches.every(t => t.is_overdue),
+    human_label: `${vendorLabel} EOM ${offsets.join('/')} — ${offsets.length} tranches`,
+  };
+}
+
 export function buildLuxEomSingleSchedule(
   documentDate: Date,
   totalAmount: number
@@ -275,6 +306,24 @@ export function resolvePaymentSchedule(
     }
     // Procurement with unknown terms — use general schedule
     return buildGeneralSchedule(documentDate, totalAmount, paymentTerms ?? null);
+  }
+
+  // MARCOLIN — 50/80/110 EOM split
+  const isMarcolin = v.includes('marcolin') || v.includes('tom ford')
+    || v.includes('guess') || v.includes('swarovski') || v.includes('montblanc');
+
+  if (isMarcolin) {
+    const splitMatch = (paymentTerms ?? '').match(/(\d+)[-\/](\d+)[-\/](\d+)/);
+    if (splitMatch) {
+      const offsets = [
+        parseInt(splitMatch[1]),
+        parseInt(splitMatch[2]),
+        parseInt(splitMatch[3]),
+      ];
+      return buildEomSplitSchedule(documentDate, totalAmount, offsets, 'Marcolin');
+    }
+    // Fallback: standard Marcolin is 50/80/110 if no terms string available
+    return buildEomSplitSchedule(documentDate, totalAmount, [50, 80, 110], 'Marcolin');
   }
 
   return buildGeneralSchedule(documentDate, totalAmount, paymentTerms ?? null);
