@@ -270,15 +270,22 @@ export default function APDashboard() {
                       <TableHead className="bg-slate-800 text-white text-xs font-bold w-[140px] sticky left-0 z-10">
                         VENDOR
                       </TableHead>
-                      {calendarMonths.map((m, i) => (
-                        <TableHead
-                          key={m.label}
-                          colSpan={2}
-                          className={`text-center text-xs font-bold ${monthHeaderColors[i]} border-l border-white/20`}
-                        >
-                          {m.label}
-                        </TableHead>
-                      ))}
+                      {calendarMonths.map((m, i) => {
+                        const isExpanded = expandedMonth === m.label;
+                        return (
+                          <TableHead
+                            key={m.label}
+                            colSpan={2}
+                            className={`text-center text-xs font-bold cursor-pointer select-none transition-colors ${monthHeaderColors[i]} border-l border-white/20 ${isExpanded ? "ring-2 ring-primary ring-inset" : "hover:brightness-110"}`}
+                            onClick={() => setExpandedMonth(isExpanded ? null : m.label)}
+                          >
+                            <span className="inline-flex items-center gap-1">
+                              {m.label}
+                              {isExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                            </span>
+                          </TableHead>
+                        );
+                      })}
                       <TableHead className="bg-amber-700 text-white text-xs font-bold text-center border-l border-white/20">
                         4-MONTH<br />TOTAL
                       </TableHead>
