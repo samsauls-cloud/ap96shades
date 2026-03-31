@@ -973,6 +973,9 @@ export type Database = {
           ship_to: string | null
           shipment_count: number
           shipping_terms: string | null
+          special_order_received: boolean | null
+          special_order_received_at: string | null
+          special_order_received_by: string | null
           status: string
           subtotal: number | null
           tags: string[] | null
@@ -1032,6 +1035,9 @@ export type Database = {
           ship_to?: string | null
           shipment_count?: number
           shipping_terms?: string | null
+          special_order_received?: boolean | null
+          special_order_received_at?: string | null
+          special_order_received_by?: string | null
           status?: string
           subtotal?: number | null
           tags?: string[] | null
@@ -1091,6 +1097,9 @@ export type Database = {
           ship_to?: string | null
           shipment_count?: number
           shipping_terms?: string | null
+          special_order_received?: boolean | null
+          special_order_received_at?: string | null
+          special_order_received_by?: string | null
           status?: string
           subtotal?: number | null
           tags?: string[] | null
