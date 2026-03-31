@@ -204,11 +204,12 @@ export async function mergeExtendedInvoice(
   newItems: LineItem[],
   combinedTotal: number,
   incomingDate: string,
-  incomingFilename: string
+  incomingFilename: string,
+  pdfUrl?: string | null
 ) {
   const { data: current } = await supabase
     .from("vendor_invoices")
-    .select("line_items, shipment_count")
+    .select("line_items, shipment_count, pdf_url")
     .eq("id", existingId)
     .single();
 
@@ -221,16 +222,23 @@ export async function mergeExtendedInvoice(
   const mergedItems = [...existingItems, ...newItems];
   const shipmentCount = (current.shipment_count || 1) + 1;
 
+  const updatePayload: any = {
+    line_items: mergedItems as any,
+    total: combinedTotal,
+    is_multi_shipment: true,
+    shipment_count: shipmentCount,
+    last_shipment_date: incomingDate,
+    last_shipment_file: incomingFilename,
+  };
+
+  // Attach PDF if the existing record doesn't have one yet
+  if (pdfUrl && !(current as any).pdf_url) {
+    updatePayload.pdf_url = pdfUrl;
+  }
+
   const { error } = await supabase
     .from("vendor_invoices")
-    .update({
-      line_items: mergedItems as any,
-      total: combinedTotal,
-      is_multi_shipment: true,
-      shipment_count: shipmentCount,
-      last_shipment_date: incomingDate,
-      last_shipment_file: incomingFilename,
-    })
+    .update(updatePayload)
     .eq("id", existingId);
 
   if (error) throw error;
