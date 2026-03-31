@@ -425,7 +425,7 @@ export interface AuditResult {
 export async function runFullAudit(): Promise<AuditResult> {
   const { data: allInvoices } = await supabase
     .from("vendor_invoices")
-    .select("id, invoice_number, vendor, total, invoice_date, doc_type");
+    .select("id, invoice_number, vendor, total, invoice_date, doc_type, po_number, payment_terms");
   const { data: allPayments } = await supabase
     .from("invoice_payments")
     .select("invoice_id, amount_due");
