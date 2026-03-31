@@ -11,6 +11,7 @@ import { Link } from "react-router-dom";
 import { InvoiceNav } from "@/components/invoices/InvoiceNav";
 import { DocTypeBadge } from "@/components/invoices/Badges";
 import { insertInvoice, formatCurrency, type VendorInvoiceInsert, getLineItems, isProforma } from "@/lib/supabase-queries";
+import { supabase } from "@/integrations/supabase/client";
 import { checkPendingMatches } from "@/lib/pending-match";
 import { generatePaymentsForInvoice } from "@/lib/payment-queries";
 import {
@@ -110,6 +111,8 @@ export default function ReaderPage() {
         );
 
         if (dedupResult.type === "true_duplicate") {
+          // For photos, upload and attach PDF to existing record if missing
+          // (photos don't have a PDF, but future-proof the path)
           updateDoc(docId, {
             status: "duplicate", vendor: invoice.vendor, doc_type: invoice.doc_type,
             invoice_number: invoice.invoice_number, total: invoice.total || 0,
@@ -275,6 +278,16 @@ export default function ReaderPage() {
       );
 
       if (dedupResult.type === "true_duplicate") {
+        // Attach PDF to existing record if it doesn't have one yet
+        const pdfUrl = (invoice as any).pdf_url;
+        if (pdfUrl) {
+          try {
+            await supabase.from("vendor_invoices")
+              .update({ pdf_url: pdfUrl } as any)
+              .eq("id", dedupResult.existingId)
+              .is("pdf_url", null);
+          } catch { /* silent */ }
+        }
         updateDoc(docId, {
           status: "duplicate",
           vendor: invoice.vendor,
