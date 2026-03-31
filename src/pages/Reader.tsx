@@ -99,7 +99,7 @@ export default function ReaderPage() {
       try {
         const { base64, mediaType } = await imageToBase64(file);
         const parsed = await callAnthropicImageAPI(apiKey, base64, mediaType);
-        const invoice = parsedToInvoice(parsed, file.name);
+        const invoice = parsedToInvoice(parsed, file.name, null);
         invoice.import_source = "photo_capture";
 
         const lineItemsCount = (parsed.line_items || []).length;
