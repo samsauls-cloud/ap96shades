@@ -14,6 +14,7 @@ import ReceivingPage from "./pages/Receiving.tsx";
 import ReconciliationPage from "./pages/Reconciliation.tsx";
 import LightspeedImportPage from "./pages/LightspeedImport.tsx";
 import AuditPage from "./pages/Audit.tsx";
+import LedgerCheckPage from "./pages/LedgerCheck.tsx";
 import NotFound from "./pages/NotFound.tsx";
 
 const queryClient = new QueryClient();
