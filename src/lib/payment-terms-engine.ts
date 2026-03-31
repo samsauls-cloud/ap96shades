@@ -122,9 +122,16 @@ export function buildLuxEomSingleSchedule(
   documentDate: Date,
   totalAmount: number
 ): PaymentSchedule {
-  const eom = endOfMonth(documentDate);
-  const baseline = addDays(eom, 30);
-  const due = addDays(baseline, 30);
+  // Baseline = end of the month FOLLOWING the invoice month
+  const following = new Date(
+    documentDate.getFullYear(),
+    documentDate.getMonth() + 1,  // next month
+    1
+  );
+  const baseline = endOfMonth(following);  // e.g. 3/31 for a Feb invoice
+
+  // Due = baseline + 30 days
+  const due = addDays(baseline, 30);       // e.g. 4/30
 
   const tranches: PaymentTranche[] = [
     makeTranche(1, 'Full', due, 1.0),
@@ -137,7 +144,7 @@ export function buildLuxEomSingleSchedule(
     next_due: tranches[0].is_overdue ? null : tranches[0],
     total_amount: totalAmount,
     is_fully_overdue: tranches[0].is_overdue,
-    human_label: 'EOM + 30 + 30 — Single payment',
+    human_label: 'EOM +30 — Single payment',
   };
 }
 
@@ -244,11 +251,15 @@ export function resolvePaymentSchedule(
     || v.includes('miu miu') || v.includes('oliver peoples') || v.includes('ralph');
 
   if (isLux) {
+    const termsLower = (paymentTerms ?? '').toLowerCase();
+    const isEomSingle = termsLower.includes('eom') && !termsLower.includes('30/60/90')
+      && !termsLower.includes('split');
+
+    if (category === 'Special Order' || isEomSingle) {
+      return buildLuxEomSingleSchedule(documentDate, totalAmount);
+    }
     if (category === 'Procurement') {
       return buildLuxSplitSchedule(documentDate, totalAmount);
-    }
-    if (category === 'Special Order') {
-      return buildLuxEomSingleSchedule(documentDate, totalAmount);
     }
   }
 

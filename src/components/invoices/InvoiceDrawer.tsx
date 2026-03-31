@@ -34,6 +34,7 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
   const [notes, setNotes] = useState("");
   const [tags, setTags] = useState<string[]>([]);
   const [generatingPayments, setGeneratingPayments] = useState(false);
+  const [pendingStatus, setPendingStatus] = useState<InvoiceStatus | null>(null);
   const inv = invoice;
 
   const { data: allTags = [] } = useQuery({
@@ -60,11 +61,21 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
   const statuses: InvoiceStatus[] = ["unpaid", "paid", "partial", "disputed"];
 
   const handleStatusChange = async (status: InvoiceStatus) => {
+    // Confirm when changing FROM paid to something else
+    if (inv.status === 'paid' && status !== 'paid') {
+      setPendingStatus(status);
+      return;
+    }
+    await applyStatusChange(status);
+  };
+
+  const applyStatusChange = async (status: InvoiceStatus) => {
     try {
       await updateInvoiceStatus(inv.id, status);
       toast.success(`Status updated to ${status}`);
       onUpdate();
     } catch { toast.error("Failed to update status"); }
+    finally { setPendingStatus(null); }
   };
 
   const handleNotesBlur = async () => {
@@ -166,6 +177,24 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
             </Button>
           ))}
         </div>
+
+        {/* Confirm revert from paid */}
+        <AlertDialog open={!!pendingStatus} onOpenChange={(o) => !o && setPendingStatus(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Change status from Paid?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Mark this invoice as <span className="font-semibold capitalize">{pendingStatus}</span>? This will revert its paid status.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={() => pendingStatus && applyStatusChange(pendingStatus)}>
+                Confirm
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         <Separator className="mb-4" />
 
