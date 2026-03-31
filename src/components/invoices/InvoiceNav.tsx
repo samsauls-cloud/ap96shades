@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { FileText, ScanLine, GitCompare, BarChart3, FileBarChart, PackageCheck, Shield, LogOut, Menu, X, Upload, ClipboardCheck, FileSearch } from "lucide-react";
+import { FileText, ScanLine, BarChart3, LogOut, Menu, X, FileSearch } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 
@@ -9,16 +9,10 @@ export function InvoiceNav() {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const links = [
-    { to: "/invoices", label: "Invoice Database", icon: FileText },
-    { to: "/invoices/reader", label: "PDF Reader", icon: ScanLine },
-    { to: "/import/lightspeed", label: "Lightspeed Import", icon: Upload },
-    { to: "/invoices/match", label: "Match Report", icon: GitCompare },
-    { to: "/invoices/dashboard", label: "AP Dashboard", icon: BarChart3 },
-    { to: "/invoices/reports", label: "Reports", icon: FileBarChart },
-    { to: "/invoices/receiving", label: "Receiving", icon: PackageCheck },
-    { to: "/reconciliation", label: "Reconciliation", icon: Shield },
-    { to: "/audit", label: "Audit", icon: ClipboardCheck },
+    { to: "/invoices", label: "Invoices", icon: FileText },
+    { to: "/invoices/reader", label: "Upload", icon: ScanLine },
     { to: "/invoices/ledger-check", label: "Ledger Check", icon: FileSearch },
+    { to: "/invoices/dashboard", label: "Dashboard", icon: BarChart3, primary: true },
   ];
 
   const handleLogout = () => {
