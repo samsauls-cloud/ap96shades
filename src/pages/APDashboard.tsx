@@ -151,9 +151,16 @@ export default function APDashboard() {
 
   const maxMonthDue = Math.max(...monthSummaries.map(m => m.totalDue), 1);
 
+  const navigate = useNavigate();
+
   const handlePaymentClick = (payment: InvoicePayment) => {
-    setSelectedPayment(payment);
-    setModalOpen(true);
+    if (payment.invoice_id) {
+      navigate(`/invoices?open=${payment.invoice_id}`);
+    } else {
+      // Fallback: open payment modal if no linked invoice
+      setSelectedPayment(payment);
+      setModalOpen(true);
+    }
   };
 
   const handleGenerateAll = async () => {
