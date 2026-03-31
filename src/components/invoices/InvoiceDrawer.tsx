@@ -8,7 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Trash2, Copy, Download, DollarSign, Loader2, ScanSearch, FileCheck, AlertCircle, ExternalLink, FileX } from "lucide-react";
+import { Trash2, Copy, Download, DollarSign, Loader2, ScanSearch, FileCheck, AlertCircle, ExternalLink, FileX, Upload } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { StatusBadge, DocTypeBadge } from "./Badges";
@@ -20,6 +20,7 @@ import type { VendorInvoice, InvoiceStatus } from "@/lib/supabase-queries";
 import { formatCurrency, formatDate, getLineItems, getTotalUnits, lineItemsToCSV, updateInvoiceStatus, updateInvoiceNotes, updateInvoiceTags, fetchDistinctTags, deleteInvoice, isProforma } from "@/lib/supabase-queries";
 import { generatePaymentsForInvoice, fetchPaymentsForInvoice } from "@/lib/payment-queries";
 import { supabase } from "@/integrations/supabase/client";
+import { uploadPDFToStorage } from "@/lib/reader-engine";
 import { LinkRealInvoice } from "./LinkRealInvoice";
 
 interface Props {
@@ -37,6 +38,8 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
   const [pendingStatus, setPendingStatus] = useState<InvoiceStatus | null>(null);
   const [activeTab, setActiveTab] = useState("line-items");
   const [pdfLoadError, setPdfLoadError] = useState(false);
+  const [uploadingPdf, setUploadingPdf] = useState(false);
+  const [localPdfUrl, setLocalPdfUrl] = useState<string | null>(null);
   const inv = invoice;
 
   const { data: allTags = [] } = useQuery({
@@ -55,6 +58,7 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
       setNotes(inv.notes || "");
       setTags((inv as any).tags ?? []);
       setPdfLoadError(false);
+      setLocalPdfUrl((inv as any).pdf_url ?? null);
       setActiveTab("line-items");
     }
   }, [inv]);
@@ -145,7 +149,7 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
           <SheetTitle className="flex items-center gap-2">
             <DocTypeBadge docType={inv.doc_type} />
             <span>{inv.vendor} — {inv.invoice_number}</span>
-            {(inv as any).pdf_url && (
+            {localPdfUrl && (
               <Badge
                 variant="outline"
                 className="text-[10px] text-blue-500 border-blue-400/40 bg-blue-500/10 cursor-pointer gap-1"
@@ -293,7 +297,7 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
             <TabsTrigger value="sku-check" className="text-xs h-6 gap-1">
               <ScanSearch className="h-3 w-3" /> SKU Check
             </TabsTrigger>
-            {(inv as any).pdf_url && (
+            {localPdfUrl && (
               <TabsTrigger value="pdf" className="text-xs h-6 gap-1">
                 📄 Invoice PDF
               </TabsTrigger>
@@ -348,17 +352,66 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
               <p className="text-xs text-muted-foreground">No line items</p>
             )}
             {/* Backfill notice for old invoices */}
-            {!(inv as any).pdf_url && (
-              <div className="flex items-center gap-2 p-2 rounded border border-border text-[10px] text-muted-foreground mt-2">
-                <FileX className="h-3.5 w-3.5 shrink-0" />
-                No PDF stored — this invoice was uploaded before PDF storage was enabled. Re-upload via the Reader to attach the original document.
+            {!localPdfUrl && (
+              <div className="mt-2">
+                <label
+                  htmlFor={`pdf-upload-${inv.id}`}
+                  className={`flex flex-col items-center gap-2 p-4 rounded-lg border-2 border-dashed border-border text-muted-foreground cursor-pointer transition-colors hover:border-primary/40 hover:bg-primary/5 ${uploadingPdf ? 'opacity-50 pointer-events-none' : ''}`}
+                  onDragOver={e => { e.preventDefault(); e.stopPropagation(); }}
+                  onDrop={async e => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const file = e.dataTransfer.files[0];
+                    if (!file || file.type !== 'application/pdf') { toast.error('Please drop a PDF file'); return; }
+                    setUploadingPdf(true);
+                    try {
+                      const url = await uploadPDFToStorage(file, inv.vendor, inv.invoice_number);
+                      if (url) {
+                        await supabase.from('vendor_invoices').update({ pdf_url: url } as any).eq('id', inv.id);
+                        setLocalPdfUrl(url);
+                        toast.success('PDF attached');
+                        onUpdate();
+                      } else { toast.error('Upload failed'); }
+                    } catch { toast.error('Upload failed'); }
+                    finally { setUploadingPdf(false); }
+                  }}
+                >
+                  {uploadingPdf ? (
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                  ) : (
+                    <Upload className="h-5 w-5" />
+                  )}
+                  <span className="text-[11px] font-medium">{uploadingPdf ? 'Uploading…' : 'Drop PDF here or click to attach'}</span>
+                  <span className="text-[10px]">Original invoice document</span>
+                </label>
+                <input
+                  id={`pdf-upload-${inv.id}`}
+                  type="file"
+                  accept="application/pdf"
+                  className="hidden"
+                  onChange={async e => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    setUploadingPdf(true);
+                    try {
+                      const url = await uploadPDFToStorage(file, inv.vendor, inv.invoice_number);
+                      if (url) {
+                        await supabase.from('vendor_invoices').update({ pdf_url: url } as any).eq('id', inv.id);
+                        setLocalPdfUrl(url);
+                        toast.success('PDF attached');
+                        onUpdate();
+                      } else { toast.error('Upload failed'); }
+                    } catch { toast.error('Upload failed'); }
+                    finally { setUploadingPdf(false); }
+                  }}
+                />
               </div>
             )}
           </TabsContent>
           <TabsContent value="sku-check">
             <SKUCheckTab invoice={inv} />
           </TabsContent>
-          {(inv as any).pdf_url && (
+          {localPdfUrl && (
             <TabsContent value="pdf">
               {pdfLoadError ? (
                 <div className="flex flex-col items-center justify-center py-16 gap-2 text-muted-foreground text-sm">
@@ -369,7 +422,7 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
               ) : (
                 <div className="w-full rounded-lg overflow-hidden border border-border" style={{ height: '70vh' }}>
                   <iframe
-                    src={(inv as any).pdf_url}
+                    src={localPdfUrl!}
                     className="w-full h-full"
                     title={`Invoice ${inv.invoice_number}`}
                     onError={() => setPdfLoadError(true)}
@@ -381,7 +434,7 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
                   variant="outline"
                   size="sm"
                   className="text-xs gap-1.5"
-                  onClick={() => window.open((inv as any).pdf_url!, '_blank')}
+                  onClick={() => window.open(localPdfUrl!, '_blank')}
                 >
                   <ExternalLink className="h-3.5 w-3.5" />
                   Open in New Tab
@@ -392,7 +445,7 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
                   className="text-xs gap-1.5"
                   asChild
                 >
-                  <a href={(inv as any).pdf_url!} download={`${inv.invoice_number}.pdf`}>
+                  <a href={localPdfUrl!} download={`${inv.invoice_number}.pdf`}>
                     <Download className="h-3.5 w-3.5" />
                     Download PDF
                   </a>
