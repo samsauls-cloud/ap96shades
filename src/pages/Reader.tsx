@@ -275,6 +275,16 @@ export default function ReaderPage() {
       );
 
       if (dedupResult.type === "true_duplicate") {
+        // Attach PDF to existing record if it doesn't have one yet
+        const pdfUrl = (invoice as any).pdf_url;
+        if (pdfUrl) {
+          try {
+            await supabase.from("vendor_invoices")
+              .update({ pdf_url: pdfUrl } as any)
+              .eq("id", dedupResult.existingId)
+              .is("pdf_url", null);
+          } catch { /* silent */ }
+        }
         updateDoc(docId, {
           status: "duplicate",
           vendor: invoice.vendor,
