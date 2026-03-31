@@ -34,6 +34,7 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
   const [notes, setNotes] = useState("");
   const [tags, setTags] = useState<string[]>([]);
   const [generatingPayments, setGeneratingPayments] = useState(false);
+  const [pendingStatus, setPendingStatus] = useState<InvoiceStatus | null>(null);
   const inv = invoice;
 
   const { data: allTags = [] } = useQuery({
