@@ -7,16 +7,15 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { AlertCircle, Calendar, TrendingUp, Loader2, RefreshCw, ShieldCheck } from "lucide-react";
+import { AlertCircle, Calendar, TrendingUp, Loader2, RefreshCw } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/supabase-queries";
-import { fetchPayments, type InvoicePayment, runFullAudit, type AuditResult } from "@/lib/payment-queries";
+import { fetchPayments, type InvoicePayment } from "@/lib/payment-queries";
 import { PaymentStatusBadge } from "@/components/invoices/PaymentStatusBadge";
 import { RecordPaymentModal } from "@/components/invoices/RecordPaymentModal";
 import { supabase } from "@/integrations/supabase/client";
 import { generateAllMissingPayments } from "@/lib/payment-queries";
-import { AuditBanner, AuditPanel } from "@/components/invoices/AuditPanel";
 
-type Tab = "summary" | "calendar" | "audit";
+type Tab = "summary" | "calendar";
 
 // ── Server date hook ──────────────────────────────────
 function useServerDate() {
@@ -81,14 +80,6 @@ function isInMonth(dueDate: string, month: RollingMonth): boolean {
   return d >= month.startDate && d <= month.endDate;
 }
 
-// ── Audit hook ────────────────────────────────────────
-function useAuditData() {
-  return useQuery({
-    queryKey: ["ap_full_audit"],
-    queryFn: runFullAudit,
-    staleTime: 30_000,
-  });
-}
 
 const BUCKET_CONFIG = {
   overdue: { label: "OVERDUE", emoji: "🔴", desc: "Pay immediately", color: "text-red-500 bg-red-500/10 border-red-500/20" },
@@ -118,13 +109,13 @@ export default function APDashboard() {
     queryFn: fetchPayments,
   });
 
-  const { data: audit, isLoading: auditLoading } = useAuditData();
+  
 
   // ── Realtime subscriptions ──────────────────────────
   const refreshAll = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["invoice_payments"] });
     queryClient.invalidateQueries({ queryKey: ["invoice_stats"] });
-    queryClient.invalidateQueries({ queryKey: ["ap_full_audit"] });
+    
     queryClient.invalidateQueries({ queryKey: ["server_date"] });
   }, [queryClient]);
 
@@ -237,31 +228,13 @@ export default function APDashboard() {
   };
 
 
-  const totalInvoiceCount = payments.length > 0 ? [...new Set(payments.map(p => p.invoice_id))].length : 0;
+  
 
   return (
     <div className="min-h-screen bg-background">
       <InvoiceNav />
       <div className="max-w-[1600px] mx-auto px-4 sm:px-6 py-6 space-y-6">
 
-        {/* Accuracy Banner */}
-        <AuditBanner audit={audit ?? null} totalInvoices={totalInvoiceCount} />
-
-        {/* Generate Missing + Quick Stats */}
-        {audit && audit.missingPayments.length > 0 && (
-          <Card className="bg-card border-border">
-            <CardContent className="p-4">
-              <p className="text-sm text-muted-foreground">
-                📊 <span className="font-medium text-foreground">{audit.missingPayments.length} invoices</span> need payment schedules
-                {serverDate && <> · Server date: <span className="font-mono text-foreground">{serverDate}</span></>}
-              </p>
-              <Button size="sm" variant="outline" className="mt-2 text-xs h-7" onClick={handleGenerateAll} disabled={generating}>
-                {generating ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <RefreshCw className="h-3 w-3 mr-1" />}
-                Generate All Missing Payments
-              </Button>
-            </CardContent>
-          </Card>
-        )}
 
         <div className="flex gap-2 flex-wrap">
           <Button size="sm" variant={activeTab === "summary" ? "default" : "outline"} className="text-xs h-8 flex-1 sm:flex-none" onClick={() => setActiveTab("summary")}>
@@ -269,14 +242,6 @@ export default function APDashboard() {
           </Button>
           <Button size="sm" variant={activeTab === "calendar" ? "default" : "outline"} className="text-xs h-8 flex-1 sm:flex-none" onClick={() => setActiveTab("calendar")}>
             <Calendar className="h-3.5 w-3.5 mr-1" /> 4-Month View
-          </Button>
-          <Button size="sm" variant={activeTab === "audit" ? "default" : "outline"} className="text-xs h-8 flex-1 sm:flex-none" onClick={() => setActiveTab("audit")}>
-            <ShieldCheck className="h-3.5 w-3.5 mr-1" /> Audit
-            {audit && (audit.missingPayments.length + audit.mathDiscrepancies.length + audit.unknownVendors.length + audit.duplicateInvoices.length) > 0 && (
-              <span className="ml-1 px-1 py-0.5 text-[10px] rounded bg-yellow-500/20 text-yellow-600">
-                {audit.missingPayments.length + audit.mathDiscrepancies.length + audit.unknownVendors.length + audit.duplicateInvoices.length}
-              </span>
-            )}
           </Button>
         </div>
 
@@ -488,13 +453,6 @@ export default function APDashboard() {
               );
             })}
           </div>
-        ) : activeTab === "audit" ? (
-          <AuditPanel
-            audit={audit ?? null}
-            onRefresh={refreshAll}
-            isLoading={auditLoading}
-            totalInvoices={totalInvoiceCount}
-          />
         ) : null}
       </div>
 
