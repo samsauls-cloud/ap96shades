@@ -352,10 +352,59 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
               <p className="text-xs text-muted-foreground">No line items</p>
             )}
             {/* Backfill notice for old invoices */}
-            {!(inv as any).pdf_url && (
-              <div className="flex items-center gap-2 p-2 rounded border border-border text-[10px] text-muted-foreground mt-2">
-                <FileX className="h-3.5 w-3.5 shrink-0" />
-                No PDF stored — this invoice was uploaded before PDF storage was enabled. Re-upload via the Reader to attach the original document.
+            {!localPdfUrl && (
+              <div className="mt-2">
+                <label
+                  htmlFor={`pdf-upload-${inv.id}`}
+                  className={`flex flex-col items-center gap-2 p-4 rounded-lg border-2 border-dashed border-border text-muted-foreground cursor-pointer transition-colors hover:border-primary/40 hover:bg-primary/5 ${uploadingPdf ? 'opacity-50 pointer-events-none' : ''}`}
+                  onDragOver={e => { e.preventDefault(); e.stopPropagation(); }}
+                  onDrop={async e => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const file = e.dataTransfer.files[0];
+                    if (!file || file.type !== 'application/pdf') { toast.error('Please drop a PDF file'); return; }
+                    setUploadingPdf(true);
+                    try {
+                      const url = await uploadPDFToStorage(file, inv.vendor, inv.invoice_number);
+                      if (url) {
+                        await supabase.from('vendor_invoices').update({ pdf_url: url } as any).eq('id', inv.id);
+                        setLocalPdfUrl(url);
+                        toast.success('PDF attached');
+                        onUpdate();
+                      } else { toast.error('Upload failed'); }
+                    } catch { toast.error('Upload failed'); }
+                    finally { setUploadingPdf(false); }
+                  }}
+                >
+                  {uploadingPdf ? (
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                  ) : (
+                    <Upload className="h-5 w-5" />
+                  )}
+                  <span className="text-[11px] font-medium">{uploadingPdf ? 'Uploading…' : 'Drop PDF here or click to attach'}</span>
+                  <span className="text-[10px]">Original invoice document</span>
+                </label>
+                <input
+                  id={`pdf-upload-${inv.id}`}
+                  type="file"
+                  accept="application/pdf"
+                  className="hidden"
+                  onChange={async e => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    setUploadingPdf(true);
+                    try {
+                      const url = await uploadPDFToStorage(file, inv.vendor, inv.invoice_number);
+                      if (url) {
+                        await supabase.from('vendor_invoices').update({ pdf_url: url } as any).eq('id', inv.id);
+                        setLocalPdfUrl(url);
+                        toast.success('PDF attached');
+                        onUpdate();
+                      } else { toast.error('Upload failed'); }
+                    } catch { toast.error('Upload failed'); }
+                    finally { setUploadingPdf(false); }
+                  }}
+                />
               </div>
             )}
           </TabsContent>
