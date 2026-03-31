@@ -102,7 +102,15 @@ export function ReconciliationAuditPanel({ invoices, payments, recSessions, recL
     const status: StatusLevel = crossVendor.length > 0 ? "error"
       : (doubleLinked.length > 0 || qtyVariances.length > 0) ? "warning" : "clean";
 
-    return { crossVendor, doubleLinked, qtyVariances, vendorSummary: Array.from(vendorSummary.entries()).sort((a, b) => b[1].total - a[1].total), status, lsResults };
+    const summary = crossVendor.length > 0
+      ? `${crossVendor.length} cross-vendor mismatch${crossVendor.length !== 1 ? "es" : ""} found`
+      : doubleLinked.length > 0
+      ? `${doubleLinked.length} session(s) linked to multiple invoices`
+      : qtyVariances.length > 0
+      ? `${qtyVariances.length} invoice(s) with qty variances`
+      : "All invoice→session links verified";
+
+    return { crossVendor, doubleLinked, qtyVariances, vendorSummary: Array.from(vendorSummary.entries()).sort((a, b) => b[1].total - a[1].total), status, lsResults, summary };
   }, [inv, invoices, recSessions, recLines]);
 
   /* ═══ AUDIT 2: Missing Lightspeed POs ═══ */
