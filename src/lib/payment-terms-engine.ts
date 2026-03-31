@@ -32,6 +32,7 @@ export type VendorTermsType =
   | 'lux_eom_single'      // Luxottica special/individual orders — EOM+30+30
   | 'net_single'          // Standard Net 30 / Net 60 from invoice date
   | 'eom_single'          // EOM + N days (single payment)
+  | 'net_eom'             // Due at end of month following invoice month
   | 'split_thirds'        // Generic 30/60/90 split, three equal installments
   | 'unknown';            // Cannot determine — flag for review
 
