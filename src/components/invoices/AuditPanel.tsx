@@ -122,7 +122,8 @@ export function AuditPanel({ audit, onRefresh, isLoading, totalInvoices, highlig
     try {
       const count = await recalculatePaymentsForInvoice(
         confirmRecalc.id, confirmRecalc.invoiceDate, confirmRecalc.total,
-        confirmRecalc.vendor, confirmRecalc.invoiceNumber, confirmRecalc.poNumber
+        confirmRecalc.vendor, confirmRecalc.invoiceNumber, confirmRecalc.poNumber,
+        confirmRecalc.paymentTerms
       );
       toast.success(`Recalculated: ${count} new installments for ${confirmRecalc.invoiceNumber}`);
       setConfirmRecalc(null);
