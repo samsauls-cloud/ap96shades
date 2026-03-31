@@ -103,7 +103,6 @@ export function InvoiceNav() {
             ))}
           </nav>
         )}
-      </header>
-    </>
+    </header>
   );
 }
