@@ -1,5 +1,5 @@
 import { Navigate } from "react-router-dom";
 
 export default function Index() {
-  return <Navigate to="/invoices" replace />;
+  return <Navigate to="/invoices/dashboard" replace />;
 }

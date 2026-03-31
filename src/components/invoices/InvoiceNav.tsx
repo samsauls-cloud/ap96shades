@@ -38,10 +38,12 @@ export function InvoiceNav() {
                 <Link
                   key={l.to}
                   to={l.to}
-                  className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                  className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs transition-colors ${
                     pathname === l.to
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                      ? "bg-primary text-primary-foreground font-semibold"
+                      : (l as any).primary
+                        ? "text-foreground font-bold hover:bg-accent"
+                        : "text-muted-foreground hover:text-foreground hover:bg-accent font-medium"
                   }`}
                 >
                   <l.icon className="h-3.5 w-3.5" />
