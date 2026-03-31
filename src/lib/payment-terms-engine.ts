@@ -308,5 +308,23 @@ export function resolvePaymentSchedule(
     return buildGeneralSchedule(documentDate, totalAmount, paymentTerms ?? null);
   }
 
+  // MARCOLIN — 50/80/110 EOM split
+  const isMarcolin = v.includes('marcolin') || v.includes('tom ford')
+    || v.includes('guess') || v.includes('swarovski') || v.includes('montblanc');
+
+  if (isMarcolin) {
+    const splitMatch = (paymentTerms ?? '').match(/(\d+)[-\/](\d+)[-\/](\d+)/);
+    if (splitMatch) {
+      const offsets = [
+        parseInt(splitMatch[1]),
+        parseInt(splitMatch[2]),
+        parseInt(splitMatch[3]),
+      ];
+      return buildEomSplitSchedule(documentDate, totalAmount, offsets, 'Marcolin');
+    }
+    // Fallback: standard Marcolin is 50/80/110 if no terms string available
+    return buildEomSplitSchedule(documentDate, totalAmount, [50, 80, 110], 'Marcolin');
+  }
+
   return buildGeneralSchedule(documentDate, totalAmount, paymentTerms ?? null);
 }
