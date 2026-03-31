@@ -251,11 +251,15 @@ export function resolvePaymentSchedule(
     || v.includes('miu miu') || v.includes('oliver peoples') || v.includes('ralph');
 
   if (isLux) {
+    const termsLower = (paymentTerms ?? '').toLowerCase();
+    const isEomSingle = termsLower.includes('eom') && !termsLower.includes('30/60/90')
+      && !termsLower.includes('split');
+
+    if (category === 'Special Order' || isEomSingle) {
+      return buildLuxEomSingleSchedule(documentDate, totalAmount);
+    }
     if (category === 'Procurement') {
       return buildLuxSplitSchedule(documentDate, totalAmount);
-    }
-    if (category === 'Special Order') {
-      return buildLuxEomSingleSchedule(documentDate, totalAmount);
     }
   }
 
