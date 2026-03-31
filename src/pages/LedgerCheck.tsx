@@ -30,6 +30,8 @@ import {
   PackageCheck, DollarSign,
 } from "lucide-react";
 import { toast } from "sonner";
+import { resolvePaymentSchedule, type PaymentSchedule } from "@/lib/payment-terms-engine";
+import { Calendar } from "lucide-react";
 
 /* ─── types ─── */
 
@@ -51,6 +53,7 @@ interface LedgerRow {
   matchedTags?: string[];
   specialOrderReceived?: boolean;
   matchedStatus?: string;
+  schedule?: PaymentSchedule;
 }
 
 /* ─── helpers ─── */
@@ -184,6 +187,13 @@ export default function LedgerCheckPage() {
           matchedTags: found?.tags,
           specialOrderReceived: found?.specialOrderReceived,
           matchedStatus: found?.status,
+          schedule: resolvePaymentSchedule(
+            'Luxottica',
+            cat,
+            new Date(p.docDate),
+            p.amount,
+            null
+          ),
         };
       });
     },
@@ -651,6 +661,46 @@ export default function LedgerCheckPage() {
               </div>
             )}
 
+            {/* Next payment callout */}
+            {(() => {
+              const procRows = ledgerRows.filter(
+                (r) => r.category === "Procurement" && r.schedule?.next_due
+              );
+              if (procRows.length === 0) return null;
+              const earliest = procRows.reduce((best, r) => {
+                const d = r.schedule!.next_due!.due_date.getTime();
+                const b = best.schedule!.next_due!.due_date.getTime();
+                return d < b ? r : best;
+              });
+              const nextDue = earliest.schedule!.next_due!;
+              const trancheAmount = procRows
+                .filter(
+                  (r) =>
+                    r.schedule!.next_due!.due_date.getTime() ===
+                    nextDue.due_date.getTime()
+                )
+                .reduce(
+                  (s, r) =>
+                    s + r.amount * r.schedule!.next_due!.amount_fraction,
+                  0
+                );
+              const fmt = nextDue.due_date.toLocaleDateString("en-US", {
+                month: "short",
+                day: "numeric",
+              });
+              return (
+                <div className="flex items-center gap-2 p-3 rounded-lg border border-blue-300 bg-blue-50 dark:bg-blue-950/30 dark:border-blue-800 text-sm">
+                  <Calendar className="h-4 w-4 text-blue-600 shrink-0" />
+                  <span className="text-blue-800 dark:text-blue-300 font-medium">
+                    Next payment due: {fmt} — $
+                    {Math.abs(trancheAmount).toLocaleString("en-US", {
+                      minimumFractionDigits: 2,
+                    })}
+                  </span>
+                </div>
+              );
+            })()}
+
             {/* Tabs + search + actions */}
             <div className="flex flex-wrap items-center gap-3">
               <Tabs
@@ -722,6 +772,7 @@ export default function LedgerCheckPage() {
                     <TableHead>Document #</TableHead>
                     <TableHead>Doc Date</TableHead>
                     <TableHead>Due Date</TableHead>
+                    <TableHead className="w-[120px]">Next Due</TableHead>
                     <TableHead className="text-right">Amount</TableHead>
                     <TableHead>PO Reference</TableHead>
                     <TableHead>Memo</TableHead>
@@ -753,6 +804,9 @@ export default function LedgerCheckPage() {
                       </TableCell>
                       <TableCell className="text-xs">{row.docDate}</TableCell>
                       <TableCell className="text-xs">{row.dueDate}</TableCell>
+                      <TableCell>
+                        <NextDueCell row={row} />
+                      </TableCell>
                       <TableCell
                         className={`text-right font-mono text-xs ${
                           row.amount < 0 ? "text-blue-600 dark:text-blue-400" : ""
