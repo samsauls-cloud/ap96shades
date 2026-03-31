@@ -174,6 +174,7 @@ export default function LedgerCheckPage() {
                 <Input
                   type="file"
                   accept=".xlsx,.xls,.csv"
+                  multiple
                   onChange={handleFile}
                   className="hidden"
                 />
