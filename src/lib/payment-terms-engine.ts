@@ -32,6 +32,7 @@ export type VendorTermsType =
   | 'lux_eom_single'      // Luxottica special/individual orders — EOM+30+30
   | 'net_single'          // Standard Net 30 / Net 60 from invoice date
   | 'eom_single'          // EOM + N days (single payment)
+  | 'net_eom'             // Due at end of month following invoice month
   | 'split_thirds'        // Generic 30/60/90 split, three equal installments
   | 'unknown';            // Cannot determine — flag for review
 
@@ -177,6 +178,36 @@ export function buildLuxEomSingleSchedule(
   };
 }
 
+// ─── NET EOM logic ──────────────────────────────────────────────────────────
+
+/**
+ * Net EOM: due at end of the month FOLLOWING the invoice month.
+ * Invoice 2/9 → baseline = 2/28, due = 3/31
+ * Invoice 3/15 → baseline = 3/31, due = 4/30
+ */
+export function buildNetEomSchedule(
+  documentDate: Date,
+  totalAmount: number
+): PaymentSchedule {
+  const eomInvoiceMonth = endOfMonth(documentDate);
+  // End of the NEXT month
+  const following = new Date(documentDate.getFullYear(), documentDate.getMonth() + 2, 0);
+
+  const tranches: PaymentTranche[] = [
+    makeTranche(1, 'Full', following, 1.0),
+  ];
+
+  return {
+    vendor_terms_type: 'net_eom',
+    baseline_date: eomInvoiceMonth,
+    tranches,
+    next_due: tranches[0].is_overdue ? null : tranches[0],
+    total_amount: totalAmount,
+    is_fully_overdue: tranches[0].is_overdue,
+    human_label: 'Net EOM — due end of following month',
+  };
+}
+
 // ─── GENERAL VENDOR logic ───────────────────────────────────────────────────
 
 export function buildGeneralSchedule(
@@ -276,10 +307,23 @@ export function resolvePaymentSchedule(
 
   const termsLower = (paymentTerms ?? '').toLowerCase().trim();
 
+  // ── Net EOM detection (any vendor) ──
+  const isNetEom =
+    termsLower === 'eom' ||
+    termsLower.includes('net eom') ||
+    termsLower.includes('due eom') ||
+    termsLower.includes('due end of month') ||
+    termsLower.includes('eom from statement') ||
+    termsLower.includes('due eom from') ||
+    termsLower.includes('payable eom');
+
   // ── LUXOTTICA special case: check if explicitly split ──
   if (isLuxotticaVendor(vendor)) {
     if (termsLower.includes('30/60/90') || termsLower.includes('split')) {
       return buildEomSplitSchedule(documentDate, totalAmount, [30, 60, 90], 'EOM 30/60/90 — 3 equal tranches');
+    }
+    if (isNetEom) {
+      return buildNetEomSchedule(documentDate, totalAmount);
     }
     return buildLuxEomSingleSchedule(documentDate, totalAmount);
   }
@@ -288,6 +332,10 @@ export function resolvePaymentSchedule(
   const rule = getVendorTermsRule(vendor);
 
   if (rule) {
+    // If terms explicitly say EOM (Net EOM), override the default split
+    if (isNetEom) {
+      return buildNetEomSchedule(documentDate, totalAmount);
+    }
     if (rule.terms_type === 'eom_split') {
       return buildEomSplitSchedule(documentDate, totalAmount, rule.offsets, rule.description);
     }
@@ -308,6 +356,11 @@ export function resolvePaymentSchedule(
         human_label: rule.description,
       };
     }
+  }
+
+  // ── Net EOM for unregistered vendors ──
+  if (isNetEom) {
+    return buildNetEomSchedule(documentDate, totalAmount);
   }
 
   // ── Fallback: read from invoice payment_terms string ──
