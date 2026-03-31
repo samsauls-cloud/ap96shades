@@ -186,6 +186,15 @@ export default function APDashboard() {
   );
 
   const handlePaymentClick = (payment: InvoicePayment) => {
+    if (payment.invoice_id) {
+      navigate(`/invoices?open=${payment.invoice_id}`);
+    } else {
+      setSelectedPayment(payment);
+      setModalOpen(true);
+    }
+  };
+
+  const handleRecordPayment = (payment: InvoicePayment) => {
     setSelectedPayment(payment);
     setModalOpen(true);
   };
