@@ -544,7 +544,10 @@ export default function AuditPage() {
 
               {/* Payment Sum vs Invoice Sum comparison */}
               {(() => {
-                const paymentSum = (payments as any[]).reduce((s: number, p: any) => s + (Number(p.amount_due) || 0), 0);
+                // Only compare confirmed-terms invoices against their payments to avoid false gaps
+                const confirmedInv = (invoices as any[]).filter((i: any) => i.doc_type === "INVOICE" && i.terms_status === "confirmed");
+                const confirmedIds = new Set(confirmedInv.map((i: any) => i.id));
+                const paymentSum = (payments as any[]).filter((p: any) => confirmedIds.has(p.invoice_id)).reduce((s: number, p: any) => s + (Number(p.amount_due) || 0), 0);
                 const invoiceSum = invoiceStats.invoiceTotal;
                 const diff = invoiceSum - paymentSum;
                 return (
