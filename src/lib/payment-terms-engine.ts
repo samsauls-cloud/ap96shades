@@ -178,6 +178,36 @@ export function buildLuxEomSingleSchedule(
   };
 }
 
+// ─── NET EOM logic ──────────────────────────────────────────────────────────
+
+/**
+ * Net EOM: due at end of the month FOLLOWING the invoice month.
+ * Invoice 2/9 → baseline = 2/28, due = 3/31
+ * Invoice 3/15 → baseline = 3/31, due = 4/30
+ */
+export function buildNetEomSchedule(
+  documentDate: Date,
+  totalAmount: number
+): PaymentSchedule {
+  const eomInvoiceMonth = endOfMonth(documentDate);
+  // End of the NEXT month
+  const following = new Date(documentDate.getFullYear(), documentDate.getMonth() + 2, 0);
+
+  const tranches: PaymentTranche[] = [
+    makeTranche(1, 'Full', following, 1.0),
+  ];
+
+  return {
+    vendor_terms_type: 'net_eom',
+    baseline_date: eomInvoiceMonth,
+    tranches,
+    next_due: tranches[0].is_overdue ? null : tranches[0],
+    total_amount: totalAmount,
+    is_fully_overdue: tranches[0].is_overdue,
+    human_label: 'Net EOM — due end of following month',
+  };
+}
+
 // ─── GENERAL VENDOR logic ───────────────────────────────────────────────────
 
 export function buildGeneralSchedule(

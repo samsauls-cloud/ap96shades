@@ -10,6 +10,7 @@ export type TermsType =
   | 'eom_split'       // EOM = baseline, then split at offsets (multiple payments)
   | 'days_split'      // From invoice date (no EOM), split at offsets
   | 'net_single'      // From invoice date, single payment at N days
+  | 'net_eom'         // Due at end of month following invoice month (single payment)
   | 'use_invoice';    // Read terms directly from the invoice's payment_terms field
 
 export interface VendorTermsRule {
