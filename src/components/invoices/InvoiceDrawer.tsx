@@ -533,9 +533,6 @@ function ReconSection({ invoiceId, reconStatus, lastReconciled, isStale, staleRe
           {discrepancies.length > 5 && (
             <p className="text-[9px] text-muted-foreground">+ {discrepancies.length - 5} more</p>
           )}
-          <Button variant="outline" size="sm" className="text-xs h-7 w-full mt-1" onClick={() => navigate(`/reconciliation?invoice=${invoiceId}`)}>
-            View All in Reconciliation Center
-          </Button>
         </div>
       ) : (
         <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20">
