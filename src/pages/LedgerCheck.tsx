@@ -988,3 +988,63 @@ function SpecialOrderIndicator({ row }: { row: LedgerRow }) {
 
   return null;
 }
+
+function SpecialOrderActions({
+  row,
+  onMarkReceived,
+  onMarkPaid,
+}: {
+  row: LedgerRow;
+  onMarkReceived: (row: LedgerRow) => void;
+  onMarkPaid: (row: LedgerRow) => void;
+}) {
+  // Only show for special orders and one-offs (non-procurement, non-credit)
+  if (row.category !== "Special Order") return null;
+
+  // Not uploaded yet — prompt to upload first
+  if (row.status === "not_uploaded") {
+    return (
+      <span className="text-[10px] text-muted-foreground italic">
+        Upload first
+      </span>
+    );
+  }
+
+  // Already paid
+  if (row.matchedStatus === "paid") {
+    return (
+      <Badge variant="outline" className="text-[10px] text-emerald-600 border-emerald-300 bg-emerald-50 dark:bg-emerald-950/30">
+        <CheckCircle2 className="h-3 w-3 mr-1" />
+        Paid
+      </Badge>
+    );
+  }
+
+  // Received but not yet paid — show Mark Paid
+  if (row.specialOrderReceived) {
+    return (
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-7 text-[10px] gap-1 text-emerald-600 border-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/30"
+        onClick={() => onMarkPaid(row)}
+      >
+        <DollarSign className="h-3 w-3" />
+        Mark Paid
+      </Button>
+    );
+  }
+
+  // Matched but not received — show Mark Received
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      className="h-7 text-[10px] gap-1 text-blue-600 border-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950/30"
+      onClick={() => onMarkReceived(row)}
+    >
+      <PackageCheck className="h-3 w-3" />
+      Came In
+    </Button>
+  );
+}
