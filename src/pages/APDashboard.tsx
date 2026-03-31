@@ -15,7 +15,7 @@ import { RecordPaymentModal } from "@/components/invoices/RecordPaymentModal";
 import { supabase } from "@/integrations/supabase/client";
 import { generateAllMissingPayments } from "@/lib/payment-queries";
 
-type Tab = "summary" | "calendar" | "audit";
+type Tab = "summary" | "calendar";
 
 // ── Server date hook ──────────────────────────────────
 function useServerDate() {
