@@ -54,6 +54,8 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
     if (inv) {
       setNotes(inv.notes || "");
       setTags((inv as any).tags ?? []);
+      setPdfLoadError(false);
+      setActiveTab("line-items");
     }
   }, [inv]);
 
