@@ -190,11 +190,11 @@ export default function LedgerCheckPage() {
           specialOrderReceived: found?.specialOrderReceived,
           matchedStatus: found?.status,
           schedule: resolvePaymentSchedule(
-            'Luxottica',
+            found?.vendor ?? 'Luxottica',
             cat,
             new Date(p.docDate),
             p.amount,
-            null
+            found?.paymentTerms ?? null
           ),
         };
       });
