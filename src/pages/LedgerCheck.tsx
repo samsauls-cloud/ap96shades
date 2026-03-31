@@ -75,14 +75,14 @@ const STATUS_ORDER: Record<LedgerRow["status"], number> = {
 /** Batch .in() queries to avoid Supabase limits */
 async function batchMatchInvoices(
   docNumbers: string[]
-): Promise<Map<string, { id: string; tags: string[]; specialOrderReceived: boolean; status: string }>> {
+): Promise<Map<string, { id: string; tags: string[]; specialOrderReceived: boolean; status: string; paymentTerms: string | null; vendor: string }>> {
   const BATCH = 200;
-  const matchMap = new Map<string, { id: string; tags: string[]; specialOrderReceived: boolean; status: string }>();
+  const matchMap = new Map<string, { id: string; tags: string[]; specialOrderReceived: boolean; status: string; paymentTerms: string | null; vendor: string }>();
   for (let i = 0; i < docNumbers.length; i += BATCH) {
     const chunk = docNumbers.slice(i, i + BATCH);
     const { data } = await supabase
       .from("vendor_invoices")
-      .select("id, invoice_number, tags, special_order_received, status")
+      .select("id, invoice_number, tags, special_order_received, status, payment_terms, vendor")
       .in("invoice_number", chunk);
     (data ?? []).forEach((m) =>
       matchMap.set(m.invoice_number, {
@@ -90,6 +90,8 @@ async function batchMatchInvoices(
         tags: m.tags ?? [],
         specialOrderReceived: m.special_order_received ?? false,
         status: m.status,
+        paymentTerms: m.payment_terms ?? null,
+        vendor: m.vendor,
       })
     );
   }
