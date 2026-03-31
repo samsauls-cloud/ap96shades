@@ -110,6 +110,8 @@ export default function ReaderPage() {
         );
 
         if (dedupResult.type === "true_duplicate") {
+          // For photos, upload and attach PDF to existing record if missing
+          // (photos don't have a PDF, but future-proof the path)
           updateDoc(docId, {
             status: "duplicate", vendor: invoice.vendor, doc_type: invoice.doc_type,
             invoice_number: invoice.invoice_number, total: invoice.total || 0,
