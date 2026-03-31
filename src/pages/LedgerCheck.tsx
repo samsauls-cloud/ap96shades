@@ -208,6 +208,12 @@ export default function LedgerCheckPage() {
     toast.success("Deleted");
   }, [queryClient]);
 
+  const filtered = useMemo(() => {
+    return ledgerRows;
+  }, [ledgerRows]);
+
+  const stats = useMemo(() => computeStats(filtered), [filtered]);
+
   const handleDownloadCSV = useCallback(() => {
     const header = "Status,Document #,Account,Doc Date,Due Date,Amount,Memo,PO Ref,Source File";
     const rows = filtered.map(r =>
@@ -224,13 +230,7 @@ export default function LedgerCheckPage() {
     a.download = `ledger-check-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-  }, []);
-
-  const filtered = useMemo(() => {
-    return ledgerRows;
-  }, [ledgerRows]);
-
-  const stats = useMemo(() => computeStats(filtered), [filtered]);
+  }, [filtered]);
 
   return (
     <div className="min-h-screen bg-background">
