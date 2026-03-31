@@ -249,6 +249,7 @@ export function parsedToInvoice(parsed: any, filename: string, pdfUrl?: string |
       payment_terms_extracted: extractedTerms || null,
       payment_terms_source: "extraction",
       shipping_terms: shippingTerms,
+      ...(pdfUrl ? { pdf_url: pdfUrl } : {}),
     }) as any),
   };
 }
