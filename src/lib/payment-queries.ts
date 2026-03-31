@@ -446,6 +446,8 @@ export async function runFullAudit(): Promise<AuditResult> {
     vendor: normalizeVendor(inv.vendor),
     total: inv.total,
     invoice_date: inv.invoice_date,
+    po_number: (inv as any).po_number ?? null,
+    payment_terms: (inv as any).payment_terms ?? null,
   }));
 
   // 2. Math discrepancies
