@@ -353,6 +353,8 @@ export default function LedgerCheckPage() {
     }
   }, []);
 
+  const qc = useQueryClient();
+
   const handleMarkReceived = useCallback(async (row: LedgerRow) => {
     if (!row.matchedInvoiceId) {
       toast.error("Invoice must be uploaded first");
@@ -377,11 +379,16 @@ export default function LedgerCheckPage() {
           : r
       )
     );
+    qc.invalidateQueries({ queryKey: ["vendor_invoices"] });
+    qc.invalidateQueries({ queryKey: ["invoice_stats"] });
     toast.success(`Marked "${row.documentNumber}" as received`);
-  }, []);
+  }, [qc]);
+
 
   const handleMarkPaid = useCallback(async (row: LedgerRow) => {
     if (!row.matchedInvoiceId) return;
+
+    // 1. Update vendor_invoices status
     const { error } = await supabase
       .from("vendor_invoices")
       .update({ status: "paid" } as any)
@@ -390,6 +397,31 @@ export default function LedgerCheckPage() {
       toast.error(error.message);
       return;
     }
+
+    // 2. Mark all payment installments as paid
+    const today = new Date().toISOString().split("T")[0];
+    const { data: installments } = await supabase
+      .from("invoice_payments")
+      .select("id, amount_due")
+      .eq("invoice_id", row.matchedInvoiceId);
+
+    if (installments && installments.length > 0) {
+      for (const inst of installments) {
+        await supabase
+          .from("invoice_payments")
+          .update({
+            is_paid: true,
+            paid_date: today,
+            amount_paid: Number(inst.amount_due) || 0,
+            balance_remaining: 0,
+            payment_status: "paid",
+            last_payment_date: today,
+          } as any)
+          .eq("id", inst.id);
+      }
+    }
+
+    // 3. Update local state
     setLedgerRows((prev) =>
       prev.map((r) =>
         r.matchedInvoiceId === row.matchedInvoiceId
@@ -397,8 +429,16 @@ export default function LedgerCheckPage() {
           : r
       )
     );
+
+    // 4. Invalidate all relevant queries
+    qc.invalidateQueries({ queryKey: ["invoice_payments"] });
+    qc.invalidateQueries({ queryKey: ["invoice_stats"] });
+    qc.invalidateQueries({ queryKey: ["ap_full_audit"] });
+    qc.invalidateQueries({ queryKey: ["audit_payments"] });
+    qc.invalidateQueries({ queryKey: ["vendor_invoices"] });
+
     toast.success(`Marked "${row.documentNumber}" as paid`);
-  }, []);
+  }, [qc]);
 
   /* ─── filtered + sorted rows ─── */
 
