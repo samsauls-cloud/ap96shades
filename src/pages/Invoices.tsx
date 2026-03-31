@@ -25,7 +25,16 @@ export default function InvoicesPage() {
   const [filters, setFilters] = useState<InvoiceFilters>({ page: 1, perPage: 25, sortField: "invoice_date", sortDir: "desc" });
   const [selectedInvoice, setSelectedInvoice] = useState<VendorInvoice | null>(null);
   const [viewMode, setViewMode] = useState<"list" | "po">("list");
+  const [auditHighlight, setAuditHighlight] = useState<string | null>(null);
+  const [auditPanelOpen, setAuditPanelOpen] = useState(false);
   const openHandledRef = useRef(false);
+
+  // Audit query
+  const { data: audit, isLoading: auditLoading, refetch: refetchAudit } = useQuery({
+    queryKey: ["invoice_page_audit"],
+    queryFn: runFullAudit,
+    staleTime: 60_000,
+  });
 
   const { data, isLoading } = useQuery({
     queryKey: ["vendor_invoices", filters],
