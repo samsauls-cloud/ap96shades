@@ -114,7 +114,7 @@ export function buildLuxSplitSchedule(
     next_due: next,
     total_amount: totalAmount,
     is_fully_overdue: tranches.every(t => t.is_overdue),
-    human_label: '30/60/90 EOM — 3 equal tranches',
+    human_label: 'EOM 30/60/90 — 3 equal tranches',
   };
 }
 
