@@ -411,7 +411,7 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
           <TabsContent value="sku-check">
             <SKUCheckTab invoice={inv} />
           </TabsContent>
-          {(inv as any).pdf_url && (
+          {localPdfUrl && (
             <TabsContent value="pdf">
               {pdfLoadError ? (
                 <div className="flex flex-col items-center justify-center py-16 gap-2 text-muted-foreground text-sm">
