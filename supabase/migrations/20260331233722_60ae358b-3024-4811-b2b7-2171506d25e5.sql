@@ -1,0 +1,1 @@
+DELETE FROM master_assortment;
