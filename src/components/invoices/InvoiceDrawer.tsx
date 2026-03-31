@@ -445,7 +445,7 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
                   className="text-xs gap-1.5"
                   asChild
                 >
-                  <a href={(inv as any).pdf_url!} download={`${inv.invoice_number}.pdf`}>
+                  <a href={localPdfUrl!} download={`${inv.invoice_number}.pdf`}>
                     <Download className="h-3.5 w-3.5" />
                     Download PDF
                   </a>
