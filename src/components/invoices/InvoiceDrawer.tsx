@@ -73,6 +73,8 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
     try {
       await updateInvoiceStatus(inv.id, status);
       toast.success(`Status updated to ${status}`);
+      queryClient.invalidateQueries({ queryKey: ["invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["invoice_payments_detail", inv.id] });
       onUpdate();
     } catch { toast.error("Failed to update status"); }
     finally { setPendingStatus(null); }
