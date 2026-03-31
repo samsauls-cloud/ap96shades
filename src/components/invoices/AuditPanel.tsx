@@ -277,7 +277,7 @@ export function AuditPanel({ audit, onRefresh, isLoading, totalInvoices, highlig
                       <TableCell className="text-right">
                         <Button size="sm" variant="outline" className="text-[10px] h-6" onClick={() => setConfirmRecalc({
                           id: d.id, invoiceNumber: d.invoice_number, vendor: d.vendor,
-                          total: d.total, invoiceDate: "", poNumber: null,
+                          total: d.total, invoiceDate: d.invoice_date, poNumber: d.po_number, paymentTerms: d.payment_terms,
                         })}>
                           Fix
                         </Button>
