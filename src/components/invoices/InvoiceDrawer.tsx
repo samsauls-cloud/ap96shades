@@ -434,7 +434,7 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
                   variant="outline"
                   size="sm"
                   className="text-xs gap-1.5"
-                  onClick={() => window.open((inv as any).pdf_url!, '_blank')}
+                  onClick={() => window.open(localPdfUrl!, '_blank')}
                 >
                   <ExternalLink className="h-3.5 w-3.5" />
                   Open in New Tab
