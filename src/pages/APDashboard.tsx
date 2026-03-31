@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import React from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { InvoiceNav } from "@/components/invoices/InvoiceNav";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { AlertCircle, Calendar, Loader2, RefreshCw, DollarSign } from "lucide-react";
+import { AlertCircle, Calendar, Loader2, RefreshCw, DollarSign, ChevronDown, ChevronUp } from "lucide-react";
 import { formatCurrency, formatDate, fetchDistinctVendors } from "@/lib/supabase-queries";
 import { fetchPayments, type InvoicePayment, generateAllMissingPayments } from "@/lib/payment-queries";
 import { PaymentStatusBadge } from "@/components/invoices/PaymentStatusBadge";
@@ -68,10 +69,11 @@ function getVendorColor(vendor: string): string {
 
 export default function APDashboard() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [generating, setGenerating] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState<InvoicePayment | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
-  const [showDetail, setShowDetail] = useState(false);
+  const [expandedMonth, setExpandedMonth] = useState<string | null>(null);
   const midnightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const midnightIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const minuteIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -184,6 +186,15 @@ export default function APDashboard() {
   );
 
   const handlePaymentClick = (payment: InvoicePayment) => {
+    if (payment.invoice_id) {
+      navigate(`/invoices?open=${payment.invoice_id}`);
+    } else {
+      setSelectedPayment(payment);
+      setModalOpen(true);
+    }
+  };
+
+  const handleRecordPayment = (payment: InvoicePayment) => {
     setSelectedPayment(payment);
     setModalOpen(true);
   };
@@ -259,15 +270,22 @@ export default function APDashboard() {
                       <TableHead className="bg-slate-800 text-white text-xs font-bold w-[140px] sticky left-0 z-10">
                         VENDOR
                       </TableHead>
-                      {calendarMonths.map((m, i) => (
-                        <TableHead
-                          key={m.label}
-                          colSpan={2}
-                          className={`text-center text-xs font-bold ${monthHeaderColors[i]} border-l border-white/20`}
-                        >
-                          {m.label}
-                        </TableHead>
-                      ))}
+                      {calendarMonths.map((m, i) => {
+                        const isExpanded = expandedMonth === m.label;
+                        return (
+                          <TableHead
+                            key={m.label}
+                            colSpan={2}
+                            className={`text-center text-xs font-bold cursor-pointer select-none transition-colors ${monthHeaderColors[i]} border-l border-white/20 ${isExpanded ? "ring-2 ring-primary ring-inset" : "hover:brightness-110"}`}
+                            onClick={() => setExpandedMonth(isExpanded ? null : m.label)}
+                          >
+                            <span className="inline-flex items-center gap-1">
+                              {m.label}
+                              {isExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                            </span>
+                          </TableHead>
+                        );
+                      })}
                       <TableHead className="bg-amber-700 text-white text-xs font-bold text-center border-l border-white/20">
                         4-MONTH<br />TOTAL
                       </TableHead>
@@ -335,6 +353,36 @@ export default function APDashboard() {
               </div>
             </Card>
 
+            {/* ── Expanded month panel ──────────────────── */}
+            {expandedMonth && (() => {
+              const month = calendarMonths.find(m => m.label === expandedMonth);
+              if (!month) return null;
+              const monthPayments = activePayments
+                .filter(p => isInMonth(p.due_date, month))
+                .sort((a, b) => a.due_date.localeCompare(b.due_date));
+              const monthRemaining = monthPayments.reduce((s, p) => s + p.balance_remaining, 0);
+              const monthPaid = monthPayments.reduce((s, p) => s + p.amount_paid, 0);
+              return (
+                <Card className="bg-card border-primary/30 border-l-4 border-l-primary animate-in slide-in-from-top-2 duration-200">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-sm font-semibold flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+                      <span className="flex items-center gap-2">
+                        <Calendar className="h-4 w-4" />
+                        {month.label} — {monthPayments.length} payment{monthPayments.length !== 1 ? "s" : ""}
+                      </span>
+                      <span className="sm:ml-auto text-xs font-normal text-muted-foreground">
+                        Paid: <span className="text-green-500 font-medium">{formatCurrency(monthPaid)}</span>
+                        {" · "}Remaining: <span className={`font-medium ${monthRemaining > 0 ? "text-destructive" : "text-green-500"}`}>{formatCurrency(monthRemaining)}</span>
+                      </span>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    <PaymentTable payments={monthPayments} onRowClick={handlePaymentClick} onRecordPayment={handleRecordPayment} serverDate={effectiveDate} />
+                  </CardContent>
+                </Card>
+              );
+            })()}
+
             {/* ── Overdue Panel ────────────────────────────── */}
             {overduePayments.length > 0 && (
               <Card className="border-red-500/30 bg-red-500/5">
@@ -345,26 +393,13 @@ export default function APDashboard() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="p-0">
-                  <PaymentTable payments={overduePayments} onRowClick={handlePaymentClick} serverDate={effectiveDate} />
+                  <PaymentTable payments={overduePayments} onRowClick={handlePaymentClick} onRecordPayment={handleRecordPayment} serverDate={effectiveDate} />
                 </CardContent>
               </Card>
             )}
 
-            {/* ── Payment Detail toggle ─────────────────────── */}
-            <div className="flex items-center gap-3">
-              <h2 className="text-sm font-semibold">PAYMENT DETAIL</h2>
-              <Button
-                size="sm"
-                variant={showDetail ? "default" : "outline"}
-                className="h-7 text-[10px]"
-                onClick={() => setShowDetail(!showDetail)}
-              >
-                {showDetail ? "Hide Detail" : "Show Detail"}
-              </Button>
-            </div>
-
-            {/* ── Monthly payment detail sections ──────────── */}
-            {showDetail && calendarMonths.map((month) => {
+            {/* ── Monthly payment detail sections (hidden when a month is expanded) ── */}
+            {!expandedMonth && calendarMonths.map((month) => {
               const monthPayments = activePayments
                 .filter(p => isInMonth(p.due_date, month))
                 .sort((a, b) => a.due_date.localeCompare(b.due_date));
@@ -386,7 +421,7 @@ export default function APDashboard() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="p-0">
-                    <PaymentTable payments={monthPayments} onRowClick={handlePaymentClick} serverDate={effectiveDate} />
+                    <PaymentTable payments={monthPayments} onRowClick={handlePaymentClick} onRecordPayment={handleRecordPayment} serverDate={effectiveDate} />
                   </CardContent>
                 </Card>
               );
@@ -413,7 +448,7 @@ export default function APDashboard() {
   );
 }
 
-function PaymentTable({ payments, onRowClick, serverDate }: { payments: InvoicePayment[]; onRowClick: (p: InvoicePayment) => void; serverDate: string }) {
+function PaymentTable({ payments, onRowClick, onRecordPayment, serverDate }: { payments: InvoicePayment[]; onRowClick: (p: InvoicePayment) => void; onRecordPayment?: (p: InvoicePayment) => void; serverDate: string }) {
   return (
     <>
       {/* Desktop table */}
@@ -428,6 +463,7 @@ function PaymentTable({ payments, onRowClick, serverDate }: { payments: InvoiceP
               <TableHead className="text-xs font-semibold">Due Date</TableHead>
               <TableHead className="text-xs font-semibold">Terms</TableHead>
               <TableHead className="text-xs font-semibold text-center">Status</TableHead>
+              {onRecordPayment && <TableHead className="text-xs font-semibold text-right w-[100px]" />}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -451,6 +487,18 @@ function PaymentTable({ payments, onRowClick, serverDate }: { payments: InvoiceP
                   <TableCell className="text-center">
                     <PaymentStatusBadge payment={p} compact />
                   </TableCell>
+                  {onRecordPayment && (
+                    <TableCell className="text-right">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-[10px] h-6 opacity-0 group-hover:opacity-100 hover:opacity-100 focus:opacity-100"
+                        onClick={(e) => { e.stopPropagation(); onRecordPayment(p); }}
+                      >
+                        <DollarSign className="h-3 w-3 mr-0.5" /> Record
+                      </Button>
+                    </TableCell>
+                  )}
                 </TableRow>
               );
             })}
