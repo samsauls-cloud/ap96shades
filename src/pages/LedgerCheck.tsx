@@ -845,13 +845,15 @@ function CategoryBadge({ row }: { row: LedgerRow }) {
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Badge
-                variant="outline"
-                className="text-amber-600 border-amber-300 bg-amber-50 dark:bg-amber-950/30 text-[10px] cursor-help"
-              >
-                <Tag className="h-3 w-3 mr-1" />
-                Special Order
-              </Badge>
+              <span className="inline-flex">
+                <Badge
+                  variant="outline"
+                  className="text-amber-600 border-amber-300 bg-amber-50 dark:bg-amber-950/30 text-[10px] cursor-help"
+                >
+                  <Tag className="h-3 w-3 mr-1" />
+                  Special Order
+                </Badge>
+              </span>
             </TooltipTrigger>
             <TooltipContent side="right" className="max-w-[280px] text-xs space-y-1">
               <p className="font-semibold">Special Order — not a standard PO</p>
