@@ -178,6 +178,24 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
           ))}
         </div>
 
+        {/* Confirm revert from paid */}
+        <AlertDialog open={!!pendingStatus} onOpenChange={(o) => !o && setPendingStatus(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Change status from Paid?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Mark this invoice as <span className="font-semibold capitalize">{pendingStatus}</span>? This will revert its paid status.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={() => pendingStatus && applyStatusChange(pendingStatus)}>
+                Confirm
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
         <Separator className="mb-4" />
 
         {/* Metadata grid */}
