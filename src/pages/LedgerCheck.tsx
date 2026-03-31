@@ -353,6 +353,8 @@ export default function LedgerCheckPage() {
     }
   }, []);
 
+  const qc = useQueryClient();
+
   const handleMarkReceived = useCallback(async (row: LedgerRow) => {
     if (!row.matchedInvoiceId) {
       toast.error("Invoice must be uploaded first");
@@ -382,7 +384,6 @@ export default function LedgerCheckPage() {
     toast.success(`Marked "${row.documentNumber}" as received`);
   }, [qc]);
 
-  const qc = useQueryClient();
 
   const handleMarkPaid = useCallback(async (row: LedgerRow) => {
     if (!row.matchedInvoiceId) return;
