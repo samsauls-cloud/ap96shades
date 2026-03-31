@@ -243,14 +243,6 @@ export default function APDashboard() {
           <Button size="sm" variant={activeTab === "calendar" ? "default" : "outline"} className="text-xs h-8 flex-1 sm:flex-none" onClick={() => setActiveTab("calendar")}>
             <Calendar className="h-3.5 w-3.5 mr-1" /> 4-Month View
           </Button>
-          <Button size="sm" variant={activeTab === "audit" ? "default" : "outline"} className="text-xs h-8 flex-1 sm:flex-none" onClick={() => setActiveTab("audit")}>
-            <ShieldCheck className="h-3.5 w-3.5 mr-1" /> Audit
-            {audit && (audit.missingPayments.length + audit.mathDiscrepancies.length + audit.unknownVendors.length + audit.duplicateInvoices.length) > 0 && (
-              <span className="ml-1 px-1 py-0.5 text-[10px] rounded bg-yellow-500/20 text-yellow-600">
-                {audit.missingPayments.length + audit.mathDiscrepancies.length + audit.unknownVendors.length + audit.duplicateInvoices.length}
-              </span>
-            )}
-          </Button>
         </div>
 
         {isLoading ? (
