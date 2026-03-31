@@ -69,10 +69,11 @@ function getVendorColor(vendor: string): string {
 
 export default function APDashboard() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [generating, setGenerating] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState<InvoicePayment | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
-  const [showDetail, setShowDetail] = useState(false);
+  const [expandedMonth, setExpandedMonth] = useState<string | null>(null);
   const midnightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const midnightIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const minuteIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
