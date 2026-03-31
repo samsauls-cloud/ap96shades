@@ -279,31 +279,18 @@ export function resolvePaymentSchedule(
     || v.includes('burberry') || v.includes('michael kors') || v.includes('persol')
     || v.includes('miu miu') || v.includes('oliver peoples') || v.includes('ralph');
 
-  if (isLux) {
-    const termsLower = (paymentTerms ?? '').toLowerCase().trim();
+if (isLux) {
+    const t = (paymentTerms ?? '').toLowerCase().trim();
 
-    const isEomSingle =
-      termsLower.includes('eom') ||
-      termsLower.includes('end of month') ||
-      termsLower === 'eom +30' ||
-      termsLower === 'eom +30 days' ||
-      termsLower.includes('eom+30');
+    // Explicitly a split: must contain 30/60/90
+    const isSplit = t.includes('30/60/90') || t.includes('split');
 
-    const isSplitThirds =
-      termsLower.includes('30/60/90') ||
-      termsLower.includes('split');
-
-    if (isEomSingle && !isSplitThirds) {
-      return buildLuxEomSingleSchedule(documentDate, totalAmount);
-    }
-    if (category === 'Procurement' && isSplitThirds) {
+    if (isSplit) {
       return buildLuxSplitSchedule(documentDate, totalAmount);
     }
-    if (category === 'Special Order') {
-      return buildLuxEomSingleSchedule(documentDate, totalAmount);
-    }
-    // Procurement with unknown terms — use general schedule
-    return buildGeneralSchedule(documentDate, totalAmount, paymentTerms ?? null);
+
+    // Default for ALL Luxottica — EOM single unless explicitly split
+    return buildLuxEomSingleSchedule(documentDate, totalAmount);
   }
 
   // MARCOLIN — 50/80/110 EOM split
