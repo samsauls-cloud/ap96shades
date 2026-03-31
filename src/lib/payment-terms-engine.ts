@@ -252,5 +252,5 @@ export function resolvePaymentSchedule(
     }
   }
 
-  return buildGeneralSchedule(invoiceDate, totalAmount, paymentTerms ?? null);
+  return buildGeneralSchedule(documentDate, totalAmount, paymentTerms ?? null);
 }
