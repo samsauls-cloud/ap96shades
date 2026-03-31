@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Download, Package, List, Clock, AlertCircle } from "lucide-react";
+import { Download, Package, List, Clock, Calendar, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   fetchInvoices, fetchDistinctVendors, fetchDistinctTags, fetchInvoiceStats,
@@ -205,6 +205,20 @@ export default function InvoicesPage() {
             }}
           >
             <Clock className="h-3 w-3" /> Recently Uploaded
+          </Button>
+          <Button
+            variant={filters.sortField === "due_date" ? "default" : "outline"}
+            size="sm"
+            className="text-xs h-7 gap-1"
+            onClick={() => {
+              if (filters.sortField === "due_date") {
+                setFilters(prev => ({ ...prev, sortField: "invoice_date", sortDir: "desc" }));
+              } else {
+                setFilters(prev => ({ ...prev, sortField: "due_date", sortDir: "asc" }));
+              }
+            }}
+          >
+            <Calendar className="h-3 w-3" /> By Due Date
           </Button>
           <div className="flex-1" />
           <Button variant="outline" size="sm" className="text-xs h-7" onClick={exportFilteredCSV}>

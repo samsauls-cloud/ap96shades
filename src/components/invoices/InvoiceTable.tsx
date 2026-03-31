@@ -68,6 +68,7 @@ export function InvoiceTable({ invoices, filters, onSort, onRowClick, totalCount
               <SortableHead field="po_number" label="PO #" filters={filters} onSort={onSort} />
               <TableHead className="text-xs font-semibold">Account #</TableHead>
               <SortableHead field="invoice_date" label="Date" filters={filters} onSort={onSort} />
+              <SortableHead field="due_date" label="Due Date" filters={filters} onSort={onSort} />
               <TableHead className="text-xs font-semibold text-right">Units</TableHead>
               <SortableHead field="total" label="Total" filters={filters} onSort={onSort} className="text-right" />
               <TableHead className="text-xs font-semibold">Terms</TableHead>
@@ -99,6 +100,7 @@ export function InvoiceTable({ invoices, filters, onSort, onRowClick, totalCount
                 <TableCell className="text-xs text-muted-foreground">{inv.po_number || "—"}</TableCell>
                 <TableCell className="text-xs text-muted-foreground">{inv.account_number || "—"}</TableCell>
                 <TableCell className="text-xs">{formatDate(inv.invoice_date)}</TableCell>
+                <TableCell className="text-xs">{(inv as any).due_date ? formatDate((inv as any).due_date) : "—"}</TableCell>
                 <TableCell className="text-xs text-right tabular-nums">{getTotalUnits(inv)}</TableCell>
                 <TableCell className="text-right font-semibold text-sm tabular-nums">{formatCurrency(inv.total)}</TableCell>
                 <TableCell className="text-xs text-muted-foreground">{inv.payment_terms || "—"}</TableCell>
