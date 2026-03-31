@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { AlertCircle, Calendar, TrendingUp, Loader2, RefreshCw, ShieldCheck } from "lucide-react";
+import { AlertCircle, Calendar, TrendingUp, Loader2, RefreshCw } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/supabase-queries";
 import { fetchPayments, type InvoicePayment, runFullAudit, type AuditResult } from "@/lib/payment-queries";
 import { PaymentStatusBadge } from "@/components/invoices/PaymentStatusBadge";
