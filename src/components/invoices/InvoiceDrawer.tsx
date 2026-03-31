@@ -287,12 +287,17 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
         <Separator className="mb-4" />
 
         {/* Line Items / SKU Check Tabs */}
-        <Tabs defaultValue="line-items" className="mb-4">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-4">
           <TabsList className="h-8">
             <TabsTrigger value="line-items" className="text-xs h-6">Line Items ({lineItems.length})</TabsTrigger>
             <TabsTrigger value="sku-check" className="text-xs h-6 gap-1">
               <ScanSearch className="h-3 w-3" /> SKU Check
             </TabsTrigger>
+            {(inv as any).pdf_url && (
+              <TabsTrigger value="pdf" className="text-xs h-6 gap-1">
+                📄 Invoice PDF
+              </TabsTrigger>
+            )}
           </TabsList>
           <TabsContent value="line-items">
             {lineItems.length > 0 ? (
@@ -342,10 +347,59 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
             ) : (
               <p className="text-xs text-muted-foreground">No line items</p>
             )}
+            {/* Backfill notice for old invoices */}
+            {!(inv as any).pdf_url && (
+              <div className="flex items-center gap-2 p-2 rounded border border-border text-[10px] text-muted-foreground mt-2">
+                <FileX className="h-3.5 w-3.5 shrink-0" />
+                No PDF stored — this invoice was uploaded before PDF storage was enabled. Re-upload via the Reader to attach the original document.
+              </div>
+            )}
           </TabsContent>
           <TabsContent value="sku-check">
             <SKUCheckTab invoice={inv} />
           </TabsContent>
+          {(inv as any).pdf_url && (
+            <TabsContent value="pdf">
+              {pdfLoadError ? (
+                <div className="flex flex-col items-center justify-center py-16 gap-2 text-muted-foreground text-sm">
+                  <AlertCircle className="h-8 w-8" />
+                  <p>PDF could not be loaded.</p>
+                  <p className="text-xs">The link may have expired. Re-upload the invoice to refresh it.</p>
+                </div>
+              ) : (
+                <div className="w-full rounded-lg overflow-hidden border border-border" style={{ height: '70vh' }}>
+                  <iframe
+                    src={(inv as any).pdf_url}
+                    className="w-full h-full"
+                    title={`Invoice ${inv.invoice_number}`}
+                    onError={() => setPdfLoadError(true)}
+                  />
+                </div>
+              )}
+              <div className="flex gap-2 mt-3">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-xs gap-1.5"
+                  onClick={() => window.open((inv as any).pdf_url!, '_blank')}
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  Open in New Tab
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-xs gap-1.5"
+                  asChild
+                >
+                  <a href={(inv as any).pdf_url!} download={`${inv.invoice_number}.pdf`}>
+                    <Download className="h-3.5 w-3.5" />
+                    Download PDF
+                  </a>
+                </Button>
+              </div>
+            </TabsContent>
+          )}
         </Tabs>
 
         {/* Match Report */}
