@@ -156,8 +156,12 @@ export function ReconciliationAuditPanel({ invoices, payments, recSessions, recL
       unknownByVendorId.set(vid, arr);
     }
 
+    const unmatchedValue = unmatched.reduce((s, r) => s + r.invoiceTotal, 0);
     const status: StatusLevel = unmatched.length > 10 ? "error" : unmatched.length > 0 ? "warning" : "clean";
-    return { byVendor: Array.from(byVendor.entries()).sort((a, b) => b[1].totalValue - a[1].totalValue), unmatchedWithPO, unknownByVendorId, unknownLines, status };
+    const summary = unmatched.length > 0
+      ? `${unmatched.length} invoices with no Lightspeed receipt (${formatCurrency(unmatchedValue)})`
+      : "All invoices matched to Lightspeed POs";
+    return { byVendor: Array.from(byVendor.entries()).sort((a, b) => b[1].totalValue - a[1].totalValue), unmatchedWithPO, unknownByVendorId, unknownLines, status, summary };
   }, [audit1.lsResults, inv, recLines]);
 
   /* ═══ AUDIT 3: Payment Schedule Completeness ═══ */
