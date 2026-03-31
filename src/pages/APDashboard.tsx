@@ -453,13 +453,6 @@ export default function APDashboard() {
               );
             })}
           </div>
-        ) : activeTab === "audit" ? (
-          <AuditPanel
-            audit={audit ?? null}
-            onRefresh={refreshAll}
-            isLoading={auditLoading}
-            totalInvoices={totalInvoiceCount}
-          />
         ) : null}
       </div>
 
