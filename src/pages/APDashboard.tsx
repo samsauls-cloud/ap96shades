@@ -448,7 +448,7 @@ export default function APDashboard() {
   );
 }
 
-function PaymentTable({ payments, onRowClick, serverDate }: { payments: InvoicePayment[]; onRowClick: (p: InvoicePayment) => void; serverDate: string }) {
+function PaymentTable({ payments, onRowClick, onRecordPayment, serverDate }: { payments: InvoicePayment[]; onRowClick: (p: InvoicePayment) => void; onRecordPayment?: (p: InvoicePayment) => void; serverDate: string }) {
   return (
     <>
       {/* Desktop table */}
@@ -463,6 +463,7 @@ function PaymentTable({ payments, onRowClick, serverDate }: { payments: InvoiceP
               <TableHead className="text-xs font-semibold">Due Date</TableHead>
               <TableHead className="text-xs font-semibold">Terms</TableHead>
               <TableHead className="text-xs font-semibold text-center">Status</TableHead>
+              {onRecordPayment && <TableHead className="text-xs font-semibold text-right w-[100px]" />}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -486,6 +487,18 @@ function PaymentTable({ payments, onRowClick, serverDate }: { payments: InvoiceP
                   <TableCell className="text-center">
                     <PaymentStatusBadge payment={p} compact />
                   </TableCell>
+                  {onRecordPayment && (
+                    <TableCell className="text-right">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-[10px] h-6 opacity-0 group-hover:opacity-100 hover:opacity-100 focus:opacity-100"
+                        onClick={(e) => { e.stopPropagation(); onRecordPayment(p); }}
+                      >
+                        <DollarSign className="h-3 w-3 mr-0.5" /> Record
+                      </Button>
+                    </TableCell>
+                  )}
                 </TableRow>
               );
             })}
