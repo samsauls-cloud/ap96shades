@@ -251,16 +251,30 @@ export function resolvePaymentSchedule(
     || v.includes('miu miu') || v.includes('oliver peoples') || v.includes('ralph');
 
   if (isLux) {
-    const termsLower = (paymentTerms ?? '').toLowerCase();
-    const isEomSingle = termsLower.includes('eom') && !termsLower.includes('30/60/90')
-      && !termsLower.includes('split');
+    const termsLower = (paymentTerms ?? '').toLowerCase().trim();
 
-    if (category === 'Special Order' || isEomSingle) {
+    const isEomSingle =
+      termsLower.includes('eom') ||
+      termsLower.includes('end of month') ||
+      termsLower === 'eom +30' ||
+      termsLower === 'eom +30 days' ||
+      termsLower.includes('eom+30');
+
+    const isSplitThirds =
+      termsLower.includes('30/60/90') ||
+      termsLower.includes('split');
+
+    if (isEomSingle && !isSplitThirds) {
       return buildLuxEomSingleSchedule(documentDate, totalAmount);
     }
-    if (category === 'Procurement') {
+    if (category === 'Procurement' && isSplitThirds) {
       return buildLuxSplitSchedule(documentDate, totalAmount);
     }
+    if (category === 'Special Order') {
+      return buildLuxEomSingleSchedule(documentDate, totalAmount);
+    }
+    // Procurement with unknown terms — use general schedule
+    return buildGeneralSchedule(documentDate, totalAmount, paymentTerms ?? null);
   }
 
   return buildGeneralSchedule(documentDate, totalAmount, paymentTerms ?? null);
