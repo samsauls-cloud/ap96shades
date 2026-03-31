@@ -334,15 +334,6 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
         {/* Match Report */}
         <MatchReportSection invoice={inv} />
 
-        {/* Reconciliation Status */}
-        <ReconSection
-          invoiceId={inv.id}
-          reconStatus={(inv as any).recon_status}
-          lastReconciled={(inv as any).last_reconciled_at}
-          isStale={(inv as any).recon_stale === true}
-          staleReason={(inv as any).recon_stale_reason}
-          enteredAfterRecon={(inv as any).entered_after_recon === true}
-        />
         {/* Terms Confirmation Panel — show when needs_review */}
         {!isProforma(inv) && (inv as any).terms_status === "needs_review" && (
           <TermsConfirmationPanel invoice={inv} onConfirmed={onUpdate} />
