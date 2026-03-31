@@ -117,7 +117,7 @@ export function InvoiceTable({ invoices, filters, onSort, onRowClick, totalCount
                     className="cursor-pointer"
                     onClick={e => {
                       e.stopPropagation();
-                      if (onInvoiceClick) onInvoiceClick(inv);
+                      onRowClick(inv);
                     }}
                   >
                     <ReconStatusBadge
