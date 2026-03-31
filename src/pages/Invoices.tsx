@@ -9,6 +9,7 @@ import {
   invoiceToCSVRow, lineItemsToCSV,
   type InvoiceFilters, type VendorInvoice,
 } from "@/lib/supabase-queries";
+import { runFullAudit, type AuditResult } from "@/lib/payment-queries";
 import { StatsBar } from "@/components/invoices/StatsBar";
 import { InvoiceFiltersBar } from "@/components/invoices/InvoiceFiltersBar";
 import { InvoiceTable } from "@/components/invoices/InvoiceTable";
@@ -16,6 +17,7 @@ import { InvoiceDrawer } from "@/components/invoices/InvoiceDrawer";
 import { InvoiceNav } from "@/components/invoices/InvoiceNav";
 import { POView } from "@/components/invoices/POView";
 import { NeedsReviewQueue } from "@/components/invoices/NeedsReviewQueue";
+import { AuditBanner, AuditPanel } from "@/components/invoices/AuditPanel";
 
 export default function InvoicesPage() {
   const queryClient = useQueryClient();
