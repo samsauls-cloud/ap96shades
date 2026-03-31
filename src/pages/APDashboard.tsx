@@ -109,7 +109,7 @@ export default function APDashboard() {
     queryFn: fetchPayments,
   });
 
-  const { data: audit, isLoading: auditLoading } = useAuditData();
+  
 
   // ── Realtime subscriptions ──────────────────────────
   const refreshAll = useCallback(() => {
