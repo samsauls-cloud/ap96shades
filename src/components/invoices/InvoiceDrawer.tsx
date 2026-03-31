@@ -297,7 +297,7 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
             <TabsTrigger value="sku-check" className="text-xs h-6 gap-1">
               <ScanSearch className="h-3 w-3" /> SKU Check
             </TabsTrigger>
-            {(inv as any).pdf_url && (
+            {localPdfUrl && (
               <TabsTrigger value="pdf" className="text-xs h-6 gap-1">
                 📄 Invoice PDF
               </TabsTrigger>
