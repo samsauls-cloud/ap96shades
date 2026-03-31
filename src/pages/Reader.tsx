@@ -218,7 +218,20 @@ export default function ReaderPage() {
         }
 
         const parsed = await tryCall();
-        const invoice = parsedToInvoice(parsed, file.name);
+        // Upload PDF to storage (non-blocking)
+        let pdfUrl: string | null = null;
+        if (file.type === 'application/pdf') {
+          try {
+            pdfUrl = await uploadPDFToStorage(
+              file,
+              parsed.vendor || 'unknown',
+              parsed.invoice_number || file.name
+            );
+          } catch {
+            console.warn('PDF storage upload failed, continuing without PDF URL');
+          }
+        }
+        const invoice = parsedToInvoice(parsed, file.name, pdfUrl);
         return { invoice, parsed };
       } catch (err: any) {
         lastError = err;
