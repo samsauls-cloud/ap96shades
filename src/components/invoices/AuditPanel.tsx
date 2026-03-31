@@ -96,7 +96,7 @@ export function AuditBanner({ audit, totalInvoices, onScrollTo }: { audit: Audit
 export function AuditPanel({ audit, onRefresh, isLoading, totalInvoices, highlightSection }: Props & { highlightSection?: IssueCategory | null }) {
   const [generatingId, setGeneratingId] = useState<string | null>(null);
   const [recalcId, setRecalcId] = useState<string | null>(null);
-  const [confirmRecalc, setConfirmRecalc] = useState<{ id: string; invoiceNumber: string; vendor: string; total: number; invoiceDate: string; poNumber: string | null } | null>(null);
+  const [confirmRecalc, setConfirmRecalc] = useState<{ id: string; invoiceNumber: string; vendor: string; total: number; invoiceDate: string; poNumber: string | null; paymentTerms: string | null } | null>(null);
   const [sortField, setSortField] = useState<string>("vendor");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
