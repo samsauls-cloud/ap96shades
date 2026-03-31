@@ -179,7 +179,7 @@ export async function callAnthropicAPI(
   return extractJSON(textContent);
 }
 
-export function parsedToInvoice(parsed: any, filename: string): VendorInvoiceInsert {
+export function parsedToInvoice(parsed: any, filename: string, pdfUrl?: string | null): VendorInvoiceInsert {
   const vendor = normalizeVendor(parsed.vendor);
   const rawLineItems = parsed.line_items || [];
 
