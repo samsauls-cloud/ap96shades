@@ -520,32 +520,27 @@ export default function AuditPage() {
                 </div>
               )}
 
-              {/* $8K Gap explanation + Missing Invoice Finder */}
-              <Card className="bg-card border-primary/30">
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <DollarSign className="h-4 w-4 text-primary" />
-                    <span className="text-xs font-semibold">Missing Invoice Finder — $8K Gap Analysis</span>
-                  </div>
-                  <div className="text-[10px] text-muted-foreground space-y-1">
-                    <p>Excel AP tracker: <span className="font-semibold text-foreground">$597,131.71</span></p>
-                    <p>System total: <span className="font-semibold text-foreground">{formatCurrency(invoiceStats.invoiceTotal)}</span></p>
-                    <p>Gap: <span className="font-semibold text-destructive">{formatCurrency(597131.71 - invoiceStats.invoiceTotal)}</span></p>
-                    <div className="h-px bg-border/50 my-2" />
-                    <p className="font-medium text-foreground">
-                      {invoiceStats.duplicates.length === 0 && invoiceStats.nonUnpaid.length === 0
-                        ? "No duplicates or paid-status invoices found. Gap likely from invoices in Excel not yet uploaded to the system."
-                        : "See duplicate and status sections above for potential explanations."}
-                    </p>
-                    <p>Check Excel tracker for invoices dated before <span className="font-mono text-foreground">{invoiceStats.byVendor.length > 0
-                      ? (() => {
-                          const dates = (invoices as any[]).filter(i => i.doc_type === "INVOICE").map(i => i.invoice_date).sort();
-                          return dates[0] ?? "—";
-                        })()
-                      : "—"}</span> or from vendors with unexpectedly low totals above.</p>
-                  </div>
-                </CardContent>
-              </Card>
+              {/* Invoices without payment schedules summary */}
+              {paymentStats.invoicesMissingPayments.length > 0 && (
+                <Card className="bg-card border-amber-500/30">
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <DollarSign className="h-4 w-4 text-amber-500" />
+                      <span className="text-xs font-semibold text-amber-500">
+                        {paymentStats.invoicesMissingPayments.length} Invoice(s) Without Payment Schedules
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-muted-foreground space-y-1">
+                      <p>
+                        Total value not yet scheduled: <span className="font-semibold text-foreground">
+                          {formatCurrency((paymentStats.invoicesMissingPayments as any[]).reduce((s: number, i: any) => s + (Number(i.total) || 0), 0))}
+                        </span>
+                      </p>
+                      <p>These invoices may belong to vendors without a payment terms engine, or may need manual schedule creation.</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
 
               {/* Payment Sum vs Invoice Sum comparison */}
               {(() => {
