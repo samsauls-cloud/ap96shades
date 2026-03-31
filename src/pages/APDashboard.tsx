@@ -115,7 +115,7 @@ export default function APDashboard() {
   const refreshAll = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["invoice_payments"] });
     queryClient.invalidateQueries({ queryKey: ["invoice_stats"] });
-    queryClient.invalidateQueries({ queryKey: ["ap_full_audit"] });
+    
     queryClient.invalidateQueries({ queryKey: ["server_date"] });
   }, [queryClient]);
 
