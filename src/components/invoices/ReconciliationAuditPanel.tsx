@@ -124,9 +124,21 @@ export function ReconciliationAuditPanel({ invoices, payments, recSessions, recL
     });
 
     // Unknown vendor lines
-    const knownVendorIds = new Set(["3", "5", "14", "15"]);
+    // Derive known vendor IDs dynamically from receiving sessions
+    const knownVendorIds = new Set(
+      (recSessions as any[]).map((s: any) => s.vendor).filter(Boolean)
+    );
+    // Also include vendor_ids actually referenced in recLines
+    for (const l of recLines as any[]) {
+      if (l.vendor_id) knownVendorIds.add(l.vendor_id);
+    }
+    // Filter to lines whose vendor_id doesn't map to any session vendor
+    const sessionVendorIds = new Set((recSessions as any[]).flatMap((s: any) => {
+      // Collect vendor_ids from lines belonging to this session
+      return (recLines as any[]).filter((l: any) => l.session_id === s.id).map((l: any) => l.vendor_id).filter(Boolean);
+    }));
     const unknownLines = (recLines as any[]).filter(l =>
-      !l.vendor_id || !knownVendorIds.has(l.vendor_id)
+      !l.vendor_id || !sessionVendorIds.has(l.vendor_id)
     );
     const unknownByVendorId = new Map<string, any[]>();
     for (const l of unknownLines) {
