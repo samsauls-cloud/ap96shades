@@ -27,6 +27,7 @@ import {
   Upload, CheckCircle2, AlertTriangle, CreditCard, ChevronDown, X,
   Download, Save, Trash2, Search, ShoppingBag, Package, Tag,
   AlertCircle,
+  PackageCheck, DollarSign,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -48,6 +49,8 @@ interface LedgerRow {
   status: "matched" | "not_uploaded" | "credit";
   matchedInvoiceId?: string;
   matchedTags?: string[];
+  specialOrderReceived?: boolean;
+  matchedStatus?: string;
 }
 
 /* ─── helpers ─── */
@@ -69,17 +72,22 @@ const STATUS_ORDER: Record<LedgerRow["status"], number> = {
 /** Batch .in() queries to avoid Supabase limits */
 async function batchMatchInvoices(
   docNumbers: string[]
-): Promise<Map<string, { id: string; tags: string[] }>> {
+): Promise<Map<string, { id: string; tags: string[]; specialOrderReceived: boolean; status: string }>> {
   const BATCH = 200;
-  const matchMap = new Map<string, { id: string; tags: string[] }>();
+  const matchMap = new Map<string, { id: string; tags: string[]; specialOrderReceived: boolean; status: string }>();
   for (let i = 0; i < docNumbers.length; i += BATCH) {
     const chunk = docNumbers.slice(i, i + BATCH);
     const { data } = await supabase
       .from("vendor_invoices")
-      .select("id, invoice_number, tags")
+      .select("id, invoice_number, tags, special_order_received, status")
       .in("invoice_number", chunk);
     (data ?? []).forEach((m) =>
-      matchMap.set(m.invoice_number, { id: m.id, tags: m.tags ?? [] })
+      matchMap.set(m.invoice_number, {
+        id: m.id,
+        tags: m.tags ?? [],
+        specialOrderReceived: m.special_order_received ?? false,
+        status: m.status,
+      })
     );
   }
   return matchMap;
@@ -174,6 +182,8 @@ export default function LedgerCheckPage() {
             : "not_uploaded") as LedgerRow["status"],
           matchedInvoiceId: found?.id,
           matchedTags: found?.tags,
+          specialOrderReceived: found?.specialOrderReceived,
+          matchedStatus: found?.status,
         };
       });
     },
@@ -331,6 +341,53 @@ export default function LedgerCheckPage() {
       setDrawerInvoice(data as unknown as VendorInvoice);
       setDrawerOpen(true);
     }
+  }, []);
+
+  const handleMarkReceived = useCallback(async (row: LedgerRow) => {
+    if (!row.matchedInvoiceId) {
+      toast.error("Invoice must be uploaded first");
+      return;
+    }
+    const { error } = await supabase
+      .from("vendor_invoices")
+      .update({
+        special_order_received: true,
+        special_order_received_at: new Date().toISOString(),
+        special_order_received_by: "manual",
+      } as any)
+      .eq("id", row.matchedInvoiceId);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    setLedgerRows((prev) =>
+      prev.map((r) =>
+        r.matchedInvoiceId === row.matchedInvoiceId
+          ? { ...r, specialOrderReceived: true }
+          : r
+      )
+    );
+    toast.success(`Marked "${row.documentNumber}" as received`);
+  }, []);
+
+  const handleMarkPaid = useCallback(async (row: LedgerRow) => {
+    if (!row.matchedInvoiceId) return;
+    const { error } = await supabase
+      .from("vendor_invoices")
+      .update({ status: "paid" } as any)
+      .eq("id", row.matchedInvoiceId);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    setLedgerRows((prev) =>
+      prev.map((r) =>
+        r.matchedInvoiceId === row.matchedInvoiceId
+          ? { ...r, matchedStatus: "paid" }
+          : r
+      )
+    );
+    toast.success(`Marked "${row.documentNumber}" as paid`);
   }, []);
 
   /* ─── filtered + sorted rows ─── */
@@ -668,6 +725,7 @@ export default function LedgerCheckPage() {
                     <TableHead className="text-right">Amount</TableHead>
                     <TableHead>PO Reference</TableHead>
                     <TableHead>Memo</TableHead>
+                    <TableHead className="w-[140px]">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -709,6 +767,13 @@ export default function LedgerCheckPage() {
                       <TableCell className="text-xs max-w-[200px] truncate">
                         {row.memo}
                         <SpecialOrderIndicator row={row} />
+                      </TableCell>
+                      <TableCell>
+                        <SpecialOrderActions
+                          row={row}
+                          onMarkReceived={handleMarkReceived}
+                          onMarkPaid={handleMarkPaid}
+                        />
                       </TableCell>
                     </TableRow>
                   ))}
