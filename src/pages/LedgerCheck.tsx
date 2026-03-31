@@ -377,8 +377,10 @@ export default function LedgerCheckPage() {
           : r
       )
     );
+    qc.invalidateQueries({ queryKey: ["vendor_invoices"] });
+    qc.invalidateQueries({ queryKey: ["invoice_stats"] });
     toast.success(`Marked "${row.documentNumber}" as received`);
-  }, []);
+  }, [qc]);
 
   const qc = useQueryClient();
 
