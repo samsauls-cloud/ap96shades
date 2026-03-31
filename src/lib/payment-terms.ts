@@ -344,6 +344,34 @@ export function calculateInstallments(
   const terms = parsePaymentTermsText(paymentTermsText);
   const termsLower = (paymentTermsText ?? '').toLowerCase().trim();
 
+  // ── Net EOM detection (any vendor) ──────────────────────
+  const isNetEom =
+    termsLower === 'eom' ||
+    termsLower.includes('net eom') ||
+    termsLower.includes('due eom') ||
+    termsLower.includes('due end of month') ||
+    termsLower.includes('eom from statement') ||
+    termsLower.includes('due eom from') ||
+    termsLower.includes('payable eom');
+
+  if (isNetEom) {
+    const parsedTotal = typeof total === "number" ? total : parseFloat(String(total)) || 0;
+    if (parsedTotal <= 0) return [];
+    const d = new Date(invoiceDate + "T00:00:00");
+    const dueDate = new Date(d.getFullYear(), d.getMonth() + 2, 0); // end of following month
+    return [{
+      vendor: normalized,
+      invoice_number: invoiceNumber,
+      po_number: poNumber,
+      invoice_amount: parsedTotal,
+      invoice_date: invoiceDate,
+      terms: "Net EOM",
+      installment_label: null,
+      due_date: format(dueDate, "yyyy-MM-dd"),
+      amount_due: parsedTotal,
+    }];
+  }
+
   // ── Luxottica special handling ──────────────────────────
   // EOM+30 is the default for all Luxottica unless explicitly "30/60/90"
   if (isLuxotticaVendor(normalized)) {
