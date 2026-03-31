@@ -422,7 +422,7 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
               ) : (
                 <div className="w-full rounded-lg overflow-hidden border border-border" style={{ height: '70vh' }}>
                   <iframe
-                    src={(inv as any).pdf_url}
+                    src={localPdfUrl!}
                     className="w-full h-full"
                     title={`Invoice ${inv.invoice_number}`}
                     onError={() => setPdfLoadError(true)}
