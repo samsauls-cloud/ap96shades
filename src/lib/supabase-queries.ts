@@ -97,11 +97,36 @@ export async function fetchInvoices(filters: InvoiceFilters) {
 }
 
 export async function updateInvoiceStatus(id: string, status: InvoiceStatus) {
+  // 1. Update vendor_invoices
   const { error } = await supabase
     .from("vendor_invoices")
     .update({ status })
     .eq("id", id);
   if (error) throw error;
+
+  // 2. If reverting away from paid, reset all invoice_payments rows
+  if (status === "unpaid" || status === "partial" || status === "disputed") {
+    const { data: installments } = await supabase
+      .from("invoice_payments")
+      .select("id, amount_due")
+      .eq("invoice_id", id);
+
+    if (installments && installments.length > 0) {
+      for (const inst of installments) {
+        await supabase
+          .from("invoice_payments")
+          .update({
+            is_paid: false,
+            paid_date: null,
+            amount_paid: 0,
+            balance_remaining: Number(inst.amount_due) || 0,
+            payment_status: status === "disputed" ? "disputed" : "unpaid",
+            last_payment_date: null,
+          } as any)
+          .eq("id", inst.id);
+      }
+    }
+  }
 }
 
 export async function updateInvoiceNotes(id: string, notes: string) {
