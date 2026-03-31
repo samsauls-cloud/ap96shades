@@ -74,7 +74,11 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
       await updateInvoiceStatus(inv.id, status);
       toast.success(`Status updated to ${status}`);
       queryClient.invalidateQueries({ queryKey: ["invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["vendor_invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["invoice_payments"] });
       queryClient.invalidateQueries({ queryKey: ["invoice_payments_detail", inv.id] });
+      queryClient.invalidateQueries({ queryKey: ["invoice_stats"] });
+      queryClient.invalidateQueries({ queryKey: ["ap_full_audit"] });
       onUpdate();
     } catch { toast.error("Failed to update status"); }
     finally { setPendingStatus(null); }
