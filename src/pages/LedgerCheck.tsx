@@ -63,7 +63,7 @@ export default function LedgerCheckPage() {
 
       const parsed = dataRows.map(r => ({
         account: String(r[0] ?? ""),
-        documentNumber: String(r[1] ?? "").trim(),
+        documentNumber: typeof r[1] === "number" ? String(Math.trunc(r[1])) : String(r[1] ?? "").trim(),
         docDate: r[2] ? formatExcelDate(r[2]) : "",
         dueDate: r[3] ? formatExcelDate(r[3]) : "",
         terms: String(r[4] ?? ""),
