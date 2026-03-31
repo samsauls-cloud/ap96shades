@@ -677,7 +677,7 @@ export default function LedgerCheckPage() {
                         <StatusBadge row={row} />
                       </TableCell>
                       <TableCell>
-                        <CategoryBadge category={row.category} />
+                        <CategoryBadge row={row} />
                       </TableCell>
                       <TableCell className="font-mono text-xs">
                         {row.matchedInvoiceId ? (
