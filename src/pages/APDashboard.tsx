@@ -81,7 +81,7 @@ export default function APDashboard() {
   const [expandedMonth, setExpandedMonth] = useState<string | null>(null);
   const [fixingKering, setFixingKering] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [historyOpen, setHistoryOpen] = useState(false);
+  const [dashTab, setDashTab] = useState<'outstanding' | 'history'>('outstanding');
   const [historySearch, setHistorySearch] = useState("");
   const [historyVendor, setHistoryVendor] = useState("all");
   const midnightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -189,6 +189,31 @@ export default function APDashboard() {
 
     return { vendorGrid: grid, allVendorTotals, grandTotal };
   }, [activePayments, calendarMonths]);
+
+  // ── Paid payments (for history tab) ──────────────────
+  const paidPayments = useMemo(() =>
+    payments.filter(p => p.is_paid || p.payment_status === "paid" || p.balance_remaining === 0),
+    [payments]
+  );
+
+  const historyVendors = useMemo(() =>
+    [...new Set(paidPayments.map(p => p.vendor))].sort(),
+    [paidPayments]
+  );
+
+  const filteredHistory = useMemo(() => {
+    let h = paidPayments;
+    if (historyVendor !== "all") h = h.filter(p => p.vendor === historyVendor);
+    if (historySearch.trim()) {
+      const q = historySearch.toLowerCase();
+      h = h.filter(p =>
+        p.invoice_number?.toLowerCase().includes(q) ||
+        p.vendor?.toLowerCase().includes(q) ||
+        (p.po_number ?? "").toLowerCase().includes(q)
+      );
+    }
+    return h.sort((a, b) => (b.paid_date ?? "").localeCompare(a.paid_date ?? ""));
+  }, [paidPayments, historyVendor, historySearch]);
 
   // ── Overdue payments ─────────────────────────────────
   const overduePayments = activePayments.filter(p =>
@@ -439,165 +464,171 @@ export default function APDashboard() {
               </div>
             </Card>
 
-            {/* ── Expanded month panel ──────────────────── */}
-            {expandedMonth && (() => {
-              const month = calendarMonths.find(m => m.label === expandedMonth);
-              if (!month) return null;
-              const monthPayments = activePayments
-                .filter(p => isInMonth(p.due_date, month))
-                .sort((a, b) => a.due_date.localeCompare(b.due_date));
-              const monthRemaining = monthPayments.reduce((s, p) => s + p.balance_remaining, 0);
-              const monthPaid = monthPayments.reduce((s, p) => s + p.amount_paid, 0);
-              return (
-                <Card className="bg-card border-primary/30 border-l-4 border-l-primary animate-in slide-in-from-top-2 duration-200">
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-sm font-semibold flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
-                      <span className="flex items-center gap-2">
-                        <Calendar className="h-4 w-4" />
-                        {month.label} — {monthPayments.length} payment{monthPayments.length !== 1 ? "s" : ""}
-                      </span>
-                      <span className="sm:ml-auto text-xs font-normal text-muted-foreground">
-                        Paid: <span className="text-green-500 font-medium">{formatCurrency(monthPaid)}</span>
-                        {" · "}Remaining: <span className={`font-medium ${monthRemaining > 0 ? "text-destructive" : "text-green-500"}`}>{formatCurrency(monthRemaining)}</span>
-                      </span>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="p-0">
-                    <PaymentTable payments={monthPayments} onRowClick={handlePaymentClick} onRecordPayment={handleRecordPayment} serverDate={effectiveDate} selectedIds={selectedIds} onToggleSelected={toggleSelected} onQuickPay={handleQuickPay} navigate={navigate} />
-                  </CardContent>
-                </Card>
-              );
-            })()}
+            {/* ── Tab bar ──────────────────────────────── */}
+            <div className="flex gap-1 border-b border-border">
+              <button
+                onClick={() => setDashTab('outstanding')}
+                className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                  dashTab === 'outstanding'
+                    ? 'border-primary text-foreground'
+                    : 'border-transparent text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                Outstanding
+              </button>
+              <button
+                onClick={() => setDashTab('history')}
+                className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                  dashTab === 'history'
+                    ? 'border-primary text-foreground'
+                    : 'border-transparent text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                Payment History
+                {paidPayments.length > 0 && (
+                  <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full bg-muted">
+                    {paidPayments.length}
+                  </span>
+                )}
+              </button>
+            </div>
 
-            {/* ── Overdue Panel ────────────────────────────── */}
-            {overduePayments.length > 0 && (
-              <Card className="border-red-500/30 bg-red-500/5">
+            {/* ── Outstanding tab ──────────────────────── */}
+            {dashTab === 'outstanding' && (
+              <>
+                {/* Expanded month panel */}
+                {expandedMonth && (() => {
+                  const month = calendarMonths.find(m => m.label === expandedMonth);
+                  if (!month) return null;
+                  const monthPayments = activePayments
+                    .filter(p => isInMonth(p.due_date, month))
+                    .sort((a, b) => a.due_date.localeCompare(b.due_date));
+                  const monthRemaining = monthPayments.reduce((s, p) => s + p.balance_remaining, 0);
+                  const monthPaid = monthPayments.reduce((s, p) => s + p.amount_paid, 0);
+                  return (
+                    <Card className="bg-card border-primary/30 border-l-4 border-l-primary animate-in slide-in-from-top-2 duration-200">
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-sm font-semibold flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+                          <span className="flex items-center gap-2">
+                            <Calendar className="h-4 w-4" />
+                            {month.label} — {monthPayments.length} payment{monthPayments.length !== 1 ? "s" : ""}
+                          </span>
+                          <span className="sm:ml-auto text-xs font-normal text-muted-foreground">
+                            Paid: <span className="text-green-500 font-medium">{formatCurrency(monthPaid)}</span>
+                            {" · "}Remaining: <span className={`font-medium ${monthRemaining > 0 ? "text-destructive" : "text-green-500"}`}>{formatCurrency(monthRemaining)}</span>
+                          </span>
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="p-0">
+                        <PaymentTable payments={monthPayments} onRowClick={handlePaymentClick} onRecordPayment={handleRecordPayment} serverDate={effectiveDate} selectedIds={selectedIds} onToggleSelected={toggleSelected} onQuickPay={handleQuickPay} navigate={navigate} />
+                      </CardContent>
+                    </Card>
+                  );
+                })()}
+
+                {/* Overdue Panel */}
+                {overduePayments.length > 0 && (
+                  <Card className="border-red-500/30 bg-red-500/5">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-sm font-semibold text-red-500 flex items-center gap-2">
+                        <AlertCircle className="h-4 w-4" />
+                        🔴 OVERDUE ({overduePayments.length} payments · {formatCurrency(overduePayments.reduce((s, p) => s + p.balance_remaining, 0))} outstanding)
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-0">
+                      <PaymentTable payments={overduePayments} onRowClick={handlePaymentClick} onRecordPayment={handleRecordPayment} serverDate={effectiveDate} selectedIds={selectedIds} onToggleSelected={toggleSelected} onQuickPay={handleQuickPay} navigate={navigate} />
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Monthly payment detail sections */}
+                {!expandedMonth && calendarMonths.map((month) => {
+                  const monthPayments = activePayments
+                    .filter(p => isInMonth(p.due_date, month))
+                    .sort((a, b) => a.due_date.localeCompare(b.due_date));
+                  if (monthPayments.length === 0) return null;
+                  const monthRemaining = monthPayments.reduce((s, p) => s + p.balance_remaining, 0);
+                  const monthPaid = monthPayments.reduce((s, p) => s + p.amount_paid, 0);
+                  return (
+                    <Card key={month.label} className="bg-card border-border">
+                      <CardHeader className="pb-3 sticky top-0 bg-card z-10">
+                        <CardTitle className="text-sm font-semibold flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+                          <span className="flex items-center gap-2">
+                            <Calendar className="h-4 w-4" />
+                            {month.label} — {monthPayments.length} payment{monthPayments.length !== 1 ? "s" : ""}
+                          </span>
+                          <span className="sm:ml-auto text-xs font-normal text-muted-foreground">
+                            Paid: <span className="text-green-500 font-medium">{formatCurrency(monthPaid)}</span>
+                            {" · "}Remaining: <span className={`font-medium ${monthRemaining > 0 ? "text-destructive" : "text-green-500"}`}>{formatCurrency(monthRemaining)}</span>
+                          </span>
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="p-0">
+                        <PaymentTable payments={monthPayments} onRowClick={handlePaymentClick} onRecordPayment={handleRecordPayment} serverDate={effectiveDate} selectedIds={selectedIds} onToggleSelected={toggleSelected} onQuickPay={handleQuickPay} navigate={navigate} />
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+
+                {activePayments.length === 0 && (
+                  <Card className="bg-card border-border">
+                    <CardContent className="p-8 text-center text-muted-foreground text-sm">
+                      No payment schedules found. Upload invoices and click "Generate Missing" to create payment schedules.
+                    </CardContent>
+                  </Card>
+                )}
+              </>
+            )}
+
+            {/* ── Payment History tab ─────────────────── */}
+            {dashTab === 'history' && (
+              <Card className="bg-card border-border">
                 <CardHeader className="pb-3">
-                  <CardTitle className="text-sm font-semibold text-red-500 flex items-center gap-2">
-                    <AlertCircle className="h-4 w-4" />
-                    🔴 OVERDUE ({overduePayments.length} payments · {formatCurrency(overduePayments.reduce((s, p) => s + p.balance_remaining, 0))} outstanding)
+                  <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-green-500" />
+                    Payment History — Paid Invoices
+                    <span className="ml-auto text-xs font-normal text-muted-foreground">
+                      {formatCurrency(paidPayments.reduce((s, p) => s + p.amount_paid, 0))} total paid
+                    </span>
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="p-0">
-                  <PaymentTable payments={overduePayments} onRowClick={handlePaymentClick} onRecordPayment={handleRecordPayment} serverDate={effectiveDate} selectedIds={selectedIds} onToggleSelected={toggleSelected} onQuickPay={handleQuickPay} navigate={navigate} />
-                </CardContent>
-              </Card>
-            )}
-
-            {/* ── Monthly payment detail sections (hidden when a month is expanded) ── */}
-            {!expandedMonth && calendarMonths.map((month) => {
-              const monthPayments = activePayments
-                .filter(p => isInMonth(p.due_date, month))
-                .sort((a, b) => a.due_date.localeCompare(b.due_date));
-              if (monthPayments.length === 0) return null;
-              const monthRemaining = monthPayments.reduce((s, p) => s + p.balance_remaining, 0);
-              const monthPaid = monthPayments.reduce((s, p) => s + p.amount_paid, 0);
-              return (
-                <Card key={month.label} className="bg-card border-border">
-                  <CardHeader className="pb-3 sticky top-0 bg-card z-10">
-                    <CardTitle className="text-sm font-semibold flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
-                      <span className="flex items-center gap-2">
-                        <Calendar className="h-4 w-4" />
-                        {month.label} — {monthPayments.length} payment{monthPayments.length !== 1 ? "s" : ""}
-                      </span>
-                      <span className="sm:ml-auto text-xs font-normal text-muted-foreground">
-                        Paid: <span className="text-green-500 font-medium">{formatCurrency(monthPaid)}</span>
-                        {" · "}Remaining: <span className={`font-medium ${monthRemaining > 0 ? "text-destructive" : "text-green-500"}`}>{formatCurrency(monthRemaining)}</span>
-                      </span>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="p-0">
-                    <PaymentTable payments={monthPayments} onRowClick={handlePaymentClick} onRecordPayment={handleRecordPayment} serverDate={effectiveDate} selectedIds={selectedIds} onToggleSelected={toggleSelected} onQuickPay={handleQuickPay} navigate={navigate} />
-                  </CardContent>
-                </Card>
-              );
-            })}
-
-            {/* ── Payment History (Paid Invoices) ─── */}
-            {(() => {
-              const paidPayments = payments.filter(p =>
-                p.is_paid || p.payment_status === "paid" || p.balance_remaining === 0
-              );
-              const vendors = [...new Set(paidPayments.map(p => p.vendor))].sort();
-              const filteredHistory = (() => {
-                let h = paidPayments;
-                if (historyVendor !== "all") h = h.filter(p => p.vendor === historyVendor);
-                if (historySearch.trim()) {
-                  const q = historySearch.toLowerCase();
-                  h = h.filter(p =>
-                    p.invoice_number?.toLowerCase().includes(q) ||
-                    p.vendor?.toLowerCase().includes(q) ||
-                    (p.po_number ?? "").toLowerCase().includes(q)
-                  );
-                }
-                return h.sort((a, b) => (b.paid_date ?? "").localeCompare(a.paid_date ?? ""));
-              })();
-
-              return paidPayments.length > 0 ? (
-                <Card className="bg-card border-border">
-                  <CardHeader
-                    className="pb-3 cursor-pointer"
-                    onClick={() => setHistoryOpen(v => !v)}
-                  >
-                    <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                      <CheckCircle2 className="h-4 w-4 text-green-500" />
-                      Payment History — Paid Invoices
-                      <Badge variant="outline" className="text-[10px] ml-1">
-                        {paidPayments.length}
-                      </Badge>
-                      <span className="ml-auto text-xs font-normal text-muted-foreground">
-                        {formatCurrency(paidPayments.reduce((s, p) => s + p.amount_paid, 0))} total paid
-                      </span>
-                      {historyOpen
-                        ? <ChevronUp className="h-4 w-4 text-muted-foreground" />
-                        : <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                      }
-                    </CardTitle>
-                  </CardHeader>
-
-                  {historyOpen && (
-                    <CardContent className="p-0">
-                      <div className="flex gap-2 p-3 border-b border-border">
-                        <div className="relative flex-1">
-                          <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-muted-foreground" />
-                          <Input
-                            placeholder="Search paid invoices…"
-                            value={historySearch}
-                            onChange={e => setHistorySearch(e.target.value)}
-                            className="pl-8 h-8 text-xs"
-                            onClick={e => e.stopPropagation()}
-                          />
-                        </div>
-                        <Select value={historyVendor} onValueChange={setHistoryVendor}>
-                          <SelectTrigger className="h-8 text-xs w-[160px]" onClick={e => e.stopPropagation()}>
-                            <SelectValue placeholder="All Vendors" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="all">All Vendors</SelectItem>
-                            {vendors.map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <PaymentTable
-                        payments={filteredHistory}
-                        onRowClick={p => p.invoice_id && navigate(`/invoices?open=${p.invoice_id}`)}
-                        onRecordPayment={() => {}}
-                        serverDate={effectiveDate}
-                        selectedIds={new Set()}
-                        onToggleSelected={() => {}}
-                        onQuickPay={handleQuickPay}
-                        navigate={navigate}
+                  <div className="flex gap-2 p-3 border-b border-border">
+                    <div className="relative flex-1">
+                      <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-muted-foreground" />
+                      <Input
+                        placeholder="Search paid invoices…"
+                        value={historySearch}
+                        onChange={e => setHistorySearch(e.target.value)}
+                        className="pl-8 h-8 text-xs"
                       />
-                    </CardContent>
+                    </div>
+                    <Select value={historyVendor} onValueChange={setHistoryVendor}>
+                      <SelectTrigger className="h-8 text-xs w-[160px]">
+                        <SelectValue placeholder="All Vendors" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Vendors</SelectItem>
+                        {historyVendors.map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {filteredHistory.length > 0 ? (
+                    <PaymentTable
+                      payments={filteredHistory}
+                      onRowClick={p => p.invoice_id && navigate(`/invoices?open=${p.invoice_id}`)}
+                      onRecordPayment={() => {}}
+                      serverDate={effectiveDate}
+                      selectedIds={new Set()}
+                      onToggleSelected={() => {}}
+                      onQuickPay={handleQuickPay}
+                      navigate={navigate}
+                    />
+                  ) : (
+                    <div className="p-8 text-center text-muted-foreground text-sm">
+                      No paid invoices found.
+                    </div>
                   )}
-                </Card>
-              ) : null;
-            })()}
-
-            {activePayments.length === 0 && (
-              <Card className="bg-card border-border">
-                <CardContent className="p-8 text-center text-muted-foreground text-sm">
-                  No payment schedules found. Upload invoices and click "Generate Missing" to create payment schedules.
                 </CardContent>
               </Card>
             )}
