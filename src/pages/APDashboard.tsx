@@ -238,16 +238,15 @@ export default function APDashboard() {
     }, 0);
   }, [selectedIds, activePayments]);
 
-  // ── Quick pay (inline toggle) ────────────────────────
+  // ── Quick pay (inline toggle — per installment) ───
   const handleQuickPay = async (payment: InvoicePayment) => {
-    if (!payment.invoice_id) return;
-    const newStatus = payment.payment_status === "paid" ? "unpaid" : "paid";
+    const currentlyPaid = payment.is_paid || payment.payment_status === "paid";
     try {
-      await updateInvoiceStatus(payment.invoice_id, newStatus as InvoiceStatus);
+      await markInstallmentPaid(payment.id, !currentlyPaid);
       toast.success(
-        newStatus === "paid"
-          ? `${payment.invoice_number} marked paid`
-          : `${payment.invoice_number} marked unpaid`
+        !currentlyPaid
+          ? `${payment.installment_label || payment.invoice_number} marked paid`
+          : `${payment.installment_label || payment.invoice_number} marked unpaid`
       );
       refreshAll();
     } catch (e: any) {
