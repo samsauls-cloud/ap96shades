@@ -247,7 +247,7 @@ export function formatCurrency(n: number | null | undefined) {
 
 export function formatDate(d: string | null | undefined) {
   if (!d) return "—";
-  return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  return new Date(d + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
 export function invoiceToCSVRow(inv: VendorInvoice): string {
