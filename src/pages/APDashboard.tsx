@@ -216,6 +216,79 @@ export default function APDashboard() {
     }
   };
 
+  // ── Selection logic ──────────────────────────────────
+  const toggleSelected = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const selectedTotal = useMemo(() => {
+    return [...selectedIds].reduce((sum, id) => {
+      const p = activePayments.find(p => p.id === id);
+      return sum + (p?.balance_remaining ?? 0);
+    }, 0);
+  }, [selectedIds, activePayments]);
+
+  // ── Quick pay (inline toggle) ────────────────────────
+  const handleQuickPay = async (payment: InvoicePayment) => {
+    if (!payment.invoice_id) return;
+    const newStatus = payment.payment_status === "paid" ? "unpaid" : "paid";
+    try {
+      await updateInvoiceStatus(payment.invoice_id, newStatus as InvoiceStatus);
+      toast.success(
+        newStatus === "paid"
+          ? `${payment.invoice_number} marked paid`
+          : `${payment.invoice_number} marked unpaid`
+      );
+      refreshAll();
+    } catch (e: any) {
+      toast.error(`Failed: ${e.message}`);
+    }
+  };
+
+  // ── Bulk mark paid ───────────────────────────────────
+  const handleMarkSelectedPaid = async () => {
+    const ids = [...selectedIds];
+    let success = 0;
+    for (const paymentId of ids) {
+      const p = activePayments.find(p => p.id === paymentId);
+      if (p?.invoice_id) {
+        await updateInvoiceStatus(p.invoice_id, "paid");
+        success++;
+      }
+    }
+    toast.success(`${success} invoices marked as paid`);
+    setSelectedIds(new Set());
+    refreshAll();
+  };
+
+  // ── Fix Kering Terms ─────────────────────────────────
+  const handleFixKeringTerms = async () => {
+    setFixingKering(true);
+    try {
+      const { data: keringInvoices } = await supabase
+        .from("vendor_invoices")
+        .select("id, vendor, invoice_date, payment_terms, total, invoice_number, po_number")
+        .or("vendor.ilike.%kering%,vendor.ilike.%gucci%,vendor.ilike.%saint laurent%,vendor.ilike.%bottega%,vendor.ilike.%cartier%");
+
+      let fixed = 0;
+      for (const inv of keringInvoices ?? []) {
+        await supabase.from("invoice_payments").delete().eq("invoice_id", inv.id);
+        await generatePaymentsForInvoice(inv.id, inv.invoice_date, inv.total, inv.vendor, inv.invoice_number, inv.po_number, inv.payment_terms);
+        fixed++;
+      }
+      toast.success(`Fixed ${fixed} Kering invoices — EOM terms applied`);
+      refreshAll();
+    } catch (e: any) {
+      toast.error(`Failed: ${e.message}`);
+    } finally {
+      setFixingKering(false);
+    }
+  };
+
   // Month column header colors
   const monthHeaderColors = [
     "bg-slate-700 text-white",
@@ -241,6 +314,10 @@ export default function APDashboard() {
             </div>
           </div>
           <div className="sm:ml-auto flex items-center gap-2">
+            <Button size="sm" variant="outline" className="h-8 text-xs" onClick={handleFixKeringTerms} disabled={fixingKering}>
+              {fixingKering ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <RefreshCw className="h-3.5 w-3.5 mr-1" />}
+              Fix Kering Terms
+            </Button>
             <Button size="sm" variant="outline" className="h-8 text-xs" onClick={handleGenerateAll} disabled={generating}>
               {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <RefreshCw className="h-3.5 w-3.5 mr-1" />}
               Generate Missing
