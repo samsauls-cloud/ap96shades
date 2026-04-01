@@ -307,32 +307,41 @@ export async function markInstallmentPaid(
 
   if (!row) throw new Error("Payment row not found");
 
+  const updatePayload = isPaid ? {
+    is_paid: true,
+    paid_date: today,
+    amount_paid: Number(row.amount_due) || 0,
+    balance_remaining: 0,
+    payment_status: "paid",
+    last_payment_date: today,
+  } : {
+    is_paid: false,
+    paid_date: null,
+    amount_paid: 0,
+    balance_remaining: Number(row.amount_due) || 0,
+    payment_status: "unpaid",
+    last_payment_date: null,
+  };
+
+  console.log(`[markInstallmentPaid] Updating row id=${paymentRowId} isPaid=${isPaid}`, updatePayload);
+
   const { error } = await supabase
     .from("invoice_payments")
-    .update(isPaid ? {
-      is_paid: true,
-      paid_date: today,
-      amount_paid: Number(row.amount_due) || 0,
-      balance_remaining: 0,
-      payment_status: "paid",
-      last_payment_date: today,
-    } : {
-      is_paid: false,
-      paid_date: null,
-      amount_paid: 0,
-      balance_remaining: Number(row.amount_due) || 0,
-      payment_status: "unpaid",
-      last_payment_date: null,
-    } as any)
+    .update(updatePayload as any)
     .eq("id", paymentRowId);
   if (error) throw error;
+
+  console.log(`[markInstallmentPaid] ✓ Row ${paymentRowId} updated successfully`);
 
   // Sync parent invoice status
   if (row.invoice_id) {
     const { data: siblings } = await supabase
       .from("invoice_payments")
-      .select("is_paid")
-      .eq("invoice_id", row.invoice_id);
+      .select("id, is_paid, due_date")
+      .eq("invoice_id", row.invoice_id)
+      .order("due_date", { ascending: true });
+
+    console.log(`[markInstallmentPaid] Siblings for invoice ${row.invoice_id}:`, (siblings ?? []).map(s => ({ id: s.id, is_paid: s.is_paid, due_date: (s as any).due_date })));
 
     const allPaid = (siblings ?? []).every(s => s.is_paid);
     const anyPaid = (siblings ?? []).some(s => s.is_paid);
