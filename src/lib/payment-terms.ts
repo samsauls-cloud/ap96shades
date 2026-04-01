@@ -49,7 +49,7 @@ export interface VendorTermsDefault {
 
 export const VENDOR_DEFAULTS: Record<string, VendorTermsDefault> = {
   Luxottica: { type: "eom_split", days: [30, 60, 90], installments: 3, eom_based: true, label: "EOM 30 / 60 / 90" },
-  Kering: { type: "net_split", days: [30, 60, 90], installments: 3, eom_based: false, label: "Days 30 / 60 / 90" },
+  Kering: { type: "eom_split", days: [30, 60, 90], installments: 3, eom_based: true, label: "EOM 30 / 60 / 90" },
   "Maui Jim": { type: "net_split", days: [90, 120, 150], installments: 3, eom_based: false, label: "Days 90 / 120 / 150" },
   Marcolin: { type: "eom_split", days: [50, 80, 110], installments: 3, eom_based: true, label: "EOM 50 / 80 / 110" },
   Safilo: { type: "eom_single", days: [60], installments: 1, eom_based: true, label: "EOM 60" },
@@ -392,11 +392,13 @@ export function calculateInstallments(
     }];
   }
 
-  // ── Kering "bank transfer 30/60/90 inv. date" ──────────
+  // ── Kering "bank transfer 30/60/90 inv. date" — actually EOM-based ──
   if (normalized === 'Kering' && termsLower.includes('bank transfer') && termsLower.includes('30/60/90')) {
     const parsedTotal = typeof total === "number" ? total : parseFloat(String(total)) || 0;
     if (parsedTotal <= 0) return [];
     const offsets = [30, 60, 90];
+    const d = new Date(invoiceDate + "T00:00:00");
+    const eom = lastDayOfMonth(d);
     const baseAmount = parseFloat((parsedTotal / 3).toFixed(2));
     const lastAmount = parseFloat((parsedTotal - baseAmount * 2).toFixed(2));
     return offsets.map((offset, index) => ({
@@ -405,9 +407,9 @@ export function calculateInstallments(
       po_number: poNumber,
       invoice_amount: parsedTotal,
       invoice_date: invoiceDate,
-      terms: "Bank transfer 30/60/90",
+      terms: "EOM 30/60/90",
       installment_label: `${index + 1} of 3`,
-      due_date: format(addDays(new Date(invoiceDate + "T00:00:00"), offset), "yyyy-MM-dd"),
+      due_date: format(addDays(eom, offset), "yyyy-MM-dd"),
       amount_due: index === 2 ? lastAmount : baseAmount,
     }));
   }
