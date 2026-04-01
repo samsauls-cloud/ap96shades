@@ -63,6 +63,33 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
     }
   }, [inv]);
 
+  // Auto-heal: sync invoice_payments when status is out of sync
+  useEffect(() => {
+    if (!inv) return;
+    async function checkSync() {
+      const { data: payments } = await supabase
+        .from("invoice_payments")
+        .select("id, is_paid, payment_status, amount_due")
+        .eq("invoice_id", inv!.id);
+
+      if (!payments || payments.length === 0) return;
+
+      const allPaid = payments.every(p => p.is_paid);
+      const invoiceIsPaid = inv!.status === "paid";
+
+      if (invoiceIsPaid && !allPaid) {
+        await updateInvoiceStatus(inv!.id, "paid");
+        toast("Payment records synced", { duration: 2000 });
+        onUpdate();
+      } else if (!invoiceIsPaid && allPaid) {
+        await updateInvoiceStatus(inv!.id, inv!.status as InvoiceStatus);
+        toast("Payment records synced", { duration: 2000 });
+        onUpdate();
+      }
+    }
+    checkSync();
+  }, [inv?.id]);
+
   if (!inv) return null;
 
   const lineItems = getLineItems(inv);

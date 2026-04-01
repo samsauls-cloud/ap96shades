@@ -7,11 +7,13 @@ import { InvoiceNav } from "@/components/invoices/InvoiceNav";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { AlertCircle, Calendar, Loader2, RefreshCw, DollarSign, ChevronDown, ChevronUp } from "lucide-react";
-import { formatCurrency, formatDate, fetchDistinctVendors } from "@/lib/supabase-queries";
-import { fetchPayments, type InvoicePayment, generateAllMissingPayments } from "@/lib/payment-queries";
+import { AlertCircle, Calendar, Loader2, RefreshCw, DollarSign, ChevronDown, ChevronUp, ChevronsUpDown, Check, CheckCircle2 } from "lucide-react";
+import { formatCurrency, formatDate, fetchDistinctVendors, updateInvoiceStatus, type InvoiceStatus } from "@/lib/supabase-queries";
+import { fetchPayments, type InvoicePayment, generateAllMissingPayments, generatePaymentsForInvoice } from "@/lib/payment-queries";
 import { PaymentStatusBadge } from "@/components/invoices/PaymentStatusBadge";
 import { RecordPaymentModal } from "@/components/invoices/RecordPaymentModal";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { supabase } from "@/integrations/supabase/client";
 
 // ── Server date hook ──────────────────────────────────
@@ -74,6 +76,8 @@ export default function APDashboard() {
   const [selectedPayment, setSelectedPayment] = useState<InvoicePayment | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [expandedMonth, setExpandedMonth] = useState<string | null>(null);
+  const [fixingKering, setFixingKering] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const midnightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const midnightIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const minuteIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -212,6 +216,79 @@ export default function APDashboard() {
     }
   };
 
+  // ── Selection logic ──────────────────────────────────
+  const toggleSelected = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const selectedTotal = useMemo(() => {
+    return [...selectedIds].reduce((sum, id) => {
+      const p = activePayments.find(p => p.id === id);
+      return sum + (p?.balance_remaining ?? 0);
+    }, 0);
+  }, [selectedIds, activePayments]);
+
+  // ── Quick pay (inline toggle) ────────────────────────
+  const handleQuickPay = async (payment: InvoicePayment) => {
+    if (!payment.invoice_id) return;
+    const newStatus = payment.payment_status === "paid" ? "unpaid" : "paid";
+    try {
+      await updateInvoiceStatus(payment.invoice_id, newStatus as InvoiceStatus);
+      toast.success(
+        newStatus === "paid"
+          ? `${payment.invoice_number} marked paid`
+          : `${payment.invoice_number} marked unpaid`
+      );
+      refreshAll();
+    } catch (e: any) {
+      toast.error(`Failed: ${e.message}`);
+    }
+  };
+
+  // ── Bulk mark paid ───────────────────────────────────
+  const handleMarkSelectedPaid = async () => {
+    const ids = [...selectedIds];
+    let success = 0;
+    for (const paymentId of ids) {
+      const p = activePayments.find(p => p.id === paymentId);
+      if (p?.invoice_id) {
+        await updateInvoiceStatus(p.invoice_id, "paid");
+        success++;
+      }
+    }
+    toast.success(`${success} invoices marked as paid`);
+    setSelectedIds(new Set());
+    refreshAll();
+  };
+
+  // ── Fix Kering Terms ─────────────────────────────────
+  const handleFixKeringTerms = async () => {
+    setFixingKering(true);
+    try {
+      const { data: keringInvoices } = await supabase
+        .from("vendor_invoices")
+        .select("id, vendor, invoice_date, payment_terms, total, invoice_number, po_number")
+        .or("vendor.ilike.%kering%,vendor.ilike.%gucci%,vendor.ilike.%saint laurent%,vendor.ilike.%bottega%,vendor.ilike.%cartier%");
+
+      let fixed = 0;
+      for (const inv of keringInvoices ?? []) {
+        await supabase.from("invoice_payments").delete().eq("invoice_id", inv.id);
+        await generatePaymentsForInvoice(inv.id, inv.invoice_date, inv.total, inv.vendor, inv.invoice_number, inv.po_number, inv.payment_terms);
+        fixed++;
+      }
+      toast.success(`Fixed ${fixed} Kering invoices — EOM terms applied`);
+      refreshAll();
+    } catch (e: any) {
+      toast.error(`Failed: ${e.message}`);
+    } finally {
+      setFixingKering(false);
+    }
+  };
+
   // Month column header colors
   const monthHeaderColors = [
     "bg-slate-700 text-white",
@@ -237,6 +314,10 @@ export default function APDashboard() {
             </div>
           </div>
           <div className="sm:ml-auto flex items-center gap-2">
+            <Button size="sm" variant="outline" className="h-8 text-xs" onClick={handleFixKeringTerms} disabled={fixingKering}>
+              {fixingKering ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <RefreshCw className="h-3.5 w-3.5 mr-1" />}
+              Fix Kering Terms
+            </Button>
             <Button size="sm" variant="outline" className="h-8 text-xs" onClick={handleGenerateAll} disabled={generating}>
               {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <RefreshCw className="h-3.5 w-3.5 mr-1" />}
               Generate Missing
@@ -377,7 +458,7 @@ export default function APDashboard() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="p-0">
-                    <PaymentTable payments={monthPayments} onRowClick={handlePaymentClick} onRecordPayment={handleRecordPayment} serverDate={effectiveDate} />
+                    <PaymentTable payments={monthPayments} onRowClick={handlePaymentClick} onRecordPayment={handleRecordPayment} serverDate={effectiveDate} selectedIds={selectedIds} onToggleSelected={toggleSelected} onQuickPay={handleQuickPay} navigate={navigate} />
                   </CardContent>
                 </Card>
               );
@@ -393,7 +474,7 @@ export default function APDashboard() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="p-0">
-                  <PaymentTable payments={overduePayments} onRowClick={handlePaymentClick} onRecordPayment={handleRecordPayment} serverDate={effectiveDate} />
+                  <PaymentTable payments={overduePayments} onRowClick={handlePaymentClick} onRecordPayment={handleRecordPayment} serverDate={effectiveDate} selectedIds={selectedIds} onToggleSelected={toggleSelected} onQuickPay={handleQuickPay} navigate={navigate} />
                 </CardContent>
               </Card>
             )}
@@ -421,7 +502,7 @@ export default function APDashboard() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="p-0">
-                    <PaymentTable payments={monthPayments} onRowClick={handlePaymentClick} onRecordPayment={handleRecordPayment} serverDate={effectiveDate} />
+                    <PaymentTable payments={monthPayments} onRowClick={handlePaymentClick} onRecordPayment={handleRecordPayment} serverDate={effectiveDate} selectedIds={selectedIds} onToggleSelected={toggleSelected} onQuickPay={handleQuickPay} navigate={navigate} />
                   </CardContent>
                 </Card>
               );
@@ -438,6 +519,25 @@ export default function APDashboard() {
         )}
       </div>
 
+      {/* ── Floating selection bar ────────────────────── */}
+      {selectedIds.size > 0 && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-4 px-5 py-3 rounded-xl bg-card border border-border shadow-2xl">
+          <span className="text-xs text-muted-foreground">
+            {selectedIds.size} invoice{selectedIds.size !== 1 ? "s" : ""} selected
+          </span>
+          <span className="text-lg font-bold tabular-nums text-primary">
+            {formatCurrency(selectedTotal)}
+          </span>
+          <Button size="sm" variant="outline" className="text-xs h-7" onClick={() => setSelectedIds(new Set())}>
+            Clear
+          </Button>
+          <Button size="sm" className="text-xs h-7 gap-1.5" onClick={handleMarkSelectedPaid}>
+            <CheckCircle2 className="h-3.5 w-3.5" />
+            Mark {selectedIds.size} Paid
+          </Button>
+        </div>
+      )}
+
       <RecordPaymentModal
         payment={selectedPayment}
         open={modalOpen}
@@ -448,26 +548,75 @@ export default function APDashboard() {
   );
 }
 
-function PaymentTable({ payments, onRowClick, onRecordPayment, serverDate }: { payments: InvoicePayment[]; onRowClick: (p: InvoicePayment) => void; onRecordPayment?: (p: InvoicePayment) => void; serverDate: string }) {
+function PaymentTable({ payments, onRowClick, onRecordPayment, serverDate, selectedIds, onToggleSelected, onQuickPay, navigate }: {
+  payments: InvoicePayment[];
+  onRowClick: (p: InvoicePayment) => void;
+  onRecordPayment?: (p: InvoicePayment) => void;
+  serverDate: string;
+  selectedIds: Set<string>;
+  onToggleSelected: (id: string) => void;
+  onQuickPay: (payment: InvoicePayment) => Promise<void>;
+  navigate: (path: string) => void;
+}) {
+  const [sortField, setSortField] = useState<string>("due_date");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+  const handleSort = (field: string) => {
+    if (sortField === field) setSortDir(d => d === "asc" ? "desc" : "asc");
+    else { setSortField(field); setSortDir("asc"); }
+  };
+
+  const sortedPayments = [...payments].sort((a, b) => {
+    let av: any, bv: any;
+    if (sortField === "amount") { av = a.balance_remaining; bv = b.balance_remaining; }
+    else if (sortField === "due_date") { av = a.due_date; bv = b.due_date; }
+    else if (sortField === "vendor") { av = a.vendor; bv = b.vendor; }
+    else if (sortField === "invoice_number") { av = a.invoice_number; bv = b.invoice_number; }
+    else { av = (a as any)[sortField] ?? ""; bv = (b as any)[sortField] ?? ""; }
+    const cmp = av < bv ? -1 : av > bv ? 1 : 0;
+    return sortDir === "asc" ? cmp : -cmp;
+  });
+
+  const SortIcon = ({ field }: { field: string }) => {
+    if (sortField !== field) return <ChevronsUpDown className="h-3 w-3 opacity-30" />;
+    return sortDir === "asc" ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />;
+  };
+
+  const columns = [
+    { field: "vendor", label: "Vendor" },
+    { field: "invoice_number", label: "Invoice #" },
+    { field: "po_number", label: "PO Ref" },
+    { field: "amount", label: "Amount Due", align: "right" as const },
+    { field: "due_date", label: "Due Date" },
+    { field: "terms", label: "Terms" },
+  ];
+
   return (
     <>
       {/* Desktop table */}
       <div className="hidden md:block overflow-auto">
         <Table>
           <TableHeader>
-            <TableRow className="border-border bg-muted/30">
-              <TableHead className="text-xs font-semibold">Vendor</TableHead>
-              <TableHead className="text-xs font-semibold">Invoice #</TableHead>
-              <TableHead className="text-xs font-semibold">PO Ref</TableHead>
-              <TableHead className="text-xs font-semibold text-right">Amount Due</TableHead>
-              <TableHead className="text-xs font-semibold">Due Date</TableHead>
-              <TableHead className="text-xs font-semibold">Terms</TableHead>
-              <TableHead className="text-xs font-semibold text-center">Status</TableHead>
+            <TableRow className="border-border bg-muted/20">
+              <TableHead className="w-8" />
+              {columns.map(col => (
+                <TableHead
+                  key={col.field}
+                  className={`text-xs font-semibold cursor-pointer select-none hover:text-foreground transition-colors ${col.align === "right" ? "text-right" : ""}`}
+                  onClick={() => handleSort(col.field)}
+                >
+                  <span className="flex items-center gap-1">
+                    {col.label}
+                    <SortIcon field={col.field} />
+                  </span>
+                </TableHead>
+              ))}
+              <TableHead className="text-center text-xs font-semibold">Status</TableHead>
               {onRecordPayment && <TableHead className="text-xs font-semibold text-right w-[100px]" />}
             </TableRow>
           </TableHeader>
           <TableBody>
-            {payments.map(p => {
+            {sortedPayments.map(p => {
               const overdue = p.due_date < serverDate && p.balance_remaining > 0 && p.payment_status !== "paid" && p.payment_status !== "void";
               const rowColor =
                 p.payment_status === "paid" || p.payment_status === "overpaid" ? "bg-green-500/8 hover:bg-green-500/12" :
@@ -477,15 +626,45 @@ function PaymentTable({ payments, onRowClick, onRecordPayment, serverDate }: { p
                 "hover:bg-muted/40";
 
               return (
-                <TableRow key={p.id} className={`border-border transition-colors cursor-pointer ${rowColor}`} onClick={() => onRowClick(p)}>
+                <TableRow key={p.id} className={`border-border transition-colors ${rowColor}`}>
+                  <TableCell onClick={e => e.stopPropagation()}>
+                    <Checkbox
+                      checked={selectedIds.has(p.id)}
+                      onCheckedChange={() => onToggleSelected(p.id)}
+                      className="h-3.5 w-3.5"
+                    />
+                  </TableCell>
                   <TableCell className="text-xs">{p.vendor}</TableCell>
-                  <TableCell className="text-xs font-mono">{p.invoice_number}</TableCell>
+                  <TableCell
+                    className="text-xs font-mono text-primary cursor-pointer hover:underline"
+                    onClick={() => p.invoice_id && navigate(`/invoices?open=${p.invoice_id}`)}
+                  >
+                    {p.invoice_number}
+                  </TableCell>
                   <TableCell className="text-xs font-mono text-muted-foreground">{p.po_number ?? "—"}</TableCell>
                   <TableCell className="text-xs text-right tabular-nums font-semibold">{formatCurrency(p.balance_remaining > 0 ? p.balance_remaining : p.amount_due)}</TableCell>
                   <TableCell className="text-xs">{formatDate(p.due_date)}</TableCell>
                   <TableCell className="text-xs text-muted-foreground">{p.terms ?? "—"}{p.installment_label ? ` (${p.installment_label})` : ""}</TableCell>
-                  <TableCell className="text-center">
-                    <PaymentStatusBadge payment={p} compact />
+                  <TableCell className="text-center" onClick={e => e.stopPropagation()}>
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            onClick={() => onQuickPay(p)}
+                            className={`h-6 w-6 rounded-full border-2 flex items-center justify-center transition-all ${
+                              p.payment_status === "paid"
+                                ? "bg-green-500 border-green-500 text-white"
+                                : "border-border hover:border-green-500 hover:bg-green-500/10"
+                            }`}
+                          >
+                            {p.payment_status === "paid" && <Check className="h-3.5 w-3.5" />}
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent className="text-xs">
+                          {p.payment_status === "paid" ? "Mark as unpaid" : "Mark as paid"}
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                   </TableCell>
                   {onRecordPayment && (
                     <TableCell className="text-right">
@@ -507,7 +686,7 @@ function PaymentTable({ payments, onRowClick, onRecordPayment, serverDate }: { p
       </div>
       {/* Mobile card layout */}
       <div className="md:hidden space-y-2 p-3">
-        {payments.map(p => {
+        {sortedPayments.map(p => {
           const overdue = p.due_date < serverDate && p.balance_remaining > 0 && p.payment_status !== "paid" && p.payment_status !== "void";
           const cardBorder =
             p.payment_status === "paid" || p.payment_status === "overpaid" ? "border-green-500/30" :
@@ -518,20 +697,42 @@ function PaymentTable({ payments, onRowClick, onRecordPayment, serverDate }: { p
           return (
             <div
               key={p.id}
-              className={`rounded-lg border p-3 cursor-pointer active:bg-accent/70 transition-colors ${cardBorder}`}
-              onClick={() => onRowClick(p)}
+              className={`rounded-lg border p-3 transition-colors ${cardBorder}`}
             >
               <div className="flex items-start justify-between gap-2 mb-1.5">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium truncate">{p.vendor}</p>
-                  <p className="text-[10px] font-mono text-muted-foreground truncate">{p.invoice_number}</p>
+                <div className="flex items-center gap-2 min-w-0">
+                  <Checkbox
+                    checked={selectedIds.has(p.id)}
+                    onCheckedChange={() => onToggleSelected(p.id)}
+                    className="h-3.5 w-3.5 shrink-0"
+                  />
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate">{p.vendor}</p>
+                    <p
+                      className="text-[10px] font-mono text-primary cursor-pointer hover:underline truncate"
+                      onClick={() => p.invoice_id && navigate(`/invoices?open=${p.invoice_id}`)}
+                    >
+                      {p.invoice_number}
+                    </p>
+                  </div>
                 </div>
-                <div className="text-right shrink-0">
-                  <p className={`text-sm font-semibold tabular-nums ${p.balance_remaining > 0 ? "" : "text-green-500"}`}>{formatCurrency(p.balance_remaining)}</p>
-                  <PaymentStatusBadge payment={p} compact />
+                <div className="text-right shrink-0 flex items-center gap-2">
+                  <div>
+                    <p className={`text-sm font-semibold tabular-nums ${p.balance_remaining > 0 ? "" : "text-green-500"}`}>{formatCurrency(p.balance_remaining)}</p>
+                  </div>
+                  <button
+                    onClick={() => onQuickPay(p)}
+                    className={`h-6 w-6 rounded-full border-2 flex items-center justify-center transition-all shrink-0 ${
+                      p.payment_status === "paid"
+                        ? "bg-green-500 border-green-500 text-white"
+                        : "border-border hover:border-green-500 hover:bg-green-500/10"
+                    }`}
+                  >
+                    {p.payment_status === "paid" && <Check className="h-3.5 w-3.5" />}
+                  </button>
                 </div>
               </div>
-              <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground">
+              <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground pl-6">
                 <span>Due: {formatDate(p.due_date)}</span>
                 <span>{p.terms ?? "—"}{p.installment_label ? ` (${p.installment_label})` : ""}</span>
               </div>

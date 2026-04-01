@@ -39,10 +39,10 @@ export const VENDOR_TERMS_REGISTRY: VendorTermsRule[] = [
   {
     vendor_match: ['kering', 'gucci', 'saint laurent', 'balenciaga',
                    'bottega veneta', 'alexander mcqueen', 'cartier'],
-    terms_type: 'days_split',
+    terms_type: 'eom_split',
     offsets: [30, 60, 90],
-    description: '30/60/90 — 3 equal tranches from invoice date',
-    // Also matches "bank transfer 30/60/90 inv. date"
+    description: 'EOM 30/60/90 — 3 equal tranches',
+    // Kering terms are EOM-based: baseline = EOM of invoice month
   },
   {
     // Luxottica EOM +30 (standing terms — matched when invoice has EOM+30 or no explicit split)
