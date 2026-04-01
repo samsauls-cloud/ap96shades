@@ -58,9 +58,9 @@ export function InvoiceTable({ invoices, filters, onSort, onRowClick, totalCount
   return (
     <div className="space-y-3">
       {/* Desktop table */}
-      <div className="hidden md:block rounded-lg border border-border bg-card overflow-auto">
+      <div className="hidden md:block rounded-lg border border-border bg-card overflow-auto max-h-[calc(100vh-280px)]">
         <Table>
-          <TableHeader>
+          <TableHeader className="sticky top-0 z-10 bg-card shadow-[0_1px_0_0_hsl(var(--border))]">
             <TableRow className="border-border hover:bg-transparent">
               <SortableHead field="doc_type" label="Type" filters={filters} onSort={onSort} className="w-[60px]" />
               <SortableHead field="vendor" label="Vendor" filters={filters} onSort={onSort} />
