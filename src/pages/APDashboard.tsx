@@ -320,6 +320,30 @@ export default function APDashboard() {
     }
   };
 
+  // ── Fix Luxottica Terms ──────────────────────────────
+  const handleFixLuxotticaTerms = async () => {
+    setFixingLuxottica(true);
+    try {
+      const { data: luxInvoices } = await supabase
+        .from("vendor_invoices")
+        .select("id, vendor, invoice_date, payment_terms, total, invoice_number, po_number")
+        .or("vendor.ilike.%luxottica%,vendor.ilike.%ray-ban%,vendor.ilike.%oakley%,vendor.ilike.%costa%,vendor.ilike.%prada%,vendor.ilike.%versace%,vendor.ilike.%coach%,vendor.ilike.%burberry%,vendor.ilike.%michael kors%,vendor.ilike.%persol%,vendor.ilike.%oliver peoples%");
+
+      let fixed = 0;
+      for (const inv of luxInvoices ?? []) {
+        await supabase.from("invoice_payments").delete().eq("invoice_id", inv.id);
+        await generatePaymentsForInvoice(inv.id, inv.invoice_date, inv.total, inv.vendor, inv.invoice_number, inv.po_number, inv.payment_terms);
+        fixed++;
+      }
+      toast.success(`Fixed ${fixed} Luxottica invoices — EOM+30 / split terms applied`);
+      refreshAll();
+    } catch (e: any) {
+      toast.error(`Failed: ${e.message}`);
+    } finally {
+      setFixingLuxottica(false);
+    }
+  };
+
   // Month column header colors
   const monthHeaderColors = [
     "bg-slate-700 text-white",
