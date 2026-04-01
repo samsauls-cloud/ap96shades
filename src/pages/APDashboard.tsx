@@ -519,6 +519,25 @@ export default function APDashboard() {
         )}
       </div>
 
+      {/* ── Floating selection bar ────────────────────── */}
+      {selectedIds.size > 0 && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-4 px-5 py-3 rounded-xl bg-card border border-border shadow-2xl">
+          <span className="text-xs text-muted-foreground">
+            {selectedIds.size} invoice{selectedIds.size !== 1 ? "s" : ""} selected
+          </span>
+          <span className="text-lg font-bold tabular-nums text-primary">
+            {formatCurrency(selectedTotal)}
+          </span>
+          <Button size="sm" variant="outline" className="text-xs h-7" onClick={() => setSelectedIds(new Set())}>
+            Clear
+          </Button>
+          <Button size="sm" className="text-xs h-7 gap-1.5" onClick={handleMarkSelectedPaid}>
+            <CheckCircle2 className="h-3.5 w-3.5" />
+            Mark {selectedIds.size} Paid
+          </Button>
+        </div>
+      )}
+
       <RecordPaymentModal
         payment={selectedPayment}
         open={modalOpen}
