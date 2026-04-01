@@ -14,6 +14,9 @@ import { PaymentStatusBadge } from "@/components/invoices/PaymentStatusBadge";
 import { RecordPaymentModal } from "@/components/invoices/RecordPaymentModal";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
 
 // ── Server date hook ──────────────────────────────────
