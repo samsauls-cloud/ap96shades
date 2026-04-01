@@ -92,7 +92,8 @@ export function isKnownVendor(vendor: string): boolean {
 
 export { KNOWN_VENDORS };
 
-// ── Line-level key for dedup (item_number + qty + unit_price) ─────
+// ── Line-level key for dedup ──────────────────────────────
+// Primary key: item_number + qty + unit_price (handles exact re-uploads)
 function lineKey(li: LineItem): string {
   const item = String(li.item_number ?? li.sku ?? "").trim().toLowerCase();
   const qty = Number(li.qty_shipped ?? li.qty_ordered ?? li.qty ?? 0);
@@ -100,8 +101,20 @@ function lineKey(li: LineItem): string {
   return `${item}|${qty}|${price}`;
 }
 
+// Fallback key: item_number + line_total (catches OCR price-variant dupes
+// where the same item is parsed with MSRP vs wholesale price)
+function lineKeyLoose(li: LineItem): string {
+  const item = String(li.item_number ?? li.sku ?? "").trim().toLowerCase();
+  const lt = Number(li.line_total ?? 0).toFixed(2);
+  return `${item}|${lt}`;
+}
+
 function extractLineKeys(items: LineItem[]): Set<string> {
   return new Set(items.map(lineKey));
+}
+
+function extractLooseLineKeys(items: LineItem[]): Set<string> {
+  return new Set(items.map(lineKeyLoose));
 }
 
 // ── UPC / Model extraction ────────────────────────────────
@@ -153,7 +166,13 @@ export async function checkInvoiceDuplicate(
   // Primary dedup: use item_number + qty + unit_price key
   // This is invariant across re-uploads even when model/description text differs
   const existingKeys = extractLineKeys(existingItems);
-  const genuinelyNewItems = incomingItems.filter(li => !existingKeys.has(lineKey(li)));
+  let genuinelyNewItems = incomingItems.filter(li => !existingKeys.has(lineKey(li)));
+
+  // Secondary dedup: catch OCR price-variant dupes (same item + line_total, different unit_price)
+  if (genuinelyNewItems.length > 0) {
+    const existingLooseKeys = extractLooseLineKeys(existingItems);
+    genuinelyNewItems = genuinelyNewItems.filter(li => !existingLooseKeys.has(lineKeyLoose(li)));
+  }
 
   if (genuinelyNewItems.length === 0) {
     return { type: "true_duplicate", existingId: existing.id };
