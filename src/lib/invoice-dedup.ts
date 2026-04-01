@@ -166,7 +166,13 @@ export async function checkInvoiceDuplicate(
   // Primary dedup: use item_number + qty + unit_price key
   // This is invariant across re-uploads even when model/description text differs
   const existingKeys = extractLineKeys(existingItems);
-  const genuinelyNewItems = incomingItems.filter(li => !existingKeys.has(lineKey(li)));
+  let genuinelyNewItems = incomingItems.filter(li => !existingKeys.has(lineKey(li)));
+
+  // Secondary dedup: catch OCR price-variant dupes (same item + line_total, different unit_price)
+  if (genuinelyNewItems.length > 0) {
+    const existingLooseKeys = extractLooseLineKeys(existingItems);
+    genuinelyNewItems = genuinelyNewItems.filter(li => !existingLooseKeys.has(lineKeyLoose(li)));
+  }
 
   if (genuinelyNewItems.length === 0) {
     return { type: "true_duplicate", existingId: existing.id };
