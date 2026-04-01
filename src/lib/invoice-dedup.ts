@@ -92,15 +92,21 @@ export function isKnownVendor(vendor: string): boolean {
 
 export { KNOWN_VENDORS };
 
+// ── Line-level key for dedup (item_number + qty + unit_price) ─────
+function lineKey(li: LineItem): string {
+  const item = String(li.item_number ?? li.sku ?? "").trim().toLowerCase();
+  const qty = Number(li.qty_shipped ?? li.qty_ordered ?? li.qty ?? 0);
+  const price = Number(li.unit_price ?? 0).toFixed(2);
+  return `${item}|${qty}|${price}`;
+}
+
+function extractLineKeys(items: LineItem[]): Set<string> {
+  return new Set(items.map(lineKey));
+}
+
 // ── UPC / Model extraction ────────────────────────────────
 function extractUPCs(items: LineItem[]): Set<string> {
   return new Set(items.map(li => li.upc).filter(Boolean) as string[]);
-}
-
-function extractModels(items: LineItem[]): Set<string> {
-  return new Set(
-    items.map(li => li.model || li.item_number).filter(Boolean) as string[]
-  );
 }
 
 // ── Dedup result types ────────────────────────────────────
@@ -144,58 +150,37 @@ export async function checkInvoiceDuplicate(
   const incomingUPCs = extractUPCs(incomingItems);
   const existingUPCs = extractUPCs(existingItems);
 
-  if (incomingUPCs.size > 0) {
-    const overlap = [...incomingUPCs].filter(u => existingUPCs.has(u));
-    const newUPCItems = incomingItems.filter(
-      li => li.upc && !existingUPCs.has(li.upc)
-    );
+  // Primary dedup: use item_number + qty + unit_price key
+  // This is invariant across re-uploads even when model/description text differs
+  const existingKeys = extractLineKeys(existingItems);
+  const genuinelyNewItems = incomingItems.filter(li => !existingKeys.has(lineKey(li)));
 
-    if (overlap.length === incomingUPCs.size) {
-      return { type: "true_duplicate", existingId: existing.id };
-    }
-
-    if (newUPCItems.length > 0) {
-      const oldCount = existingItems.length;
-      const mergedItems = [...existingItems, ...newUPCItems];
-      return {
-        type: "extended",
-        existingId: existing.id,
-        newItems: newUPCItems,
-        oldCount,
-        newCount: mergedItems.length,
-        combinedTotal: Number(existing.total) + incomingTotal,
-      };
-    }
-
+  if (genuinelyNewItems.length === 0) {
     return { type: "true_duplicate", existingId: existing.id };
   }
 
-  const incomingModels = extractModels(incomingItems);
-  const existingModels = extractModels(existingItems);
-
-  if (incomingModels.size > 0) {
-    const newModelItems = incomingItems.filter(li => {
-      const key = li.model || li.item_number;
-      return key && !existingModels.has(key);
-    });
-
-    if (newModelItems.length === 0) {
+  // Fallback: also check UPCs for items without item_numbers
+  if (incomingUPCs.size > 0) {
+    const overlap = [...incomingUPCs].filter(u => existingUPCs.has(u));
+    if (overlap.length === incomingUPCs.size && genuinelyNewItems.length === 0) {
       return { type: "true_duplicate", existingId: existing.id };
     }
-
-    const oldCount = existingItems.length;
-    const mergedItems = [...existingItems, ...newModelItems];
-    return {
-      type: "extended",
-      existingId: existing.id,
-      newItems: newModelItems,
-      oldCount,
-      newCount: mergedItems.length,
-      combinedTotal: Number(existing.total) + incomingTotal,
-    };
   }
 
-  return { type: "true_duplicate", existingId: existing.id };
+  // There are genuinely new line items — this is an extended invoice
+  const oldCount = existingItems.length;
+  const mergedItems = [...existingItems, ...genuinelyNewItems];
+  const newLineTotal = genuinelyNewItems.reduce(
+    (sum, li) => sum + Number(li.line_total ?? 0), 0
+  );
+  return {
+    type: "extended",
+    existingId: existing.id,
+    newItems: genuinelyNewItems,
+    oldCount,
+    newCount: mergedItems.length,
+    combinedTotal: Number(existing.total) + newLineTotal,
+  };
 }
 
 // ── Merge extended invoice ────────────────────────────────
