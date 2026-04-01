@@ -609,11 +609,16 @@ export default function APDashboard() {
       {selectedIds.size > 0 && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-4 px-5 py-3 rounded-xl bg-card border border-border shadow-2xl">
           <span className="text-xs text-muted-foreground">
-            {selectedIds.size} invoice{selectedIds.size !== 1 ? "s" : ""} selected
+            {selectedIds.size} installment{selectedIds.size !== 1 ? "s" : ""} selected
           </span>
           <span className="text-lg font-bold tabular-nums text-primary">
-            {formatCurrency(selectedTotal)}
+            {formatCurrency(selectedTotal)} remaining
           </span>
+          {selectedTotal === 0 && selectedIds.size > 0 && (
+            <span className="text-[10px] text-muted-foreground">
+              All selected installments are already paid
+            </span>
+          )}
           <Button size="sm" variant="outline" className="text-xs h-7" onClick={() => setSelectedIds(new Set())}>
             Clear
           </Button>
