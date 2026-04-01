@@ -708,13 +708,17 @@ function PaymentTable({ payments, onRowClick, onRecordPayment, serverDate, selec
           </TableHeader>
           <TableBody>
             {sortedPayments.map(p => {
+              const effectiveStatus = p.invoice_payment_status ?? p.payment_status;
               const overdue = p.due_date < serverDate && p.balance_remaining > 0 && p.payment_status !== "paid" && p.payment_status !== "void";
+              const isPaid = effectiveStatus === "paid" || effectiveStatus === "overpaid";
+              const isPartial = effectiveStatus === "partial";
               const rowColor =
-                p.payment_status === "paid" || p.payment_status === "overpaid" ? "bg-green-500/8 hover:bg-green-500/12" :
-                p.payment_status === "partial" ? "bg-blue-500/8 hover:bg-blue-500/12" :
+                isPaid ? "bg-green-500/8 hover:bg-green-500/12" :
+                isPartial ? "bg-blue-500/8 hover:bg-blue-500/12" :
                 p.payment_status === "disputed" ? "bg-orange-500/8 hover:bg-orange-500/12" :
                 overdue ? "bg-red-500/8 hover:bg-red-500/12" :
                 "hover:bg-muted/40";
+              const siblings = p.sibling_count ?? 1;
 
               return (
                 <TableRow key={p.id} className={`border-border transition-colors ${rowColor}`}>
@@ -743,16 +747,24 @@ function PaymentTable({ payments, onRowClick, onRecordPayment, serverDate, selec
                           <button
                             onClick={() => onQuickPay(p)}
                             className={`h-6 w-6 rounded-full border-2 flex items-center justify-center transition-all ${
-                              p.payment_status === "paid"
+                              isPaid
                                 ? "bg-green-500 border-green-500 text-white"
+                                : isPartial
+                                ? "bg-blue-500/20 border-blue-500 text-blue-500"
                                 : "border-border hover:border-green-500 hover:bg-green-500/10"
                             }`}
                           >
-                            {p.payment_status === "paid" && <Check className="h-3.5 w-3.5" />}
+                            {isPaid && <Check className="h-3.5 w-3.5" />}
+                            {isPartial && <span className="text-[8px] font-bold">½</span>}
                           </button>
                         </TooltipTrigger>
-                        <TooltipContent className="text-xs">
-                          {p.payment_status === "paid" ? "Mark as unpaid" : "Mark as paid"}
+                        <TooltipContent className="text-xs max-w-[200px]">
+                          {p.payment_status === "paid" ? "Mark this installment unpaid" : `Mark installment ${p.installment_label ?? ""} paid`}
+                          {siblings > 1 && (
+                            <p className="text-muted-foreground mt-0.5">
+                              To mark all installments paid, open the invoice drawer.
+                            </p>
+                          )}
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
