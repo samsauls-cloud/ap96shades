@@ -190,6 +190,31 @@ export default function APDashboard() {
     return { vendorGrid: grid, allVendorTotals, grandTotal };
   }, [activePayments, calendarMonths]);
 
+  // ── Paid payments (for history tab) ──────────────────
+  const paidPayments = useMemo(() =>
+    payments.filter(p => p.is_paid || p.payment_status === "paid" || p.balance_remaining === 0),
+    [payments]
+  );
+
+  const historyVendors = useMemo(() =>
+    [...new Set(paidPayments.map(p => p.vendor))].sort(),
+    [paidPayments]
+  );
+
+  const filteredHistory = useMemo(() => {
+    let h = paidPayments;
+    if (historyVendor !== "all") h = h.filter(p => p.vendor === historyVendor);
+    if (historySearch.trim()) {
+      const q = historySearch.toLowerCase();
+      h = h.filter(p =>
+        p.invoice_number?.toLowerCase().includes(q) ||
+        p.vendor?.toLowerCase().includes(q) ||
+        (p.po_number ?? "").toLowerCase().includes(q)
+      );
+    }
+    return h.sort((a, b) => (b.paid_date ?? "").localeCompare(a.paid_date ?? ""));
+  }, [paidPayments, historyVendor, historySearch]);
+
   // ── Overdue payments ─────────────────────────────────
   const overduePayments = activePayments.filter(p =>
     p.due_date < effectiveDate && p.balance_remaining > 0 && p.payment_status !== "paid" && p.payment_status !== "overpaid"
