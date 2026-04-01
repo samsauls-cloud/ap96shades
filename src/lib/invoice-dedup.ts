@@ -94,8 +94,13 @@ export { KNOWN_VENDORS };
 
 // ── Line-level key for dedup ──────────────────────────────
 // Primary key: item_number + qty + unit_price (handles exact re-uploads)
+/** Normalize an item identifier: strip spaces, punctuation, lowercase */
+function normalizeItemId(raw: string): string {
+  return raw.replace(/[\s.,\-\/\\]+/g, "").toLowerCase();
+}
+
 function lineKey(li: LineItem): string {
-  const item = String(li.item_number ?? li.sku ?? "").trim().toLowerCase();
+  const item = normalizeItemId(String(li.item_number ?? li.sku ?? ""));
   const qty = Number(li.qty_shipped ?? li.qty_ordered ?? li.qty ?? 0);
   const price = Number(li.unit_price ?? 0).toFixed(2);
   return `${item}|${qty}|${price}`;
