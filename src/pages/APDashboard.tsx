@@ -7,11 +7,13 @@ import { InvoiceNav } from "@/components/invoices/InvoiceNav";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { AlertCircle, Calendar, Loader2, RefreshCw, DollarSign, ChevronDown, ChevronUp } from "lucide-react";
-import { formatCurrency, formatDate, fetchDistinctVendors } from "@/lib/supabase-queries";
-import { fetchPayments, type InvoicePayment, generateAllMissingPayments } from "@/lib/payment-queries";
+import { AlertCircle, Calendar, Loader2, RefreshCw, DollarSign, ChevronDown, ChevronUp, ChevronsUpDown, Check, CheckCircle2 } from "lucide-react";
+import { formatCurrency, formatDate, fetchDistinctVendors, updateInvoiceStatus, type InvoiceStatus } from "@/lib/supabase-queries";
+import { fetchPayments, type InvoicePayment, generateAllMissingPayments, generatePaymentsForInvoice } from "@/lib/payment-queries";
 import { PaymentStatusBadge } from "@/components/invoices/PaymentStatusBadge";
 import { RecordPaymentModal } from "@/components/invoices/RecordPaymentModal";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { supabase } from "@/integrations/supabase/client";
 
 // ── Server date hook ──────────────────────────────────
