@@ -548,26 +548,75 @@ export default function APDashboard() {
   );
 }
 
-function PaymentTable({ payments, onRowClick, onRecordPayment, serverDate }: { payments: InvoicePayment[]; onRowClick: (p: InvoicePayment) => void; onRecordPayment?: (p: InvoicePayment) => void; serverDate: string }) {
+function PaymentTable({ payments, onRowClick, onRecordPayment, serverDate, selectedIds, onToggleSelected, onQuickPay, navigate }: {
+  payments: InvoicePayment[];
+  onRowClick: (p: InvoicePayment) => void;
+  onRecordPayment?: (p: InvoicePayment) => void;
+  serverDate: string;
+  selectedIds: Set<string>;
+  onToggleSelected: (id: string) => void;
+  onQuickPay: (payment: InvoicePayment) => Promise<void>;
+  navigate: (path: string) => void;
+}) {
+  const [sortField, setSortField] = useState<string>("due_date");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+  const handleSort = (field: string) => {
+    if (sortField === field) setSortDir(d => d === "asc" ? "desc" : "asc");
+    else { setSortField(field); setSortDir("asc"); }
+  };
+
+  const sortedPayments = [...payments].sort((a, b) => {
+    let av: any, bv: any;
+    if (sortField === "amount") { av = a.balance_remaining; bv = b.balance_remaining; }
+    else if (sortField === "due_date") { av = a.due_date; bv = b.due_date; }
+    else if (sortField === "vendor") { av = a.vendor; bv = b.vendor; }
+    else if (sortField === "invoice_number") { av = a.invoice_number; bv = b.invoice_number; }
+    else { av = (a as any)[sortField] ?? ""; bv = (b as any)[sortField] ?? ""; }
+    const cmp = av < bv ? -1 : av > bv ? 1 : 0;
+    return sortDir === "asc" ? cmp : -cmp;
+  });
+
+  const SortIcon = ({ field }: { field: string }) => {
+    if (sortField !== field) return <ChevronsUpDown className="h-3 w-3 opacity-30" />;
+    return sortDir === "asc" ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />;
+  };
+
+  const columns = [
+    { field: "vendor", label: "Vendor" },
+    { field: "invoice_number", label: "Invoice #" },
+    { field: "po_number", label: "PO Ref" },
+    { field: "amount", label: "Amount Due", align: "right" as const },
+    { field: "due_date", label: "Due Date" },
+    { field: "terms", label: "Terms" },
+  ];
+
   return (
     <>
       {/* Desktop table */}
       <div className="hidden md:block overflow-auto">
         <Table>
           <TableHeader>
-            <TableRow className="border-border bg-muted/30">
-              <TableHead className="text-xs font-semibold">Vendor</TableHead>
-              <TableHead className="text-xs font-semibold">Invoice #</TableHead>
-              <TableHead className="text-xs font-semibold">PO Ref</TableHead>
-              <TableHead className="text-xs font-semibold text-right">Amount Due</TableHead>
-              <TableHead className="text-xs font-semibold">Due Date</TableHead>
-              <TableHead className="text-xs font-semibold">Terms</TableHead>
-              <TableHead className="text-xs font-semibold text-center">Status</TableHead>
+            <TableRow className="border-border bg-muted/20">
+              <TableHead className="w-8" />
+              {columns.map(col => (
+                <TableHead
+                  key={col.field}
+                  className={`text-xs font-semibold cursor-pointer select-none hover:text-foreground transition-colors ${col.align === "right" ? "text-right" : ""}`}
+                  onClick={() => handleSort(col.field)}
+                >
+                  <span className="flex items-center gap-1">
+                    {col.label}
+                    <SortIcon field={col.field} />
+                  </span>
+                </TableHead>
+              ))}
+              <TableHead className="text-center text-xs font-semibold">Status</TableHead>
               {onRecordPayment && <TableHead className="text-xs font-semibold text-right w-[100px]" />}
             </TableRow>
           </TableHeader>
           <TableBody>
-            {payments.map(p => {
+            {sortedPayments.map(p => {
               const overdue = p.due_date < serverDate && p.balance_remaining > 0 && p.payment_status !== "paid" && p.payment_status !== "void";
               const rowColor =
                 p.payment_status === "paid" || p.payment_status === "overpaid" ? "bg-green-500/8 hover:bg-green-500/12" :
@@ -577,15 +626,45 @@ function PaymentTable({ payments, onRowClick, onRecordPayment, serverDate }: { p
                 "hover:bg-muted/40";
 
               return (
-                <TableRow key={p.id} className={`border-border transition-colors cursor-pointer ${rowColor}`} onClick={() => onRowClick(p)}>
+                <TableRow key={p.id} className={`border-border transition-colors ${rowColor}`}>
+                  <TableCell onClick={e => e.stopPropagation()}>
+                    <Checkbox
+                      checked={selectedIds.has(p.id)}
+                      onCheckedChange={() => onToggleSelected(p.id)}
+                      className="h-3.5 w-3.5"
+                    />
+                  </TableCell>
                   <TableCell className="text-xs">{p.vendor}</TableCell>
-                  <TableCell className="text-xs font-mono">{p.invoice_number}</TableCell>
+                  <TableCell
+                    className="text-xs font-mono text-primary cursor-pointer hover:underline"
+                    onClick={() => p.invoice_id && navigate(`/invoices?open=${p.invoice_id}`)}
+                  >
+                    {p.invoice_number}
+                  </TableCell>
                   <TableCell className="text-xs font-mono text-muted-foreground">{p.po_number ?? "—"}</TableCell>
                   <TableCell className="text-xs text-right tabular-nums font-semibold">{formatCurrency(p.balance_remaining > 0 ? p.balance_remaining : p.amount_due)}</TableCell>
                   <TableCell className="text-xs">{formatDate(p.due_date)}</TableCell>
                   <TableCell className="text-xs text-muted-foreground">{p.terms ?? "—"}{p.installment_label ? ` (${p.installment_label})` : ""}</TableCell>
-                  <TableCell className="text-center">
-                    <PaymentStatusBadge payment={p} compact />
+                  <TableCell className="text-center" onClick={e => e.stopPropagation()}>
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            onClick={() => onQuickPay(p)}
+                            className={`h-6 w-6 rounded-full border-2 flex items-center justify-center transition-all ${
+                              p.payment_status === "paid"
+                                ? "bg-green-500 border-green-500 text-white"
+                                : "border-border hover:border-green-500 hover:bg-green-500/10"
+                            }`}
+                          >
+                            {p.payment_status === "paid" && <Check className="h-3.5 w-3.5" />}
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent className="text-xs">
+                          {p.payment_status === "paid" ? "Mark as unpaid" : "Mark as paid"}
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                   </TableCell>
                   {onRecordPayment && (
                     <TableCell className="text-right">
@@ -607,7 +686,7 @@ function PaymentTable({ payments, onRowClick, onRecordPayment, serverDate }: { p
       </div>
       {/* Mobile card layout */}
       <div className="md:hidden space-y-2 p-3">
-        {payments.map(p => {
+        {sortedPayments.map(p => {
           const overdue = p.due_date < serverDate && p.balance_remaining > 0 && p.payment_status !== "paid" && p.payment_status !== "void";
           const cardBorder =
             p.payment_status === "paid" || p.payment_status === "overpaid" ? "border-green-500/30" :
@@ -618,20 +697,42 @@ function PaymentTable({ payments, onRowClick, onRecordPayment, serverDate }: { p
           return (
             <div
               key={p.id}
-              className={`rounded-lg border p-3 cursor-pointer active:bg-accent/70 transition-colors ${cardBorder}`}
-              onClick={() => onRowClick(p)}
+              className={`rounded-lg border p-3 transition-colors ${cardBorder}`}
             >
               <div className="flex items-start justify-between gap-2 mb-1.5">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium truncate">{p.vendor}</p>
-                  <p className="text-[10px] font-mono text-muted-foreground truncate">{p.invoice_number}</p>
+                <div className="flex items-center gap-2 min-w-0">
+                  <Checkbox
+                    checked={selectedIds.has(p.id)}
+                    onCheckedChange={() => onToggleSelected(p.id)}
+                    className="h-3.5 w-3.5 shrink-0"
+                  />
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate">{p.vendor}</p>
+                    <p
+                      className="text-[10px] font-mono text-primary cursor-pointer hover:underline truncate"
+                      onClick={() => p.invoice_id && navigate(`/invoices?open=${p.invoice_id}`)}
+                    >
+                      {p.invoice_number}
+                    </p>
+                  </div>
                 </div>
-                <div className="text-right shrink-0">
-                  <p className={`text-sm font-semibold tabular-nums ${p.balance_remaining > 0 ? "" : "text-green-500"}`}>{formatCurrency(p.balance_remaining)}</p>
-                  <PaymentStatusBadge payment={p} compact />
+                <div className="text-right shrink-0 flex items-center gap-2">
+                  <div>
+                    <p className={`text-sm font-semibold tabular-nums ${p.balance_remaining > 0 ? "" : "text-green-500"}`}>{formatCurrency(p.balance_remaining)}</p>
+                  </div>
+                  <button
+                    onClick={() => onQuickPay(p)}
+                    className={`h-6 w-6 rounded-full border-2 flex items-center justify-center transition-all shrink-0 ${
+                      p.payment_status === "paid"
+                        ? "bg-green-500 border-green-500 text-white"
+                        : "border-border hover:border-green-500 hover:bg-green-500/10"
+                    }`}
+                  >
+                    {p.payment_status === "paid" && <Check className="h-3.5 w-3.5" />}
+                  </button>
                 </div>
               </div>
-              <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground">
+              <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground pl-6">
                 <span>Due: {formatDate(p.due_date)}</span>
                 <span>{p.terms ?? "—"}{p.installment_label ? ` (${p.installment_label})` : ""}</span>
               </div>
