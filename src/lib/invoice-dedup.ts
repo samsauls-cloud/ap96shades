@@ -109,7 +109,7 @@ function lineKey(li: LineItem): string {
 // Fallback key: item_number + line_total (catches OCR price-variant dupes
 // where the same item is parsed with MSRP vs wholesale price)
 function lineKeyLoose(li: LineItem): string {
-  const item = String(li.item_number ?? li.sku ?? "").trim().toLowerCase();
+  const item = normalizeItemId(String(li.item_number ?? li.sku ?? ""));
   const lt = Number(li.line_total ?? 0).toFixed(2);
   return `${item}|${lt}`;
 }
