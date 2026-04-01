@@ -92,15 +92,21 @@ export function isKnownVendor(vendor: string): boolean {
 
 export { KNOWN_VENDORS };
 
+// ── Line-level key for dedup (item_number + qty + unit_price) ─────
+function lineKey(li: LineItem): string {
+  const item = String(li.item_number ?? li.sku ?? "").trim().toLowerCase();
+  const qty = Number(li.qty_shipped ?? li.qty_ordered ?? li.qty ?? 0);
+  const price = Number(li.unit_price ?? 0).toFixed(2);
+  return `${item}|${qty}|${price}`;
+}
+
+function extractLineKeys(items: LineItem[]): Set<string> {
+  return new Set(items.map(lineKey));
+}
+
 // ── UPC / Model extraction ────────────────────────────────
 function extractUPCs(items: LineItem[]): Set<string> {
   return new Set(items.map(li => li.upc).filter(Boolean) as string[]);
-}
-
-function extractModels(items: LineItem[]): Set<string> {
-  return new Set(
-    items.map(li => li.model || li.item_number).filter(Boolean) as string[]
-  );
 }
 
 // ── Dedup result types ────────────────────────────────────
