@@ -90,20 +90,42 @@ export function InvoiceFiltersBar({ filters, onChange, vendors, tags = [] }: Pro
           </Select>
         )}
 
-        <Input
-          type="date"
-          value={filters.dateFrom || ""}
-          onChange={e => update({ dateFrom: e.target.value || undefined })}
-          className="w-full sm:w-[140px] bg-secondary border-border text-xs h-8"
-          placeholder="From"
-        />
-        <Input
-          type="date"
-          value={filters.dateTo || ""}
-          onChange={e => update({ dateTo: e.target.value || undefined })}
-          className="w-full sm:w-[140px] bg-secondary border-border text-xs h-8"
-          placeholder="To"
-        />
+        <div className="flex items-center gap-1 w-full sm:w-auto">
+          <span className="text-[10px] text-muted-foreground whitespace-nowrap">Due From</span>
+          <Input
+            type="date"
+            value={filters.dueDateFrom || ""}
+            onChange={e => update({ dueDateFrom: e.target.value || undefined })}
+            className="w-full sm:w-[130px] bg-secondary border-border text-xs h-8"
+          />
+        </div>
+        <div className="flex items-center gap-1 w-full sm:w-auto">
+          <span className="text-[10px] text-muted-foreground whitespace-nowrap">Due To</span>
+          <Input
+            type="date"
+            value={filters.dueDateTo || ""}
+            onChange={e => update({ dueDateTo: e.target.value || undefined })}
+            className="w-full sm:w-[130px] bg-secondary border-border text-xs h-8"
+          />
+        </div>
+        <div className="flex items-center gap-1 w-full sm:w-auto">
+          <span className="text-[10px] text-muted-foreground whitespace-nowrap">Inv From</span>
+          <Input
+            type="date"
+            value={filters.dateFrom || ""}
+            onChange={e => update({ dateFrom: e.target.value || undefined })}
+            className="w-full sm:w-[130px] bg-secondary border-border text-xs h-8"
+          />
+        </div>
+        <div className="flex items-center gap-1 w-full sm:w-auto">
+          <span className="text-[10px] text-muted-foreground whitespace-nowrap">Inv To</span>
+          <Input
+            type="date"
+            value={filters.dateTo || ""}
+            onChange={e => update({ dateTo: e.target.value || undefined })}
+            className="w-full sm:w-[130px] bg-secondary border-border text-xs h-8"
+          />
+        </div>
         <Input
           type="number"
           value={filters.minTotal ?? ""}

@@ -85,6 +85,8 @@ export async function fetchInvoices(filters: InvoiceFilters) {
   if (filters.tag) query = query.contains("tags" as any, [filters.tag]);
   if (filters.dateFrom) query = query.gte("invoice_date", filters.dateFrom);
   if (filters.dateTo) query = query.lte("invoice_date", filters.dateTo);
+  if (filters.dueDateFrom) query = query.gte("due_date", filters.dueDateFrom);
+  if (filters.dueDateTo) query = query.lte("due_date", filters.dueDateTo);
   if (filters.minTotal !== undefined) query = query.gte("total", filters.minTotal);
   if (filters.maxTotal !== undefined) query = query.lte("total", filters.maxTotal);
   if (filters.source) query = query.eq("import_source", filters.source);
