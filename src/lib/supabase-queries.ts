@@ -38,6 +38,8 @@ export interface InvoiceFilters {
   tag?: string;
   dateFrom?: string;
   dateTo?: string;
+  dueDateFrom?: string;
+  dueDateTo?: string;
   minTotal?: number;
   maxTotal?: number;
   sortField?: string;
