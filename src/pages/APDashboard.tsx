@@ -81,6 +81,9 @@ export default function APDashboard() {
   const [expandedMonth, setExpandedMonth] = useState<string | null>(null);
   const [fixingKering, setFixingKering] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historySearch, setHistorySearch] = useState("");
+  const [historyVendor, setHistoryVendor] = useState("all");
   const midnightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const midnightIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const minuteIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
