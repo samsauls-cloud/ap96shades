@@ -513,6 +513,87 @@ export default function APDashboard() {
               );
             })}
 
+            {/* ── Payment History (Paid Invoices) ─── */}
+            {(() => {
+              const paidPayments = payments.filter(p =>
+                p.is_paid || p.payment_status === "paid" || p.balance_remaining === 0
+              );
+              const vendors = [...new Set(paidPayments.map(p => p.vendor))].sort();
+              const filteredHistory = (() => {
+                let h = paidPayments;
+                if (historyVendor !== "all") h = h.filter(p => p.vendor === historyVendor);
+                if (historySearch.trim()) {
+                  const q = historySearch.toLowerCase();
+                  h = h.filter(p =>
+                    p.invoice_number?.toLowerCase().includes(q) ||
+                    p.vendor?.toLowerCase().includes(q) ||
+                    (p.po_number ?? "").toLowerCase().includes(q)
+                  );
+                }
+                return h.sort((a, b) => (b.paid_date ?? "").localeCompare(a.paid_date ?? ""));
+              })();
+
+              return paidPayments.length > 0 ? (
+                <Card className="bg-card border-border">
+                  <CardHeader
+                    className="pb-3 cursor-pointer"
+                    onClick={() => setHistoryOpen(v => !v)}
+                  >
+                    <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                      <CheckCircle2 className="h-4 w-4 text-green-500" />
+                      Payment History — Paid Invoices
+                      <Badge variant="outline" className="text-[10px] ml-1">
+                        {paidPayments.length}
+                      </Badge>
+                      <span className="ml-auto text-xs font-normal text-muted-foreground">
+                        {formatCurrency(paidPayments.reduce((s, p) => s + p.amount_paid, 0))} total paid
+                      </span>
+                      {historyOpen
+                        ? <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                        : <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                      }
+                    </CardTitle>
+                  </CardHeader>
+
+                  {historyOpen && (
+                    <CardContent className="p-0">
+                      <div className="flex gap-2 p-3 border-b border-border">
+                        <div className="relative flex-1">
+                          <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-muted-foreground" />
+                          <Input
+                            placeholder="Search paid invoices…"
+                            value={historySearch}
+                            onChange={e => setHistorySearch(e.target.value)}
+                            className="pl-8 h-8 text-xs"
+                            onClick={e => e.stopPropagation()}
+                          />
+                        </div>
+                        <Select value={historyVendor} onValueChange={setHistoryVendor}>
+                          <SelectTrigger className="h-8 text-xs w-[160px]" onClick={e => e.stopPropagation()}>
+                            <SelectValue placeholder="All Vendors" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">All Vendors</SelectItem>
+                            {vendors.map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <PaymentTable
+                        payments={filteredHistory}
+                        onRowClick={p => p.invoice_id && navigate(`/invoices?open=${p.invoice_id}`)}
+                        onRecordPayment={() => {}}
+                        serverDate={effectiveDate}
+                        selectedIds={new Set()}
+                        onToggleSelected={() => {}}
+                        onQuickPay={handleQuickPay}
+                        navigate={navigate}
+                      />
+                    </CardContent>
+                  )}
+                </Card>
+              ) : null;
+            })()}
+
             {activePayments.length === 0 && (
               <Card className="bg-card border-border">
                 <CardContent className="p-8 text-center text-muted-foreground text-sm">
