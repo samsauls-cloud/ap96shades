@@ -104,27 +104,47 @@ export async function updateInvoiceStatus(id: string, status: InvoiceStatus) {
     .eq("id", id);
   if (error) throw error;
 
-  // 2. If reverting away from paid, reset all invoice_payments rows
-  if (status === "unpaid" || status === "partial" || status === "disputed") {
-    const { data: installments } = await supabase
+  const today = new Date().toISOString().split("T")[0];
+
+  if (status === "paid") {
+    // Mark ALL payment rows as paid
+    const { data: rows } = await supabase
       .from("invoice_payments")
       .select("id, amount_due")
       .eq("invoice_id", id);
 
-    if (installments && installments.length > 0) {
-      for (const inst of installments) {
-        await supabase
-          .from("invoice_payments")
-          .update({
-            is_paid: false,
-            paid_date: null,
-            amount_paid: 0,
-            balance_remaining: Number(inst.amount_due) || 0,
-            payment_status: status === "disputed" ? "disputed" : "unpaid",
-            last_payment_date: null,
-          } as any)
-          .eq("id", inst.id);
-      }
+    for (const row of rows ?? []) {
+      await supabase
+        .from("invoice_payments")
+        .update({
+          is_paid: true,
+          paid_date: today,
+          amount_paid: Number(row.amount_due) || 0,
+          balance_remaining: 0,
+          payment_status: "paid",
+          last_payment_date: today,
+        } as any)
+        .eq("id", row.id);
+    }
+  } else if (status === "unpaid" || status === "partial" || status === "disputed") {
+    // Reset ALL payment rows back to unpaid
+    const { data: rows } = await supabase
+      .from("invoice_payments")
+      .select("id, amount_due")
+      .eq("invoice_id", id);
+
+    for (const row of rows ?? []) {
+      await supabase
+        .from("invoice_payments")
+        .update({
+          is_paid: false,
+          paid_date: null,
+          amount_paid: 0,
+          balance_remaining: Number(row.amount_due) || 0,
+          payment_status: status === "disputed" ? "disputed" : "unpaid",
+          last_payment_date: null,
+        } as any)
+        .eq("id", row.id);
     }
   }
 }
