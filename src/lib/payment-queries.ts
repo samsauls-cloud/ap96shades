@@ -93,7 +93,25 @@ export async function fetchPayments(): Promise<InvoicePayment[]> {
     orderBy: "due_date",
     ascending: true,
   });
-  return data.map(normalizePayment);
+  const normalized = data.map(normalizePayment);
+
+  // Compute invoice-level status for each row
+  const byInvoice = new Map<string, InvoicePayment[]>();
+  for (const p of normalized) {
+    if (!p.invoice_id) continue;
+    const arr = byInvoice.get(p.invoice_id) ?? [];
+    arr.push(p);
+    byInvoice.set(p.invoice_id, arr);
+  }
+
+  return normalized.map(p => {
+    if (!p.invoice_id) return p;
+    const siblings = byInvoice.get(p.invoice_id) ?? [p];
+    const allPaid = siblings.every(s => s.is_paid || s.payment_status === "paid");
+    const somePaid = siblings.some(s => s.is_paid || s.payment_status === "paid");
+    const invoiceStatus = allPaid ? "paid" : somePaid ? "partial" : p.payment_status;
+    return { ...p, invoice_payment_status: invoiceStatus, sibling_count: siblings.length };
+  });
 }
 
 export async function fetchPaymentsForInvoice(invoiceId: string): Promise<InvoicePayment[]> {
