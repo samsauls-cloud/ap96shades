@@ -790,10 +790,13 @@ function PaymentTable({ payments, onRowClick, onRecordPayment, serverDate, selec
       {/* Mobile card layout */}
       <div className="md:hidden space-y-2 p-3">
         {sortedPayments.map(p => {
+          const effectiveStatus = p.invoice_payment_status ?? p.payment_status;
           const overdue = p.due_date < serverDate && p.balance_remaining > 0 && p.payment_status !== "paid" && p.payment_status !== "void";
+          const isPaid = effectiveStatus === "paid" || effectiveStatus === "overpaid";
+          const isPartial = effectiveStatus === "partial";
           const cardBorder =
-            p.payment_status === "paid" || p.payment_status === "overpaid" ? "border-green-500/30" :
-            p.payment_status === "partial" ? "border-blue-500/30" :
+            isPaid ? "border-green-500/30" :
+            isPartial ? "border-blue-500/30" :
             p.payment_status === "disputed" ? "border-orange-500/30" :
             overdue ? "border-red-500/30" : "border-border";
 
@@ -826,12 +829,15 @@ function PaymentTable({ payments, onRowClick, onRecordPayment, serverDate, selec
                   <button
                     onClick={() => onQuickPay(p)}
                     className={`h-6 w-6 rounded-full border-2 flex items-center justify-center transition-all shrink-0 ${
-                      p.payment_status === "paid"
+                      isPaid
                         ? "bg-green-500 border-green-500 text-white"
+                        : isPartial
+                        ? "bg-blue-500/20 border-blue-500 text-blue-500"
                         : "border-border hover:border-green-500 hover:bg-green-500/10"
                     }`}
                   >
-                    {p.payment_status === "paid" && <Check className="h-3.5 w-3.5" />}
+                    {isPaid && <Check className="h-3.5 w-3.5" />}
+                    {isPartial && <span className="text-[8px] font-bold">½</span>}
                   </button>
                 </div>
               </div>
