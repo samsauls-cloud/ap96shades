@@ -80,6 +80,7 @@ export default function APDashboard() {
   const [modalOpen, setModalOpen] = useState(false);
   const [expandedMonth, setExpandedMonth] = useState<string | null>(null);
   const [fixingKering, setFixingKering] = useState(false);
+  const [fixingLuxottica, setFixingLuxottica] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [dashTab, setDashTab] = useState<'outstanding' | 'history'>('outstanding');
   const [historySearch, setHistorySearch] = useState("");
