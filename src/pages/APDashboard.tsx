@@ -344,6 +344,10 @@ export default function APDashboard() {
             </div>
           </div>
           <div className="sm:ml-auto flex items-center gap-2">
+            <Button size="sm" variant="outline" className="h-8 text-xs" onClick={handleFixLuxotticaTerms} disabled={fixingLuxottica}>
+              {fixingLuxottica ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <RefreshCw className="h-3.5 w-3.5 mr-1" />}
+              Fix Luxottica Terms
+            </Button>
             <Button size="sm" variant="outline" className="h-8 text-xs" onClick={handleFixKeringTerms} disabled={fixingKering}>
               {fixingKering ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <RefreshCw className="h-3.5 w-3.5 mr-1" />}
               Fix Kering Terms

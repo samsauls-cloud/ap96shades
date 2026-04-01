@@ -67,7 +67,7 @@ export function InvoiceTable({ invoices, filters, onSort, onRowClick, totalCount
               <SortableHead field="invoice_number" label="Invoice/Order #" filters={filters} onSort={onSort} />
               <SortableHead field="po_number" label="PO #" filters={filters} onSort={onSort} />
               <TableHead className="text-xs font-semibold">Account #</TableHead>
-              <SortableHead field="invoice_date" label="Date" filters={filters} onSort={onSort} />
+              <SortableHead field="invoice_date" label="Invoice Date" filters={filters} onSort={onSort} />
               <SortableHead field="due_date" label="Due Date" filters={filters} onSort={onSort} />
               <TableHead className="text-xs font-semibold text-right">Units</TableHead>
               <SortableHead field="total" label="Total" filters={filters} onSort={onSort} className="text-right" />
