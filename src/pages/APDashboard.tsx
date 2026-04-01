@@ -7,13 +7,16 @@ import { InvoiceNav } from "@/components/invoices/InvoiceNav";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { AlertCircle, Calendar, Loader2, RefreshCw, DollarSign, ChevronDown, ChevronUp, ChevronsUpDown, Check, CheckCircle2 } from "lucide-react";
+import { AlertCircle, Calendar, Loader2, RefreshCw, DollarSign, ChevronDown, ChevronUp, ChevronsUpDown, Check, CheckCircle2, Search } from "lucide-react";
 import { formatCurrency, formatDate, fetchDistinctVendors, updateInvoiceStatus, type InvoiceStatus } from "@/lib/supabase-queries";
-import { fetchPayments, type InvoicePayment, generateAllMissingPayments, generatePaymentsForInvoice } from "@/lib/payment-queries";
+import { fetchPayments, type InvoicePayment, generateAllMissingPayments, generatePaymentsForInvoice, markInstallmentPaid } from "@/lib/payment-queries";
 import { PaymentStatusBadge } from "@/components/invoices/PaymentStatusBadge";
 import { RecordPaymentModal } from "@/components/invoices/RecordPaymentModal";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
 
 // ── Server date hook ──────────────────────────────────
@@ -78,6 +81,9 @@ export default function APDashboard() {
   const [expandedMonth, setExpandedMonth] = useState<string | null>(null);
   const [fixingKering, setFixingKering] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historySearch, setHistorySearch] = useState("");
+  const [historyVendor, setHistoryVendor] = useState("all");
   const midnightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const midnightIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const minuteIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -232,16 +238,15 @@ export default function APDashboard() {
     }, 0);
   }, [selectedIds, activePayments]);
 
-  // ── Quick pay (inline toggle) ────────────────────────
+  // ── Quick pay (inline toggle — per installment) ───
   const handleQuickPay = async (payment: InvoicePayment) => {
-    if (!payment.invoice_id) return;
-    const newStatus = payment.payment_status === "paid" ? "unpaid" : "paid";
+    const currentlyPaid = payment.is_paid || payment.payment_status === "paid";
     try {
-      await updateInvoiceStatus(payment.invoice_id, newStatus as InvoiceStatus);
+      await markInstallmentPaid(payment.id, !currentlyPaid);
       toast.success(
-        newStatus === "paid"
-          ? `${payment.invoice_number} marked paid`
-          : `${payment.invoice_number} marked unpaid`
+        !currentlyPaid
+          ? `${payment.installment_label || payment.invoice_number} marked paid`
+          : `${payment.installment_label || payment.invoice_number} marked unpaid`
       );
       refreshAll();
     } catch (e: any) {
@@ -508,6 +513,87 @@ export default function APDashboard() {
               );
             })}
 
+            {/* ── Payment History (Paid Invoices) ─── */}
+            {(() => {
+              const paidPayments = payments.filter(p =>
+                p.is_paid || p.payment_status === "paid" || p.balance_remaining === 0
+              );
+              const vendors = [...new Set(paidPayments.map(p => p.vendor))].sort();
+              const filteredHistory = (() => {
+                let h = paidPayments;
+                if (historyVendor !== "all") h = h.filter(p => p.vendor === historyVendor);
+                if (historySearch.trim()) {
+                  const q = historySearch.toLowerCase();
+                  h = h.filter(p =>
+                    p.invoice_number?.toLowerCase().includes(q) ||
+                    p.vendor?.toLowerCase().includes(q) ||
+                    (p.po_number ?? "").toLowerCase().includes(q)
+                  );
+                }
+                return h.sort((a, b) => (b.paid_date ?? "").localeCompare(a.paid_date ?? ""));
+              })();
+
+              return paidPayments.length > 0 ? (
+                <Card className="bg-card border-border">
+                  <CardHeader
+                    className="pb-3 cursor-pointer"
+                    onClick={() => setHistoryOpen(v => !v)}
+                  >
+                    <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                      <CheckCircle2 className="h-4 w-4 text-green-500" />
+                      Payment History — Paid Invoices
+                      <Badge variant="outline" className="text-[10px] ml-1">
+                        {paidPayments.length}
+                      </Badge>
+                      <span className="ml-auto text-xs font-normal text-muted-foreground">
+                        {formatCurrency(paidPayments.reduce((s, p) => s + p.amount_paid, 0))} total paid
+                      </span>
+                      {historyOpen
+                        ? <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                        : <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                      }
+                    </CardTitle>
+                  </CardHeader>
+
+                  {historyOpen && (
+                    <CardContent className="p-0">
+                      <div className="flex gap-2 p-3 border-b border-border">
+                        <div className="relative flex-1">
+                          <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-muted-foreground" />
+                          <Input
+                            placeholder="Search paid invoices…"
+                            value={historySearch}
+                            onChange={e => setHistorySearch(e.target.value)}
+                            className="pl-8 h-8 text-xs"
+                            onClick={e => e.stopPropagation()}
+                          />
+                        </div>
+                        <Select value={historyVendor} onValueChange={setHistoryVendor}>
+                          <SelectTrigger className="h-8 text-xs w-[160px]" onClick={e => e.stopPropagation()}>
+                            <SelectValue placeholder="All Vendors" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">All Vendors</SelectItem>
+                            {vendors.map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <PaymentTable
+                        payments={filteredHistory}
+                        onRowClick={p => p.invoice_id && navigate(`/invoices?open=${p.invoice_id}`)}
+                        onRecordPayment={() => {}}
+                        serverDate={effectiveDate}
+                        selectedIds={new Set()}
+                        onToggleSelected={() => {}}
+                        onQuickPay={handleQuickPay}
+                        navigate={navigate}
+                      />
+                    </CardContent>
+                  )}
+                </Card>
+              ) : null;
+            })()}
+
             {activePayments.length === 0 && (
               <Card className="bg-card border-border">
                 <CardContent className="p-8 text-center text-muted-foreground text-sm">
@@ -523,11 +609,16 @@ export default function APDashboard() {
       {selectedIds.size > 0 && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-4 px-5 py-3 rounded-xl bg-card border border-border shadow-2xl">
           <span className="text-xs text-muted-foreground">
-            {selectedIds.size} invoice{selectedIds.size !== 1 ? "s" : ""} selected
+            {selectedIds.size} installment{selectedIds.size !== 1 ? "s" : ""} selected
           </span>
           <span className="text-lg font-bold tabular-nums text-primary">
-            {formatCurrency(selectedTotal)}
+            {formatCurrency(selectedTotal)} remaining
           </span>
+          {selectedTotal === 0 && selectedIds.size > 0 && (
+            <span className="text-[10px] text-muted-foreground">
+              All selected installments are already paid
+            </span>
+          )}
           <Button size="sm" variant="outline" className="text-xs h-7" onClick={() => setSelectedIds(new Set())}>
             Clear
           </Button>
@@ -617,13 +708,17 @@ function PaymentTable({ payments, onRowClick, onRecordPayment, serverDate, selec
           </TableHeader>
           <TableBody>
             {sortedPayments.map(p => {
+              const effectiveStatus = p.invoice_payment_status ?? p.payment_status;
               const overdue = p.due_date < serverDate && p.balance_remaining > 0 && p.payment_status !== "paid" && p.payment_status !== "void";
+              const isPaid = effectiveStatus === "paid" || effectiveStatus === "overpaid";
+              const isPartial = effectiveStatus === "partial";
               const rowColor =
-                p.payment_status === "paid" || p.payment_status === "overpaid" ? "bg-green-500/8 hover:bg-green-500/12" :
-                p.payment_status === "partial" ? "bg-blue-500/8 hover:bg-blue-500/12" :
+                isPaid ? "bg-green-500/8 hover:bg-green-500/12" :
+                isPartial ? "bg-blue-500/8 hover:bg-blue-500/12" :
                 p.payment_status === "disputed" ? "bg-orange-500/8 hover:bg-orange-500/12" :
                 overdue ? "bg-red-500/8 hover:bg-red-500/12" :
                 "hover:bg-muted/40";
+              const siblings = p.sibling_count ?? 1;
 
               return (
                 <TableRow key={p.id} className={`border-border transition-colors ${rowColor}`}>
@@ -652,16 +747,24 @@ function PaymentTable({ payments, onRowClick, onRecordPayment, serverDate, selec
                           <button
                             onClick={() => onQuickPay(p)}
                             className={`h-6 w-6 rounded-full border-2 flex items-center justify-center transition-all ${
-                              p.payment_status === "paid"
+                              isPaid
                                 ? "bg-green-500 border-green-500 text-white"
+                                : isPartial
+                                ? "bg-blue-500/20 border-blue-500 text-blue-500"
                                 : "border-border hover:border-green-500 hover:bg-green-500/10"
                             }`}
                           >
-                            {p.payment_status === "paid" && <Check className="h-3.5 w-3.5" />}
+                            {isPaid && <Check className="h-3.5 w-3.5" />}
+                            {isPartial && <span className="text-[8px] font-bold">½</span>}
                           </button>
                         </TooltipTrigger>
-                        <TooltipContent className="text-xs">
-                          {p.payment_status === "paid" ? "Mark as unpaid" : "Mark as paid"}
+                        <TooltipContent className="text-xs max-w-[200px]">
+                          {p.payment_status === "paid" ? "Mark this installment unpaid" : `Mark installment ${p.installment_label ?? ""} paid`}
+                          {siblings > 1 && (
+                            <p className="text-muted-foreground mt-0.5">
+                              To mark all installments paid, open the invoice drawer.
+                            </p>
+                          )}
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
@@ -687,10 +790,13 @@ function PaymentTable({ payments, onRowClick, onRecordPayment, serverDate, selec
       {/* Mobile card layout */}
       <div className="md:hidden space-y-2 p-3">
         {sortedPayments.map(p => {
+          const effectiveStatus = p.invoice_payment_status ?? p.payment_status;
           const overdue = p.due_date < serverDate && p.balance_remaining > 0 && p.payment_status !== "paid" && p.payment_status !== "void";
+          const isPaid = effectiveStatus === "paid" || effectiveStatus === "overpaid";
+          const isPartial = effectiveStatus === "partial";
           const cardBorder =
-            p.payment_status === "paid" || p.payment_status === "overpaid" ? "border-green-500/30" :
-            p.payment_status === "partial" ? "border-blue-500/30" :
+            isPaid ? "border-green-500/30" :
+            isPartial ? "border-blue-500/30" :
             p.payment_status === "disputed" ? "border-orange-500/30" :
             overdue ? "border-red-500/30" : "border-border";
 
@@ -723,12 +829,15 @@ function PaymentTable({ payments, onRowClick, onRecordPayment, serverDate, selec
                   <button
                     onClick={() => onQuickPay(p)}
                     className={`h-6 w-6 rounded-full border-2 flex items-center justify-center transition-all shrink-0 ${
-                      p.payment_status === "paid"
+                      isPaid
                         ? "bg-green-500 border-green-500 text-white"
+                        : isPartial
+                        ? "bg-blue-500/20 border-blue-500 text-blue-500"
                         : "border-border hover:border-green-500 hover:bg-green-500/10"
                     }`}
                   >
-                    {p.payment_status === "paid" && <Check className="h-3.5 w-3.5" />}
+                    {isPaid && <Check className="h-3.5 w-3.5" />}
+                    {isPartial && <span className="text-[8px] font-bold">½</span>}
                   </button>
                 </div>
               </div>
