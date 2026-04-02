@@ -19,7 +19,7 @@ function getAuditStatus(audit: AuditResult): AuditStatus {
 }
 
 function getIssueCount(audit: AuditResult): number {
-  return audit.missingPayments.length + audit.mathDiscrepancies.length + audit.unknownVendors.length + audit.duplicateInvoices.length;
+  return audit.missingPayments.length + audit.mathDiscrepancies.length + audit.unknownVendors.length + audit.duplicateInvoices.length + audit.staleInstallments.length;
 }
 
 interface IssueDef {
