@@ -498,9 +498,7 @@ export default function ReaderPage() {
       toast.info(`Batch cancelled. ${completed} of ${filesToProcess.length} processed.`);
     }
 
-    if (atomicMode && !cancelRef.current) {
-      await finalizeAtomicBatch(fileDocPairs);
-    }
+    // Atomic mode no longer auto-saves — all docs go through review
 
     setProcessing(false);
     setBatchTotal(0);
