@@ -151,7 +151,7 @@ export default function InvoicesPage() {
             }, 100);
           }}
         />
-        {audit && (audit.missingPayments.length > 0 || audit.mathDiscrepancies.length > 0 || audit.unknownVendors.length > 0 || audit.duplicateInvoices.length > 0) && (
+        {audit && (audit.missingPayments.length > 0 || audit.mathDiscrepancies.length > 0 || audit.unknownVendors.length > 0 || audit.duplicateInvoices.length > 0 || audit.staleInstallments.length > 0) && (
           <div>
             <button
               onClick={() => setAuditPanelOpen(o => !o)}
