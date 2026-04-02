@@ -100,6 +100,7 @@ export function AuditPanel({ audit, onRefresh, isLoading, totalInvoices, highlig
   const [recalcId, setRecalcId] = useState<string | null>(null);
   const [confirmRecalc, setConfirmRecalc] = useState<{ id: string; invoiceNumber: string; vendor: string; total: number; invoiceDate: string; poNumber: string | null; paymentTerms: string | null } | null>(null);
   const [sortField, setSortField] = useState<string>("vendor");
+  const [fixingStaleId, setFixingStaleId] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
   if (!audit) return null;
