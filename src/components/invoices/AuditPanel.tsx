@@ -14,7 +14,7 @@ type IssueCategory = "missingPayments" | "mathDiscrepancies" | "unknownVendors" 
 
 function getAuditStatus(audit: AuditResult): AuditStatus {
   if (audit.mathDiscrepancies.length > 0) return "error";
-  if (audit.missingPayments.length > 0 || audit.unknownVendors.length > 0 || audit.duplicateInvoices.length > 0) return "warning";
+  if (audit.missingPayments.length > 0 || audit.unknownVendors.length > 0 || audit.duplicateInvoices.length > 0 || audit.staleInstallments.length > 0) return "warning";
   return "clean";
 }
 
