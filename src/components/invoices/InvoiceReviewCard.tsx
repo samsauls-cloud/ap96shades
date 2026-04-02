@@ -1,0 +1,187 @@
+import { useState, useMemo } from "react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { CheckCircle2, AlertCircle, AlertTriangle, Loader2, X } from "lucide-react";
+import { formatCurrency } from "@/lib/supabase-queries";
+import { resolvePaymentSchedule } from "@/lib/payment-terms-engine";
+import { getVendorTermsRule } from "@/lib/vendor-terms-registry";
+import type { ProcessedDoc } from "@/lib/reader-engine";
+
+interface Props {
+  doc: ProcessedDoc;
+  onApprove: (docId: string, confirmedTerms: string) => Promise<void>;
+  onDiscard: (docId: string) => void;
+}
+
+export function InvoiceReviewCard({ doc, onApprove, onDiscard }: Props) {
+  const [terms, setTerms] = useState(doc.reviewTerms ?? "");
+  const [saving, setSaving] = useState(false);
+
+  const vendor = doc.vendor || doc.parsedData?.vendor || "";
+  const invoiceNumber = doc.invoice_number || doc.parsedData?.invoice_number || "";
+  const invoiceDate = doc.invoiceData?.invoice_date || doc.parsedData?.invoice_date || "";
+  const total = doc.total || doc.invoiceData?.total || 0;
+  const termsConfidence = doc.parsedData?.payment_terms_extracted?.confidence ?? "low";
+  const isNewVendor = getVendorTermsRule(vendor) === null;
+
+  const previewInstallments = useMemo(() => {
+    if (!terms.trim() || !invoiceDate) return [];
+    try {
+      const schedule = resolvePaymentSchedule(
+        vendor,
+        "Procurement",
+        new Date(invoiceDate),
+        total,
+        terms
+      );
+      return schedule.tranches.map((t) => ({
+        label: t.tranche_label,
+        dueDate: t.due_date.toLocaleDateString("en-US", {
+          month: "short", day: "numeric", year: "numeric",
+        }),
+        amount: total * t.amount_fraction,
+      }));
+    } catch {
+      return [];
+    }
+  }, [terms, invoiceDate, vendor, total]);
+
+  const handleApprove = async () => {
+    setSaving(true);
+    try {
+      await onApprove(doc.id, terms);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Card className="bg-card border-primary/30 border-2">
+      <CardContent className="p-4 space-y-4">
+        {/* Header */}
+        <div className="flex items-center gap-2">
+          <div className="h-2 w-2 rounded-full bg-primary animate-pulse" />
+          <span className="text-sm font-semibold">Review Before Saving</span>
+          <span className="text-xs text-muted-foreground ml-auto truncate max-w-[180px]">{doc.filename}</span>
+        </div>
+
+        {/* Vendor + Invoice info — read only */}
+        <div className="grid grid-cols-2 gap-3 text-xs">
+          <div>
+            <p className="text-muted-foreground mb-0.5">Vendor</p>
+            <p className="font-medium">{vendor}</p>
+          </div>
+          <div>
+            <p className="text-muted-foreground mb-0.5">Invoice #</p>
+            <p className="font-medium font-mono">{invoiceNumber}</p>
+          </div>
+          <div>
+            <p className="text-muted-foreground mb-0.5">Invoice Date</p>
+            <p className="font-medium">{invoiceDate}</p>
+          </div>
+          <div>
+            <p className="text-muted-foreground mb-0.5">Total</p>
+            <p className="font-bold text-base">{formatCurrency(total)}</p>
+          </div>
+        </div>
+
+        {/* PAYMENT TERMS — editable */}
+        <div className="space-y-1.5">
+          <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+            Payment Terms
+          </label>
+          <Input
+            value={terms}
+            onChange={e => setTerms(e.target.value)}
+            placeholder="e.g. EOM +30 Days, Net 30, 30/60/90"
+            className="text-sm"
+          />
+          {termsConfidence === "low" && (
+            <p className="text-[10px] text-amber-500 flex items-center gap-1">
+              <AlertTriangle className="h-3 w-3" />
+              Terms were not clearly stated on this invoice — please confirm or enter manually.
+            </p>
+          )}
+          {termsConfidence === "medium" && (
+            <p className="text-[10px] text-amber-400 flex items-center gap-1">
+              <AlertCircle className="h-3 w-3" />
+              Terms were interpreted from context — please verify they are correct.
+            </p>
+          )}
+          {termsConfidence === "high" && (
+            <p className="text-[10px] text-emerald-500 flex items-center gap-1">
+              <CheckCircle2 className="h-3 w-3" />
+              Terms clearly stated on invoice.
+            </p>
+          )}
+        </div>
+
+        {/* PAYMENT SCHEDULE PREVIEW */}
+        {terms.trim() && (
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+              Payment Schedule Preview
+            </label>
+            <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-1.5">
+              {previewInstallments.length === 0 ? (
+                <p className="text-[10px] text-muted-foreground">
+                  Could not compute schedule from these terms. Try a format like "Net 30", "EOM 30/60/90", etc.
+                </p>
+              ) : (
+                previewInstallments.map((inst, i) => (
+                  <div key={i} className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">{inst.label}</span>
+                    <span className="font-mono">{inst.dueDate}</span>
+                    <span className="font-semibold tabular-nums">
+                      {formatCurrency(inst.amount)}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+            <p className="text-[10px] text-muted-foreground">
+              Computed from invoice date ({invoiceDate}) and the terms above.
+            </p>
+          </div>
+        )}
+
+        {/* NEW VENDOR NOTE */}
+        {isNewVendor && (
+          <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-3">
+            <p className="text-[10px] text-blue-400 font-medium mb-1">
+              📋 New Vendor — {vendor}
+            </p>
+            <p className="text-[10px] text-muted-foreground">
+              This vendor is not yet in the terms registry. The payment schedule
+              will be generated using the terms you confirm above.
+            </p>
+          </div>
+        )}
+
+        {/* ACTION BUTTONS */}
+        <div className="flex gap-2 pt-1">
+          <Button
+            className="flex-1 gap-1.5"
+            onClick={handleApprove}
+            disabled={!terms.trim() || saving}
+          >
+            {saving ? (
+              <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Saving…</>
+            ) : (
+              <><CheckCircle2 className="h-3.5 w-3.5" /> Approve & Save</>
+            )}
+          </Button>
+          <Button
+            variant="outline"
+            className="gap-1.5 text-muted-foreground"
+            onClick={() => onDiscard(doc.id)}
+            disabled={saving}
+          >
+            <X className="h-3.5 w-3.5" /> Discard
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}

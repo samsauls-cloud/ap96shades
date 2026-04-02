@@ -71,6 +71,9 @@ export interface ProcessedDoc {
   extendedInfo?: string;
   // PO link info
   poLinkInfo?: string;
+  // Pre-save review fields
+  parsedData?: any;
+  reviewTerms?: string;
 }
 
 export interface BatchStats {
