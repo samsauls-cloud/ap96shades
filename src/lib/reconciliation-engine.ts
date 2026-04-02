@@ -66,24 +66,18 @@ export async function runFullReconciliation(
 ) {
   const report = (step: string, detail: string) => onProgress?.({ step, detail });
 
-  // 1. Fetch all invoices
-  report("Scanning invoices…", "Loading all vendor invoices");
-  const invoices = await fetchAllRows<VendorInvoice>("vendor_invoices", {
-    orderBy: "invoice_date",
-    ascending: false,
-  });
+  // 1. Fetch all data in parallel for speed
+  report("Scanning invoices…", "Loading all data in parallel");
+  const [invoices, recLines, itemMasterData, assortmentData] = await fetchParallel([
+    { table: "vendor_invoices", options: { orderBy: "invoice_date", ascending: false, label: "recon_invoices" } },
+    { table: "po_receiving_lines", options: { label: "recon_po_lines" } },
+    { table: "item_master", options: { select: "upc", label: "recon_item_master" } },
+    { table: "master_assortment", options: { select: "upc", label: "recon_assortment" } },
+  ]) as [VendorInvoice[], any[], any[], any[]];
 
-  // 2. Fetch PO receiving lines
-  report("Checking procurement orders…", "Loading receiving data");
-  const recLines = await fetchAllRows("po_receiving_lines");
-
-  // 3. Fetch item master for UPC validation
-  const itemMasterData = await fetchAllRows("item_master", { select: "upc" });
-  const itemMasterUPCs = new Set(itemMasterData.map(r => r.upc).filter(Boolean));
-
-  // 4. Fetch master assortment UPCs
-  const assortmentData = await fetchAllRows("master_assortment", { select: "upc" });
-  const assortmentUPCs = new Set(assortmentData.map(r => r.upc).filter(Boolean));
+  report("Checking procurement orders…", "Building lookup maps");
+  const itemMasterUPCs = new Set(itemMasterData.map((r: any) => r.upc).filter(Boolean));
+  const assortmentUPCs = new Set(assortmentData.map((r: any) => r.upc).filter(Boolean));
 
   // Build lookup maps
   const recLinesByUPC = new Map<string, typeof recLines>();
