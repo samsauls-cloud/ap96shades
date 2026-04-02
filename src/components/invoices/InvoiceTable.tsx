@@ -144,11 +144,7 @@ export function InvoiceTable({ invoices, filters, onSort, onRowClick, totalCount
                 <p className="font-semibold text-sm tabular-nums">{formatCurrency(inv.total)}</p>
                 <div className="flex gap-1 justify-end">
                   <StatusBadge status={inv.status} docType={inv.doc_type} />
-                  <ReconStatusBadge
-                    status={(inv as any).recon_status || (inv as any).reconciliation_status || 'unreconciled'}
-                    isStale={(inv as any).recon_stale === true}
-                    staleReason={(inv as any).recon_stale_reason}
-                  />
+                  <InvoiceFlags invoice={inv} />
                 </div>
               </div>
             </div>
