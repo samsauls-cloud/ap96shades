@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import React from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+
 import { toast } from "sonner";
 import { InvoiceNav } from "@/components/invoices/InvoiceNav";
 import { InvoiceDrawer } from "@/components/invoices/InvoiceDrawer";
