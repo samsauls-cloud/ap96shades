@@ -57,9 +57,9 @@ export async function runTwoWayMatchEngine(
   stats: { total: number; matched: number; invoicesWaiting: number; receiptsWaiting: number };
 }> {
   // Fetch data if not provided
-  const invoices = input?.invoices ?? await fetchAllRows("vendor_invoices");
-  const receivingLines = input?.receivingLines ?? await fetchAllRows("po_receiving_lines");
-  const sessions = input?.sessions ?? await fetchAllRows("po_receiving_sessions");
+  const invoices = input?.invoices ?? await fetchAllRows("vendor_invoices", { label: "match_invoices" });
+  const receivingLines = input?.receivingLines ?? await fetchAllRows("po_receiving_lines", { label: "match_po_lines" });
+  const sessions = input?.sessions ?? await fetchAllRows("po_receiving_sessions", { label: "match_sessions" });
 
   // Get vendor alias map for type filtering
   const { data: aliasRows } = await supabase.from("vendor_alias_map").select("vendor_id, vendor_name, vendor_type, aliases");

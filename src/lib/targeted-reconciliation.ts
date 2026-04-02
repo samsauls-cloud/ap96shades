@@ -139,15 +139,15 @@ export async function runTargetedReconciliation(
     invoices.push(...(data ?? []));
   }
 
-  // 3. Fetch PO receiving lines
+  // 3. Fetch PO receiving lines + item master + assortment in parallel
   report("Loading receiving data…", "Cross-referencing procurement");
-  const recLines = await fetchAllRows("po_receiving_lines");
-
-  // 4. Item master + assortment UPCs
-  const itemMasterData = await fetchAllRows("item_master", { select: "upc" });
-  const itemMasterUPCs = new Set(itemMasterData.map(r => r.upc).filter(Boolean));
-  const assortmentData = await fetchAllRows("master_assortment", { select: "upc" });
-  const assortmentUPCs = new Set(assortmentData.map(r => r.upc).filter(Boolean));
+  const [recLines, itemMasterData, assortmentData] = await Promise.all([
+    fetchAllRows("po_receiving_lines", { label: "targeted_po_lines" }),
+    fetchAllRows("item_master", { select: "upc", label: "targeted_item_master" }),
+    fetchAllRows("master_assortment", { select: "upc", label: "targeted_assortment" }),
+  ]);
+  const itemMasterUPCs = new Set(itemMasterData.map((r: any) => r.upc).filter(Boolean));
+  const assortmentUPCs = new Set(assortmentData.map((r: any) => r.upc).filter(Boolean));
 
   const recLinesByUPC = new Map<string, typeof recLines>();
   for (const rl of recLines) {

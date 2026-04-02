@@ -59,32 +59,32 @@ export default function ReconciliationPage() {
   // Queries
   const { data: invoices = [], isLoading: loadingInv } = useQuery({
     queryKey: ["recon_invoices"],
-    queryFn: () => fetchAllRows<VendorInvoice>("vendor_invoices"),
+    queryFn: () => fetchAllRows<VendorInvoice>("vendor_invoices", { label: "recon_invoices" }),
   });
 
   const { data: payments = [] } = useQuery({
     queryKey: ["recon_payments"],
-    queryFn: () => fetchAllRows("invoice_payments"),
+    queryFn: () => fetchAllRows("invoice_payments", { orderBy: "due_date", ascending: true, label: "recon_payments" }),
   });
 
   const { data: sessions = [] } = useQuery({
     queryKey: ["recon_sessions"],
-    queryFn: () => fetchAllRows("po_receiving_sessions"),
+    queryFn: () => fetchAllRows("po_receiving_sessions", { label: "recon_sessions" }),
   });
 
   const { data: recLines = [] } = useQuery({
     queryKey: ["recon_lines"],
-    queryFn: () => fetchAllRows("po_receiving_lines"),
+    queryFn: () => fetchAllRows("po_receiving_lines", { label: "recon_lines" }),
   });
 
   const { data: discrepancies = [], isLoading: loadingDisc } = useQuery({
     queryKey: ["recon_discrepancies"],
-    queryFn: () => fetchAllRows("reconciliation_discrepancies", { orderBy: "created_at", ascending: false }),
+    queryFn: () => fetchAllRows("reconciliation_discrepancies", { orderBy: "created_at", ascending: false, label: "recon_discrepancies" }),
   });
 
   const { data: runs = [] } = useQuery({
     queryKey: ["recon_runs"],
-    queryFn: () => fetchAllRows("reconciliation_runs", { orderBy: "run_at", ascending: false }),
+    queryFn: () => fetchAllRows("reconciliation_runs", { orderBy: "run_at", ascending: false, label: "recon_runs" }),
   });
 
   const { data: vendors = [] } = useQuery({

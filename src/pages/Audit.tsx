@@ -21,6 +21,7 @@ import { VendorCoveragePanel } from "@/components/invoices/VendorCoveragePanel";
 import { MatchStatusPanel } from "@/components/invoices/MatchStatusPanel";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchAllRows } from "@/lib/supabase-fetch-all";
+import { auditDatabaseScale } from "@/lib/supabase-fetch-all";
 import { formatCurrency, formatDate, getLineItems } from "@/lib/supabase-queries";
 import type { VendorInvoice } from "@/lib/supabase-queries";
 import { calculateInstallments, hasTermsEngine } from "@/lib/payment-terms";
@@ -73,22 +74,27 @@ export default function AuditPage() {
   // ── Data queries ────────────────────────
   const { data: invoices = [], isLoading: loadingInv } = useQuery({
     queryKey: ["audit_invoices"],
-    queryFn: () => fetchAllRows<VendorInvoice>("vendor_invoices"),
+    queryFn: () => fetchAllRows<VendorInvoice>("vendor_invoices", { label: "audit_invoices" }),
   });
 
   const { data: payments = [], isLoading: loadingPay } = useQuery({
     queryKey: ["audit_payments"],
-    queryFn: () => fetchAllRows("invoice_payments"),
+    queryFn: () => fetchAllRows("invoice_payments", { orderBy: "due_date", ascending: true, label: "audit_payments" }),
   });
 
   const { data: recSessions = [] } = useQuery({
     queryKey: ["audit_rec_sessions"],
-    queryFn: () => fetchAllRows("po_receiving_sessions"),
+    queryFn: () => fetchAllRows("po_receiving_sessions", { label: "audit_rec_sessions" }),
   });
 
   const { data: recLines = [] } = useQuery({
     queryKey: ["audit_rec_lines"],
-    queryFn: () => fetchAllRows("po_receiving_lines"),
+    queryFn: () => fetchAllRows("po_receiving_lines", { label: "audit_rec_lines" }),
+  });
+
+  const { data: scaleHealth } = useQuery({
+    queryKey: ["audit_database_scale"],
+    queryFn: auditDatabaseScale,
   });
 
   const loading = loadingInv || loadingPay;
@@ -994,6 +1000,65 @@ export default function AuditPage() {
                 </CardContent>
               </Card>
             </Section>
+
+            {/* ── Database Scale Health ── */}
+            {scaleHealth && (
+              <Section title="Database Scale Health" icon={Database} defaultOpen>
+                <Card className="bg-card border-border">
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      {scaleHealth.overallStatus === 'clean' && <CheckCircle2 className="h-4 w-4 text-emerald-500" />}
+                      {scaleHealth.overallStatus === 'warning' && <AlertTriangle className="h-4 w-4 text-amber-500" />}
+                      {scaleHealth.overallStatus === 'error' && <AlertTriangle className="h-4 w-4 text-destructive" />}
+                      <span className="text-xs font-semibold">
+                        {scaleHealth.overallStatus === 'clean' ? 'All tables within safe limits' :
+                         scaleHealth.overallStatus === 'warning' ? 'Some tables growing — monitor' :
+                         'Tables approaching query limits — pagination required'}
+                      </span>
+                    </div>
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="border-border">
+                          <TableHead className="text-[10px] font-semibold">Table</TableHead>
+                          <TableHead className="text-[10px] font-semibold text-right">Row Count</TableHead>
+                          <TableHead className="text-[10px] font-semibold">Status</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {scaleHealth.tables.map(t => (
+                          <TableRow key={t.name} className="border-border">
+                            <TableCell className="text-[10px] font-mono">{t.name}</TableCell>
+                            <TableCell className="text-[10px] text-right tabular-nums font-medium">
+                              {t.count.toLocaleString()}
+                            </TableCell>
+                            <TableCell>
+                              {t.status === 'ok' && (
+                                <Badge className="text-[9px] bg-emerald-500/10 text-emerald-500 border-emerald-500/20">
+                                  ✅ OK
+                                </Badge>
+                              )}
+                              {t.status === 'warn' && (
+                                <Badge className="text-[9px] bg-amber-500/10 text-amber-500 border-amber-500/20">
+                                  ⚠ Growing
+                                </Badge>
+                              )}
+                              {t.status === 'critical' && (
+                                <Badge className="text-[9px] bg-destructive/10 text-destructive border-destructive/20">
+                                  🔴 Near Limit
+                                </Badge>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                    <p className="text-[9px] text-muted-foreground mt-2">
+                      All queries use automatic pagination (up to 500K rows). This panel monitors growth to ensure data integrity.
+                    </p>
+                  </CardContent>
+                </Card>
+              </Section>
+            )}
           </>
         )}
       </main>
