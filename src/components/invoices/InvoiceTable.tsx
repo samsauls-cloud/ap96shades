@@ -4,7 +4,8 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { ChevronUp, ChevronDown, ChevronsUpDown, Camera } from "lucide-react";
-import { StatusBadge, DocTypeBadge, ReconStatusBadge, TermsStatusBadge } from "./Badges";
+import { StatusBadge, DocTypeBadge, TermsStatusBadge } from "./Badges";
+import { InvoiceFlags } from "./InvoiceFlags";
 import type { VendorInvoice, InvoiceFilters } from "@/lib/supabase-queries";
 import { formatCurrency, formatDate, getTotalUnits } from "@/lib/supabase-queries";
 
@@ -74,7 +75,7 @@ export function InvoiceTable({ invoices, filters, onSort, onRowClick, totalCount
               <TableHead className="text-xs font-semibold">Terms</TableHead>
               <TableHead className="text-xs font-semibold">Tags</TableHead>
               <SortableHead field="status" label="Status" filters={filters} onSort={onSort} />
-              <TableHead className="text-xs font-semibold">Recon</TableHead>
+              <TableHead className="text-xs font-semibold">Flags</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -115,19 +116,7 @@ export function InvoiceTable({ invoices, filters, onSort, onRowClick, totalCount
                 </TableCell>
                 <TableCell><StatusBadge status={inv.status} docType={inv.doc_type} /></TableCell>
                 <TableCell>
-                  <span
-                    className="cursor-pointer"
-                    onClick={e => {
-                      e.stopPropagation();
-                      onRowClick(inv);
-                    }}
-                  >
-                    <ReconStatusBadge
-                      status={(inv as any).recon_status || (inv as any).reconciliation_status || 'pending'}
-                      isStale={(inv as any).recon_stale === true}
-                      staleReason={(inv as any).recon_stale_reason}
-                    />
-                  </span>
+                  <InvoiceFlags invoice={inv} />
                 </TableCell>
               </TableRow>
             ))}
@@ -155,11 +144,7 @@ export function InvoiceTable({ invoices, filters, onSort, onRowClick, totalCount
                 <p className="font-semibold text-sm tabular-nums">{formatCurrency(inv.total)}</p>
                 <div className="flex gap-1 justify-end">
                   <StatusBadge status={inv.status} docType={inv.doc_type} />
-                  <ReconStatusBadge
-                    status={(inv as any).recon_status || (inv as any).reconciliation_status || 'unreconciled'}
-                    isStale={(inv as any).recon_stale === true}
-                    staleReason={(inv as any).recon_stale_reason}
-                  />
+                  <InvoiceFlags invoice={inv} />
                 </div>
               </div>
             </div>
