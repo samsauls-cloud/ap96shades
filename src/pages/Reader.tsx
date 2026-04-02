@@ -747,6 +747,7 @@ export default function ReaderPage() {
       case "waiting-retry": return <Timer className="h-4 w-4 text-amber-500 animate-pulse" />;
       case "done": return <CheckCircle2 className="h-4 w-4 text-status-paid" />;
       case "staged": return <CheckCircle2 className="h-4 w-4 text-amber-500" />;
+      case "saving": return <Loader2 className="h-4 w-4 animate-spin text-primary" />;
       case "duplicate": return <Copy className="h-4 w-4 text-muted-foreground" />;
       case "extended": return <Zap className="h-4 w-4 text-blue-500" />;
       case "error": return <AlertCircle className="h-4 w-4 text-status-unpaid" />;
