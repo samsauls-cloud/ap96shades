@@ -73,22 +73,22 @@ export default function AuditPage() {
   // ── Data queries ────────────────────────
   const { data: invoices = [], isLoading: loadingInv } = useQuery({
     queryKey: ["audit_invoices"],
-    queryFn: () => fetchAllRows<VendorInvoice>("vendor_invoices"),
+    queryFn: () => fetchAllRows<VendorInvoice>("vendor_invoices", { label: "audit_invoices" }),
   });
 
   const { data: payments = [], isLoading: loadingPay } = useQuery({
     queryKey: ["audit_payments"],
-    queryFn: () => fetchAllRows("invoice_payments"),
+    queryFn: () => fetchAllRows("invoice_payments", { orderBy: "due_date", ascending: true, label: "audit_payments" }),
   });
 
   const { data: recSessions = [] } = useQuery({
     queryKey: ["audit_rec_sessions"],
-    queryFn: () => fetchAllRows("po_receiving_sessions"),
+    queryFn: () => fetchAllRows("po_receiving_sessions", { label: "audit_rec_sessions" }),
   });
 
   const { data: recLines = [] } = useQuery({
     queryKey: ["audit_rec_lines"],
-    queryFn: () => fetchAllRows("po_receiving_lines"),
+    queryFn: () => fetchAllRows("po_receiving_lines", { label: "audit_rec_lines" }),
   });
 
   const loading = loadingInv || loadingPay;

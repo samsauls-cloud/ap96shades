@@ -92,6 +92,7 @@ export async function fetchPayments(): Promise<InvoicePayment[]> {
   const data = await fetchAllRows("invoice_payments", {
     orderBy: "due_date",
     ascending: true,
+    label: "invoice_payments",
   });
   const normalized = data.map(normalizePayment);
 
