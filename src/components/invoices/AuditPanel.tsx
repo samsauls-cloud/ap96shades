@@ -40,6 +40,8 @@ function getIssueChips(audit: AuditResult): IssueDef[] {
     chips.push({ key: "unknownVendors", count: audit.unknownVendors.length, label: "Unknown Vendors", color: "text-orange-600 dark:text-orange-400", bgColor: "bg-orange-500/10 hover:bg-orange-500/20 border-orange-500/30" });
   if (audit.duplicateInvoices.length > 0)
     chips.push({ key: "duplicateInvoices", count: audit.duplicateInvoices.length, label: "Duplicates", color: "text-red-600 dark:text-red-400", bgColor: "bg-red-500/10 hover:bg-red-500/20 border-red-500/30" });
+  if (audit.staleInstallments.length > 0)
+    chips.push({ key: "staleInstallments", count: audit.staleInstallments.length, label: "Stale Installments", color: "text-purple-600 dark:text-purple-400", bgColor: "bg-purple-500/10 hover:bg-purple-500/20 border-purple-500/30" });
   return chips;
 }
 
