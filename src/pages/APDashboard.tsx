@@ -589,7 +589,7 @@ export default function APDashboard() {
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="p-0">
-                      <PaymentTable payments={overduePayments} onRowClick={handlePaymentClick} onRecordPayment={handleRecordPayment} serverDate={effectiveDate} selectedIds={selectedIds} onToggleSelected={toggleSelected} onQuickPay={handleQuickPay} navigate={navigate} />
+                      <PaymentTable payments={overduePayments} onRowClick={handlePaymentClick} onRecordPayment={handleRecordPayment} serverDate={effectiveDate} selectedIds={selectedIds} onToggleSelected={toggleSelected} onQuickPay={handleQuickPay} onOpenInvoice={handleOpenInvoice} />
                     </CardContent>
                   </Card>
                 )}
