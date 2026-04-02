@@ -349,6 +349,59 @@ export function AuditPanel({ audit, onRefresh, isLoading, totalInvoices, highlig
           </div>
         )}
 
+        {/* 5. Stale Installments */}
+        {audit.staleInstallments.length > 0 && (
+          <div id="audit-staleInstallments" className={`rounded-lg p-3 transition-colors ${isHighlighted("staleInstallments") ? "ring-2 ring-purple-500/50 bg-purple-500/5" : ""}`}>
+            <p className="text-xs font-semibold mb-2 flex items-center gap-1.5">
+              <AlertTriangle className="h-3.5 w-3.5 text-purple-500" />
+              Stale Paid Installments ({audit.staleInstallments.length})
+            </p>
+            <p className="text-[10px] text-muted-foreground mb-2">
+              These invoices have paid installments after an unpaid one — likely a data artifact from marking the wrong tranche.
+            </p>
+            <div className="space-y-2">
+              {audit.staleInstallments.map(si => (
+                <div key={si.invoice_id} className="rounded border border-purple-500/20 p-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-xs font-mono truncate">{si.invoice_number}</p>
+                      <p className="text-[10px] text-muted-foreground">{si.vendor} · {formatCurrency(si.total)}</p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-[10px] h-6 shrink-0"
+                      onClick={async () => {
+                        setFixingStaleId(si.invoice_id);
+                        try {
+                          const count = await fixStaleInstallments(si.invoice_id);
+                          toast.success(`Reset ${count} stale installment${count !== 1 ? "s" : ""} for ${si.invoice_number}`);
+                          onRefresh();
+                        } catch (e: any) {
+                          toast.error(e.message);
+                        } finally {
+                          setFixingStaleId(null);
+                        }
+                      }}
+                      disabled={fixingStaleId === si.invoice_id}
+                    >
+                      {fixingStaleId === si.invoice_id ? <Loader2 className="h-3 w-3 animate-spin" /> : "Fix"}
+                    </Button>
+                  </div>
+                  <div className="mt-1.5 space-y-0.5">
+                    {si.staleRows.map(r => (
+                      <div key={r.id} className="flex items-center justify-between text-[10px] text-purple-600 dark:text-purple-400">
+                        <span>{r.installment_label ?? r.due_date} — due {formatDate(r.due_date)}</span>
+                        <span className="font-semibold">{formatCurrency(r.amount_due)} ← stale paid</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* All clear */}
         {issues === 0 && (
           <div className="flex items-center justify-center gap-2 py-4 text-green-500">
