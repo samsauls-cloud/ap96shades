@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { AlertTriangle, CheckCircle2, XCircle, Loader2, RefreshCw, ShieldCheck, ShieldAlert, ChevronDown, ChevronRight } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { formatCurrency, formatDate } from "@/lib/supabase-queries";
-import { generatePaymentsForInvoice, recalculatePaymentsForInvoice, type AuditResult } from "@/lib/payment-queries";
+import { generatePaymentsForInvoice, recalculatePaymentsForInvoice, fixStaleInstallments, type AuditResult } from "@/lib/payment-queries";
 import { toast } from "sonner";
 
 type AuditStatus = "clean" | "warning" | "error";
