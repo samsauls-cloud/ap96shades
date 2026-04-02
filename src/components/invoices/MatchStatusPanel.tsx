@@ -36,8 +36,8 @@ export function MatchStatusPanel() {
     queryKey: ["two_way_match_status"],
     queryFn: async () => {
       const [invoices, receiving, aliases] = await Promise.all([
-        fetchAllRows("vendor_invoices"),
-        fetchAllRows("po_receiving_lines"),
+        fetchAllRows("vendor_invoices", { label: "match_status_invoices" }),
+        fetchAllRows("po_receiving_lines", { label: "match_status_po_lines" }),
         supabase.from("vendor_alias_map").select("vendor_id, vendor_name, vendor_type").then(r => r.data ?? []),
       ]);
 

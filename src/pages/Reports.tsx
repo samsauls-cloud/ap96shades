@@ -42,17 +42,17 @@ export default function ReportsPage() {
 
   const { data: invoices = [], isLoading: loadingInv } = useQuery({
     queryKey: ["report_invoices"],
-    queryFn: () => fetchAllRows<VendorInvoice>("vendor_invoices"),
+    queryFn: () => fetchAllRows<VendorInvoice>("vendor_invoices", { label: "report_invoices" }),
   });
 
   const { data: recSessions = [] } = useQuery({
     queryKey: ["report_rec_sessions"],
-    queryFn: () => fetchAllRows("po_receiving_sessions"),
+    queryFn: () => fetchAllRows("po_receiving_sessions", { label: "report_rec_sessions" }),
   });
 
   const { data: recLines = [] } = useQuery({
     queryKey: ["report_rec_lines"],
-    queryFn: () => fetchAllRows("po_receiving_lines"),
+    queryFn: () => fetchAllRows("po_receiving_lines", { label: "report_rec_lines" }),
   });
 
   const activePayments = payments.filter(p => p.payment_status !== "void");
