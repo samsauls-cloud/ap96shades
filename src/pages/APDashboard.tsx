@@ -225,9 +225,29 @@ export default function APDashboard() {
     p.due_date < effectiveDate && p.balance_remaining > 0 && p.payment_status !== "paid" && p.payment_status !== "overpaid"
   );
 
+  const handleOpenInvoice = useCallback(async (invoiceId: string | null | undefined) => {
+    if (!invoiceId) return;
+    try {
+      const { data } = await supabase
+        .from('vendor_invoices')
+        .select('*')
+        .eq('id', invoiceId)
+        .maybeSingle();
+      if (data) {
+        setDrawerInvoice(data as unknown as VendorInvoice);
+        setDrawerOpen(true);
+      } else {
+        toast.error('Invoice not found');
+      }
+    } catch (err) {
+      console.error('Failed to load invoice:', err);
+      toast.error('Could not load invoice');
+    }
+  }, []);
+
   const handlePaymentClick = (payment: InvoicePayment) => {
     if (payment.invoice_id) {
-      navigate(`/invoices?open=${payment.invoice_id}`);
+      handleOpenInvoice(payment.invoice_id);
     } else {
       setSelectedPayment(payment);
       setModalOpen(true);
