@@ -2,7 +2,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { AlertTriangle, FileX, Clock, DollarSign, AlertCircle } from "lucide-react";
+import { FileX, Clock, DollarSign, AlertCircle } from "lucide-react";
 import type { VendorInvoice } from "@/lib/supabase-queries";
 import { isProforma } from "@/lib/supabase-queries";
 
