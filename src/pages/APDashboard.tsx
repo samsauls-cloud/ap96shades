@@ -828,8 +828,8 @@ function PaymentTable({ payments, onRowClick, onRecordPayment, serverDate, selec
                   </TableCell>
                   <TableCell className="text-xs">{p.vendor}</TableCell>
                   <TableCell
-                    className="text-xs font-mono text-primary cursor-pointer hover:underline"
-                    onClick={() => p.invoice_id && navigate(`/invoices?open=${p.invoice_id}`)}
+                    className="text-xs font-mono text-primary cursor-pointer hover:underline underline-offset-2 whitespace-nowrap"
+                    onClick={e => { e.stopPropagation(); onOpenInvoice(p.invoice_id); }}
                   >
                     {p.invoice_number}
                   </TableCell>
