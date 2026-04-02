@@ -21,6 +21,7 @@ import { VendorCoveragePanel } from "@/components/invoices/VendorCoveragePanel";
 import { MatchStatusPanel } from "@/components/invoices/MatchStatusPanel";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchAllRows } from "@/lib/supabase-fetch-all";
+import { auditDatabaseScale } from "@/lib/supabase-fetch-all";
 import { formatCurrency, formatDate, getLineItems } from "@/lib/supabase-queries";
 import type { VendorInvoice } from "@/lib/supabase-queries";
 import { calculateInstallments, hasTermsEngine } from "@/lib/payment-terms";
