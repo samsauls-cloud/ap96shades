@@ -913,7 +913,7 @@ function PaymentTable({ payments, onRowClick, onRecordPayment, serverDate, selec
                     <p className="text-sm font-medium truncate">{p.vendor}</p>
                     <p
                       className="text-[10px] font-mono text-primary cursor-pointer hover:underline truncate"
-                      onClick={() => p.invoice_id && navigate(`/invoices?open=${p.invoice_id}`)}
+                      onClick={e => { e.stopPropagation(); onOpenInvoice(p.invoice_id); }}
                     >
                       {p.invoice_number}
                     </p>
