@@ -737,7 +737,7 @@ export default function APDashboard() {
   );
 }
 
-function PaymentTable({ payments, onRowClick, onRecordPayment, serverDate, selectedIds, onToggleSelected, onQuickPay, navigate }: {
+function PaymentTable({ payments, onRowClick, onRecordPayment, serverDate, selectedIds, onToggleSelected, onQuickPay, onOpenInvoice }: {
   payments: InvoicePayment[];
   onRowClick: (p: InvoicePayment) => void;
   onRecordPayment?: (p: InvoicePayment) => void;
@@ -745,7 +745,7 @@ function PaymentTable({ payments, onRowClick, onRecordPayment, serverDate, selec
   selectedIds: Set<string>;
   onToggleSelected: (id: string) => void;
   onQuickPay: (payment: InvoicePayment) => Promise<void>;
-  navigate: (path: string) => void;
+  onOpenInvoice: (invoiceId: string | null | undefined) => void;
 }) {
   const [sortField, setSortField] = useState<string>("due_date");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
