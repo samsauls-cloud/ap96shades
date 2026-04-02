@@ -92,6 +92,11 @@ export default function AuditPage() {
     queryFn: () => fetchAllRows("po_receiving_lines", { label: "audit_rec_lines" }),
   });
 
+  const { data: scaleHealth } = useQuery({
+    queryKey: ["audit_database_scale"],
+    queryFn: auditDatabaseScale,
+  });
+
   const loading = loadingInv || loadingPay;
 
   // ── Invoice Stats (INVOICE only for totals) ──
