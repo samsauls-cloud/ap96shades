@@ -83,8 +83,9 @@ export default function APDashboard() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [expandedMonth, setExpandedMonth] = useState<string | null>(null);
-  const [fixingKering, setFixingKering] = useState(false);
-  const [fixingLuxottica, setFixingLuxottica] = useState(false);
+  // NOTE: Fix Kering / Fix Luxottica state removed — all terms verified correct as of 2026-04-02.
+  // Restore with: const [fixingKering, setFixingKering] = useState(false);
+  // Restore with: const [fixingLuxottica, setFixingLuxottica] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [dashTab, setDashTab] = useState<'outstanding' | 'history'>('outstanding');
   const [historySearch, setHistorySearch] = useState("");
