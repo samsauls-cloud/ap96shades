@@ -787,6 +787,18 @@ export async function fixStaleInstallments(invoiceId: string): Promise<number> {
   return staleIds.length;
 }
 
+// Invoice-level rollup (computed, not stored)
+export interface InvoicePaymentRollup {
+  total_installments: number;
+  installments_paid: number;
+  installments_partial: number;
+  installments_unpaid: number;
+  total_amount_due: number;
+  total_amount_paid: number;
+  total_balance_remaining: number;
+  invoice_payment_status: string;
+}
+
 export function computeInvoiceRollup(payments: InvoicePayment[]): InvoicePaymentRollup {
   const total_installments = payments.length;
   const installments_paid = payments.filter(p => p.payment_status === "paid" || p.payment_status === "overpaid").length;
