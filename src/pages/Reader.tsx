@@ -28,6 +28,7 @@ import {
 import { parseCSVToPOs, fileToText } from "@/lib/csv-po-parser";
 import { isImageFile, imageToBase64, callAnthropicImageAPI } from "@/lib/photo-capture-engine";
 import { runQuickSKUCheck, type SKUCheckResult } from "@/lib/sku-check-engine";
+import { InvoiceReviewCard } from "@/components/invoices/InvoiceReviewCard";
 
 function formatElapsed(ms: number): string {
   const s = Math.floor(ms / 1000);
