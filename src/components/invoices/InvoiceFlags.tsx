@@ -52,8 +52,7 @@ export function InvoiceFlags({ invoice: inv }: Props) {
       icon: <DollarSign className="h-3 w-3" />,
       label: "No Schedule",
       tooltip: "No payment schedule has been generated for this invoice. " +
-               "Go to the Dashboard and click 'Generate Missing' to create " +
-               "the payment installments.",
+               "Open the invoice drawer to trigger automatic schedule generation.",
       className: "bg-amber-500/15 text-amber-600 border-amber-500/30",
     });
   }

@@ -77,14 +77,15 @@ function getVendorColor(vendor: string): string {
 export default function APDashboard() {
   const queryClient = useQueryClient();
   
-  const [generating, setGenerating] = useState(false);
+  // const [generating, setGenerating] = useState(false); // Archived 2026-04-02
   const [selectedPayment, setSelectedPayment] = useState<InvoicePayment | null>(null);
   const [drawerInvoice, setDrawerInvoice] = useState<VendorInvoice | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [expandedMonth, setExpandedMonth] = useState<string | null>(null);
-  const [fixingKering, setFixingKering] = useState(false);
-  const [fixingLuxottica, setFixingLuxottica] = useState(false);
+  // NOTE: Fix Kering / Fix Luxottica state removed — all terms verified correct as of 2026-04-02.
+  // Restore with: const [fixingKering, setFixingKering] = useState(false);
+  // Restore with: const [fixingLuxottica, setFixingLuxottica] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [dashTab, setDashTab] = useState<'outstanding' | 'history'>('outstanding');
   const [historySearch, setHistorySearch] = useState("");
@@ -259,18 +260,18 @@ export default function APDashboard() {
     setModalOpen(true);
   };
 
-  const handleGenerateAll = async () => {
-    setGenerating(true);
-    try {
-      const result = await generateAllMissingPayments();
-      toast.success(`Generated ${result.generated} payments for ${result.invoices} invoices`);
-      refreshAll();
-    } catch (e: any) {
-      toast.error(`Failed: ${e.message}`);
-    } finally {
-      setGenerating(false);
-    }
-  };
+  /*
+   * ── ARCHIVED: Generate Missing (2026-04-02) ──
+   * const handleGenerateAll = async () => {
+   *   setGenerating(true);
+   *   try {
+   *     const result = await generateAllMissingPayments();
+   *     toast.success(`Generated ${result.generated} payments for ${result.invoices} invoices`);
+   *     refreshAll();
+   *   } catch (e: any) { toast.error(`Failed: ${e.message}`); }
+   *   finally { setGenerating(false); }
+   * };
+   */
 
   // ── Selection logic ──────────────────────────────────
   const toggleSelected = (id: string) => {
@@ -320,53 +321,15 @@ export default function APDashboard() {
     refreshAll();
   };
 
-  // ── Fix Kering Terms ─────────────────────────────────
-  const handleFixKeringTerms = async () => {
-    setFixingKering(true);
-    try {
-      const { data: keringInvoices } = await supabase
-        .from("vendor_invoices")
-        .select("id, vendor, invoice_date, payment_terms, total, invoice_number, po_number")
-        .or("vendor.ilike.%kering%,vendor.ilike.%gucci%,vendor.ilike.%saint laurent%,vendor.ilike.%bottega%,vendor.ilike.%cartier%");
-
-      let fixed = 0;
-      for (const inv of keringInvoices ?? []) {
-        await supabase.from("invoice_payments").delete().eq("invoice_id", inv.id);
-        await generatePaymentsForInvoice(inv.id, inv.invoice_date, inv.total, inv.vendor, inv.invoice_number, inv.po_number, inv.payment_terms);
-        fixed++;
-      }
-      toast.success(`Fixed ${fixed} Kering invoices — EOM terms applied`);
-      refreshAll();
-    } catch (e: any) {
-      toast.error(`Failed: ${e.message}`);
-    } finally {
-      setFixingKering(false);
-    }
-  };
-
-  // ── Fix Luxottica Terms ──────────────────────────────
-  const handleFixLuxotticaTerms = async () => {
-    setFixingLuxottica(true);
-    try {
-      const { data: luxInvoices } = await supabase
-        .from("vendor_invoices")
-        .select("id, vendor, invoice_date, payment_terms, total, invoice_number, po_number")
-        .or("vendor.ilike.%luxottica%,vendor.ilike.%ray-ban%,vendor.ilike.%oakley%,vendor.ilike.%costa%,vendor.ilike.%prada%,vendor.ilike.%versace%,vendor.ilike.%coach%,vendor.ilike.%burberry%,vendor.ilike.%michael kors%,vendor.ilike.%persol%,vendor.ilike.%oliver peoples%");
-
-      let fixed = 0;
-      for (const inv of luxInvoices ?? []) {
-        await supabase.from("invoice_payments").delete().eq("invoice_id", inv.id);
-        await generatePaymentsForInvoice(inv.id, inv.invoice_date, inv.total, inv.vendor, inv.invoice_number, inv.po_number, inv.payment_terms);
-        fixed++;
-      }
-      toast.success(`Fixed ${fixed} Luxottica invoices — EOM+30 / split terms applied`);
-      refreshAll();
-    } catch (e: any) {
-      toast.error(`Failed: ${e.message}`);
-    } finally {
-      setFixingLuxottica(false);
-    }
-  };
+  /*
+   * ── ARCHIVED: Fix Kering / Luxottica Terms (2026-04-02) ──
+   * All terms verified correct. Handlers preserved here for future use.
+   *
+   * handleFixKeringTerms: re-generates Kering invoice payments with EOM 30/60/90
+   * handleFixLuxotticaTerms: re-generates Luxottica payments with EOM+30 / split
+   *
+   * To restore: uncomment handlers + state vars + buttons in JSX below.
+   */
 
   // Month column header colors
   const monthHeaderColors = [
@@ -392,20 +355,7 @@ export default function APDashboard() {
               </p>
             </div>
           </div>
-          <div className="sm:ml-auto flex items-center gap-2">
-            <Button size="sm" variant="outline" className="h-8 text-xs" onClick={handleFixLuxotticaTerms} disabled={fixingLuxottica}>
-              {fixingLuxottica ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <RefreshCw className="h-3.5 w-3.5 mr-1" />}
-              Fix Luxottica Terms
-            </Button>
-            <Button size="sm" variant="outline" className="h-8 text-xs" onClick={handleFixKeringTerms} disabled={fixingKering}>
-              {fixingKering ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <RefreshCw className="h-3.5 w-3.5 mr-1" />}
-              Fix Kering Terms
-            </Button>
-            <Button size="sm" variant="outline" className="h-8 text-xs" onClick={handleGenerateAll} disabled={generating}>
-              {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <RefreshCw className="h-3.5 w-3.5 mr-1" />}
-              Generate Missing
-            </Button>
-          </div>
+          {/* Batch fix buttons removed 2026-04-02 — all terms verified. See archived handlers above. */}
         </div>
 
         {/* ── Month date labels ────────────────────────── */}
