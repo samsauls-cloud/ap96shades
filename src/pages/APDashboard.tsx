@@ -355,20 +355,7 @@ export default function APDashboard() {
               </p>
             </div>
           </div>
-          <div className="sm:ml-auto flex items-center gap-2">
-            <Button size="sm" variant="outline" className="h-8 text-xs" onClick={handleFixLuxotticaTerms} disabled={fixingLuxottica}>
-              {fixingLuxottica ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <RefreshCw className="h-3.5 w-3.5 mr-1" />}
-              Fix Luxottica Terms
-            </Button>
-            <Button size="sm" variant="outline" className="h-8 text-xs" onClick={handleFixKeringTerms} disabled={fixingKering}>
-              {fixingKering ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <RefreshCw className="h-3.5 w-3.5 mr-1" />}
-              Fix Kering Terms
-            </Button>
-            <Button size="sm" variant="outline" className="h-8 text-xs" onClick={handleGenerateAll} disabled={generating}>
-              {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <RefreshCw className="h-3.5 w-3.5 mr-1" />}
-              Generate Missing
-            </Button>
-          </div>
+          {/* Batch fix buttons removed 2026-04-02 — all terms verified. See archived handlers above. */}
         </div>
 
         {/* ── Month date labels ────────────────────────── */}
