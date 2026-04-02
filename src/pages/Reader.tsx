@@ -347,48 +347,18 @@ export default function ReaderPage() {
           invoiceData: invoice,
         });
       } else {
-        const saved = await insertInvoice(invoice);
+        // ── PRE-SAVE REVIEW: hold for user approval instead of saving immediately ──
         updateDoc(docId, {
-          status: "done",
+          status: "review",
           vendor: invoice.vendor,
           doc_type: invoice.doc_type,
           invoice_number: invoice.invoice_number,
           total: invoice.total || 0,
           line_items_count: lineItemsCount,
-          dbId: saved.id,
+          invoiceData: invoice,
+          parsedData: parsed,
+          reviewTerms: invoice.payment_terms ?? "",
         });
-
-        // Auto-generate payment installments — skip for proformas
-        if (!isProforma({ doc_type: invoice.doc_type || "" })) {
-          try {
-            await generatePaymentsForInvoice(
-              saved.id, invoice.invoice_date, invoice.total || 0, invoice.vendor, invoice.invoice_number, invoice.po_number ?? null
-            );
-          } catch { /* silent — payments are secondary */ }
-        }
-
-        // Auto-check for pending matches against partially reconciled sessions
-        try {
-          const pendingMatches = await checkPendingMatches(saved.id, invoice.invoice_number, lineItems);
-          if (pendingMatches.length > 0) {
-            for (const pm of pendingMatches) {
-              toast(`📥 Invoice ${pm.invoiceNumber} matches ${pm.matchedLineCount} unmatched lines from "${pm.sessionName}"`, {
-                description: 'Go to Receiving to reconcile',
-                duration: 8000,
-              });
-            }
-          }
-        } catch { /* silent — pending match is advisory */ }
-
-        // PO linkage
-        if (invoice.po_number) {
-          const poResult = await updatePOTotalInvoiced(invoice.po_number, invoice.vendor);
-          if (poResult.count > 1) {
-            updateDoc(docId, {
-              poLinkInfo: `✓ Linked to PO ${invoice.po_number} (${poResult.count} invoices against this PO total ${formatCurrency(poResult.total)})`,
-            });
-          }
-        }
       }
     } catch (err: any) {
       updateDoc(docId, { status: "error", error: err.message });
