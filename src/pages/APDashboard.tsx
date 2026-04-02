@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import React from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+
 import { toast } from "sonner";
 import { InvoiceNav } from "@/components/invoices/InvoiceNav";
+import { InvoiceDrawer } from "@/components/invoices/InvoiceDrawer";
+import type { VendorInvoice } from "@/lib/supabase-queries";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -74,9 +76,11 @@ function getVendorColor(vendor: string): string {
 
 export default function APDashboard() {
   const queryClient = useQueryClient();
-  const navigate = useNavigate();
+  
   const [generating, setGenerating] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState<InvoicePayment | null>(null);
+  const [drawerInvoice, setDrawerInvoice] = useState<VendorInvoice | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [expandedMonth, setExpandedMonth] = useState<string | null>(null);
   const [fixingKering, setFixingKering] = useState(false);
@@ -221,9 +225,29 @@ export default function APDashboard() {
     p.due_date < effectiveDate && p.balance_remaining > 0 && p.payment_status !== "paid" && p.payment_status !== "overpaid"
   );
 
+  const handleOpenInvoice = useCallback(async (invoiceId: string | null | undefined) => {
+    if (!invoiceId) return;
+    try {
+      const { data } = await supabase
+        .from('vendor_invoices')
+        .select('*')
+        .eq('id', invoiceId)
+        .maybeSingle();
+      if (data) {
+        setDrawerInvoice(data as unknown as VendorInvoice);
+        setDrawerOpen(true);
+      } else {
+        toast.error('Invoice not found');
+      }
+    } catch (err) {
+      console.error('Failed to load invoice:', err);
+      toast.error('Could not load invoice');
+    }
+  }, []);
+
   const handlePaymentClick = (payment: InvoicePayment) => {
     if (payment.invoice_id) {
-      navigate(`/invoices?open=${payment.invoice_id}`);
+      handleOpenInvoice(payment.invoice_id);
     } else {
       setSelectedPayment(payment);
       setModalOpen(true);
@@ -549,7 +573,7 @@ export default function APDashboard() {
                         </CardTitle>
                       </CardHeader>
                       <CardContent className="p-0">
-                        <PaymentTable payments={monthPayments} onRowClick={handlePaymentClick} onRecordPayment={handleRecordPayment} serverDate={effectiveDate} selectedIds={selectedIds} onToggleSelected={toggleSelected} onQuickPay={handleQuickPay} navigate={navigate} />
+                        <PaymentTable payments={monthPayments} onRowClick={handlePaymentClick} onRecordPayment={handleRecordPayment} serverDate={effectiveDate} selectedIds={selectedIds} onToggleSelected={toggleSelected} onQuickPay={handleQuickPay} onOpenInvoice={handleOpenInvoice} />
                       </CardContent>
                     </Card>
                   );
@@ -565,7 +589,7 @@ export default function APDashboard() {
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="p-0">
-                      <PaymentTable payments={overduePayments} onRowClick={handlePaymentClick} onRecordPayment={handleRecordPayment} serverDate={effectiveDate} selectedIds={selectedIds} onToggleSelected={toggleSelected} onQuickPay={handleQuickPay} navigate={navigate} />
+                      <PaymentTable payments={overduePayments} onRowClick={handlePaymentClick} onRecordPayment={handleRecordPayment} serverDate={effectiveDate} selectedIds={selectedIds} onToggleSelected={toggleSelected} onQuickPay={handleQuickPay} onOpenInvoice={handleOpenInvoice} />
                     </CardContent>
                   </Card>
                 )}
@@ -593,7 +617,7 @@ export default function APDashboard() {
                         </CardTitle>
                       </CardHeader>
                       <CardContent className="p-0">
-                        <PaymentTable payments={monthPayments} onRowClick={handlePaymentClick} onRecordPayment={handleRecordPayment} serverDate={effectiveDate} selectedIds={selectedIds} onToggleSelected={toggleSelected} onQuickPay={handleQuickPay} navigate={navigate} />
+                        <PaymentTable payments={monthPayments} onRowClick={handlePaymentClick} onRecordPayment={handleRecordPayment} serverDate={effectiveDate} selectedIds={selectedIds} onToggleSelected={toggleSelected} onQuickPay={handleQuickPay} onOpenInvoice={handleOpenInvoice} />
                       </CardContent>
                     </Card>
                   );
@@ -645,13 +669,13 @@ export default function APDashboard() {
                   {filteredHistory.length > 0 ? (
                     <PaymentTable
                       payments={filteredHistory}
-                      onRowClick={p => p.invoice_id && navigate(`/invoices?open=${p.invoice_id}`)}
+                      onRowClick={p => handleOpenInvoice(p.invoice_id)}
                       onRecordPayment={() => {}}
                       serverDate={effectiveDate}
                       selectedIds={new Set()}
                       onToggleSelected={() => {}}
                       onQuickPay={handleQuickPay}
-                      navigate={navigate}
+                      onOpenInvoice={handleOpenInvoice}
                     />
                   ) : (
                     <div className="p-8 text-center text-muted-foreground text-sm">
@@ -695,11 +719,24 @@ export default function APDashboard() {
         onOpenChange={setModalOpen}
         onComplete={() => refreshAll()}
       />
+
+      {/* Invoice Drawer — opens on dashboard without navigating away */}
+      <InvoiceDrawer
+        invoice={drawerInvoice}
+        open={drawerOpen}
+        onClose={() => {
+          setDrawerOpen(false);
+          setDrawerInvoice(null);
+        }}
+        onUpdate={() => {
+          refreshAll();
+        }}
+      />
     </div>
   );
 }
 
-function PaymentTable({ payments, onRowClick, onRecordPayment, serverDate, selectedIds, onToggleSelected, onQuickPay, navigate }: {
+function PaymentTable({ payments, onRowClick, onRecordPayment, serverDate, selectedIds, onToggleSelected, onQuickPay, onOpenInvoice }: {
   payments: InvoicePayment[];
   onRowClick: (p: InvoicePayment) => void;
   onRecordPayment?: (p: InvoicePayment) => void;
@@ -707,7 +744,7 @@ function PaymentTable({ payments, onRowClick, onRecordPayment, serverDate, selec
   selectedIds: Set<string>;
   onToggleSelected: (id: string) => void;
   onQuickPay: (payment: InvoicePayment) => Promise<void>;
-  navigate: (path: string) => void;
+  onOpenInvoice: (invoiceId: string | null | undefined) => void;
 }) {
   const [sortField, setSortField] = useState<string>("due_date");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
@@ -791,8 +828,8 @@ function PaymentTable({ payments, onRowClick, onRecordPayment, serverDate, selec
                   </TableCell>
                   <TableCell className="text-xs">{p.vendor}</TableCell>
                   <TableCell
-                    className="text-xs font-mono text-primary cursor-pointer hover:underline"
-                    onClick={() => p.invoice_id && navigate(`/invoices?open=${p.invoice_id}`)}
+                    className="text-xs font-mono text-primary cursor-pointer hover:underline underline-offset-2 whitespace-nowrap"
+                    onClick={e => { e.stopPropagation(); onOpenInvoice(p.invoice_id); }}
                   >
                     {p.invoice_number}
                   </TableCell>
@@ -876,7 +913,7 @@ function PaymentTable({ payments, onRowClick, onRecordPayment, serverDate, selec
                     <p className="text-sm font-medium truncate">{p.vendor}</p>
                     <p
                       className="text-[10px] font-mono text-primary cursor-pointer hover:underline truncate"
-                      onClick={() => p.invoice_id && navigate(`/invoices?open=${p.invoice_id}`)}
+                      onClick={e => { e.stopPropagation(); onOpenInvoice(p.invoice_id); }}
                     >
                       {p.invoice_number}
                     </p>
