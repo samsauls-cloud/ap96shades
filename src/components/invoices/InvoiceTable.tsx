@@ -4,7 +4,8 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { ChevronUp, ChevronDown, ChevronsUpDown, Camera } from "lucide-react";
-import { StatusBadge, DocTypeBadge, ReconStatusBadge, TermsStatusBadge } from "./Badges";
+import { StatusBadge, DocTypeBadge, TermsStatusBadge } from "./Badges";
+import { InvoiceFlags } from "./InvoiceFlags";
 import type { VendorInvoice, InvoiceFilters } from "@/lib/supabase-queries";
 import { formatCurrency, formatDate, getTotalUnits } from "@/lib/supabase-queries";
 
