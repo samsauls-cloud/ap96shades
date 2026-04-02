@@ -260,18 +260,18 @@ export default function APDashboard() {
     setModalOpen(true);
   };
 
-  const handleGenerateAll = async () => {
-    setGenerating(true);
-    try {
-      const result = await generateAllMissingPayments();
-      toast.success(`Generated ${result.generated} payments for ${result.invoices} invoices`);
-      refreshAll();
-    } catch (e: any) {
-      toast.error(`Failed: ${e.message}`);
-    } finally {
-      setGenerating(false);
-    }
-  };
+  /*
+   * ── ARCHIVED: Generate Missing (2026-04-02) ──
+   * const handleGenerateAll = async () => {
+   *   setGenerating(true);
+   *   try {
+   *     const result = await generateAllMissingPayments();
+   *     toast.success(`Generated ${result.generated} payments for ${result.invoices} invoices`);
+   *     refreshAll();
+   *   } catch (e: any) { toast.error(`Failed: ${e.message}`); }
+   *   finally { setGenerating(false); }
+   * };
+   */
 
   // ── Selection logic ──────────────────────────────────
   const toggleSelected = (id: string) => {
