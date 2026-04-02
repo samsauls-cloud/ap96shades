@@ -10,7 +10,7 @@ import { generatePaymentsForInvoice, recalculatePaymentsForInvoice, fixStaleInst
 import { toast } from "sonner";
 
 type AuditStatus = "clean" | "warning" | "error";
-type IssueCategory = "missingPayments" | "mathDiscrepancies" | "unknownVendors" | "duplicateInvoices";
+type IssueCategory = "missingPayments" | "mathDiscrepancies" | "unknownVendors" | "duplicateInvoices" | "staleInstallments";
 
 function getAuditStatus(audit: AuditResult): AuditStatus {
   if (audit.mathDiscrepancies.length > 0) return "error";
