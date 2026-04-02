@@ -2,7 +2,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { AlertTriangle, FileX, Clock, DollarSign, AlertCircle } from "lucide-react";
+import { FileX, Clock, DollarSign, AlertCircle } from "lucide-react";
 import type { VendorInvoice } from "@/lib/supabase-queries";
 import { isProforma } from "@/lib/supabase-queries";
 
@@ -58,16 +58,8 @@ export function InvoiceFlags({ invoice: inv }: Props) {
     });
   }
 
-  if ((inv as any).recon_status === "discrepancy" || (inv as any).recon_status === "credit_pending") {
-    flags.push({
-      icon: <AlertTriangle className="h-3 w-3" />,
-      label: "Price Check",
-      tooltip: "A difference was found between what this invoice charges and " +
-               "what was in our system price list at the time of upload. " +
-               "Open the invoice to review the line items and confirm amounts are correct.",
-      className: "bg-destructive/15 text-destructive border-destructive/30",
-    });
-  }
+  // NOTE: recon_status "discrepancy" flag removed — 93% of invoices have this
+  // as legacy data from the old reconciliation engine, making it meaningless noise.
 
   if (flags.length === 0) {
     return (
