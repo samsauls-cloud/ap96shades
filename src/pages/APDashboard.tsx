@@ -79,6 +79,8 @@ export default function APDashboard() {
   const navigate = useNavigate();
   const [generating, setGenerating] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState<InvoicePayment | null>(null);
+  const [drawerInvoice, setDrawerInvoice] = useState<VendorInvoice | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [expandedMonth, setExpandedMonth] = useState<string | null>(null);
   const [fixingKering, setFixingKering] = useState(false);
