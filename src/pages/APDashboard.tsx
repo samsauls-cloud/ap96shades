@@ -719,7 +719,21 @@ export default function APDashboard() {
         onOpenChange={setModalOpen}
         onComplete={() => refreshAll()}
       />
+
+      {/* Invoice Drawer — opens on dashboard without navigating away */}
+      <InvoiceDrawer
+        invoice={drawerInvoice}
+        open={drawerOpen}
+        onClose={() => {
+          setDrawerOpen(false);
+          setDrawerInvoice(null);
+        }}
+        onUpdate={() => {
+          refreshAll();
+        }}
+      />
     </div>
+  );
   );
 }
 
