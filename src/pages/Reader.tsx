@@ -28,6 +28,7 @@ import {
 import { parseCSVToPOs, fileToText } from "@/lib/csv-po-parser";
 import { isImageFile, imageToBase64, callAnthropicImageAPI } from "@/lib/photo-capture-engine";
 import { runQuickSKUCheck, type SKUCheckResult } from "@/lib/sku-check-engine";
+import { InvoiceReviewCard } from "@/components/invoices/InvoiceReviewCard";
 
 function formatElapsed(ms: number): string {
   const s = Math.floor(ms / 1000);
@@ -346,48 +347,18 @@ export default function ReaderPage() {
           invoiceData: invoice,
         });
       } else {
-        const saved = await insertInvoice(invoice);
+        // ── PRE-SAVE REVIEW: hold for user approval instead of saving immediately ──
         updateDoc(docId, {
-          status: "done",
+          status: "review",
           vendor: invoice.vendor,
           doc_type: invoice.doc_type,
           invoice_number: invoice.invoice_number,
           total: invoice.total || 0,
           line_items_count: lineItemsCount,
-          dbId: saved.id,
+          invoiceData: invoice,
+          parsedData: parsed,
+          reviewTerms: invoice.payment_terms ?? "",
         });
-
-        // Auto-generate payment installments — skip for proformas
-        if (!isProforma({ doc_type: invoice.doc_type || "" })) {
-          try {
-            await generatePaymentsForInvoice(
-              saved.id, invoice.invoice_date, invoice.total || 0, invoice.vendor, invoice.invoice_number, invoice.po_number ?? null
-            );
-          } catch { /* silent — payments are secondary */ }
-        }
-
-        // Auto-check for pending matches against partially reconciled sessions
-        try {
-          const pendingMatches = await checkPendingMatches(saved.id, invoice.invoice_number, lineItems);
-          if (pendingMatches.length > 0) {
-            for (const pm of pendingMatches) {
-              toast(`📥 Invoice ${pm.invoiceNumber} matches ${pm.matchedLineCount} unmatched lines from "${pm.sessionName}"`, {
-                description: 'Go to Receiving to reconcile',
-                duration: 8000,
-              });
-            }
-          }
-        } catch { /* silent — pending match is advisory */ }
-
-        // PO linkage
-        if (invoice.po_number) {
-          const poResult = await updatePOTotalInvoiced(invoice.po_number, invoice.vendor);
-          if (poResult.count > 1) {
-            updateDoc(docId, {
-              poLinkInfo: `✓ Linked to PO ${invoice.po_number} (${poResult.count} invoices against this PO total ${formatCurrency(poResult.total)})`,
-            });
-          }
-        }
       }
     } catch (err: any) {
       updateDoc(docId, { status: "error", error: err.message });
@@ -654,7 +625,88 @@ export default function ReaderPage() {
     toast.success(`Retry complete. ${completed} file(s) reprocessed.`);
   };
 
-  // Compute stats
+  // ── Pre-save review: Approve & Save handler ──
+  const handleApproveDoc = useCallback(async (docId: string, confirmedTerms: string) => {
+    const doc = docs.find(d => d.id === docId);
+    if (!doc?.invoiceData) return;
+
+    updateDoc(docId, { status: "saving" as any });
+
+    try {
+      const confirmedInvoice = {
+        ...doc.invoiceData,
+        payment_terms: confirmedTerms,
+        terms_status: "confirmed",
+        terms_confidence: "high",
+      };
+
+      const saved = await insertInvoice(confirmedInvoice);
+      updateDoc(docId, { status: "done", dbId: saved.id });
+
+      // Auto-generate payment installments — skip for proformas
+      if (!isProforma({ doc_type: confirmedInvoice.doc_type || "" })) {
+        try {
+          await generatePaymentsForInvoice(
+            saved.id, confirmedInvoice.invoice_date, confirmedInvoice.total || 0,
+            confirmedInvoice.vendor, confirmedInvoice.invoice_number,
+            confirmedInvoice.po_number ?? null
+          );
+        } catch { /* silent */ }
+      }
+
+      // Auto-check for pending matches
+      try {
+        const lineItems = doc.parsedData?.line_items || [];
+        const pendingMatches = await checkPendingMatches(saved.id, confirmedInvoice.invoice_number, lineItems);
+        if (pendingMatches.length > 0) {
+          for (const pm of pendingMatches) {
+            toast(`📥 Invoice ${pm.invoiceNumber} matches ${pm.matchedLineCount} unmatched lines from "${pm.sessionName}"`, {
+              description: 'Go to Receiving to reconcile',
+              duration: 8000,
+            });
+          }
+        }
+      } catch { /* silent */ }
+
+      // PO linkage
+      if (confirmedInvoice.po_number) {
+        const poResult = await updatePOTotalInvoiced(confirmedInvoice.po_number, confirmedInvoice.vendor);
+        if (poResult.count > 1) {
+          updateDoc(docId, {
+            poLinkInfo: `✓ Linked to PO ${confirmedInvoice.po_number} (${poResult.count} invoices against this PO total ${formatCurrency(poResult.total)})`,
+          });
+        }
+      }
+
+      // Auto-run SKU check
+      try {
+        const skuResult = await runQuickSKUCheck(doc.parsedData?.line_items || []);
+        setSkuResults(prev => new Map(prev).set(docId, skuResult));
+      } catch { /* silent */ }
+
+      queryClient.invalidateQueries({ queryKey: ["vendor_invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["invoice_stats"] });
+      queryClient.invalidateQueries({ queryKey: ["distinct_vendors"] });
+      toast.success(`${confirmedInvoice.vendor} — ${confirmedInvoice.invoice_number} saved and scheduled`);
+    } catch (err: any) {
+      updateDoc(docId, { status: "error", error: `Save failed: ${err.message}` });
+      toast.error(`Save failed: ${err.message}`);
+    }
+  }, [docs, queryClient]);
+
+  const handleDiscardDoc = useCallback((docId: string) => {
+    setDocs(prev => prev.filter(d => d.id !== docId));
+    toast("Invoice discarded — nothing was saved");
+  }, []);
+
+  const docsAwaitingReview = docs.filter(d => d.status === "review");
+
+  const handleApproveAll = useCallback(async () => {
+    for (const doc of docsAwaitingReview) {
+      await handleApproveDoc(doc.id, doc.reviewTerms ?? "");
+    }
+  }, [docsAwaitingReview, handleApproveDoc]);
+
   const stats = docs.reduce<BatchStats>((s, d) => {
     if (d.status === "done") {
       s.saved++;
@@ -695,6 +747,7 @@ export default function ReaderPage() {
       case "waiting-retry": return <Timer className="h-4 w-4 text-amber-500 animate-pulse" />;
       case "done": return <CheckCircle2 className="h-4 w-4 text-status-paid" />;
       case "staged": return <CheckCircle2 className="h-4 w-4 text-amber-500" />;
+      case "saving": return <Loader2 className="h-4 w-4 animate-spin text-primary" />;
       case "duplicate": return <Copy className="h-4 w-4 text-muted-foreground" />;
       case "extended": return <Zap className="h-4 w-4 text-blue-500" />;
       case "error": return <AlertCircle className="h-4 w-4 text-status-unpaid" />;
@@ -947,8 +1000,33 @@ export default function ReaderPage() {
         {/* Processed cards */}
         {docs.length > 0 && (
           <div className="space-y-2">
-            <h3 className="text-xs font-semibold text-muted-foreground">Processed Documents</h3>
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-semibold text-muted-foreground">Processed Documents</h3>
+              {docsAwaitingReview.length > 1 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-xs gap-1.5"
+                  onClick={handleApproveAll}
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  Approve All ({docsAwaitingReview.length}) with extracted terms
+                </Button>
+              )}
+            </div>
             {docs.map(d => {
+              // Show review card for docs awaiting approval
+              if (d.status === "review") {
+                return (
+                  <InvoiceReviewCard
+                    key={d.id}
+                    doc={d}
+                    onApprove={handleApproveDoc}
+                    onDiscard={handleDiscardDoc}
+                  />
+                );
+              }
+
               const isFailed = d.status === "error" && d.error !== "Cancelled";
               return (
                 <Card
