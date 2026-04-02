@@ -561,11 +561,20 @@ export async function backfillDueDates(): Promise<number> {
 
 // ── Audit queries ─────────────────────────────────────────
 
+export interface StaleInstallment {
+  invoice_id: string;
+  invoice_number: string;
+  vendor: string;
+  total: number;
+  staleRows: { id: string; due_date: string; amount_due: number; installment_label: string | null }[];
+}
+
 export interface AuditResult {
   missingPayments: { id: string; invoice_number: string; vendor: string; total: number; invoice_date: string; po_number: string | null; payment_terms: string | null }[];
   mathDiscrepancies: { id: string; invoice_number: string; vendor: string; total: number; installmentsSum: number; discrepancy: number; invoice_date: string; po_number: string | null; payment_terms: string | null }[];
   unknownVendors: { id: string; invoice_number: string; vendor: string; total: number }[];
   duplicateInvoices: { invoice_number: string; vendor: string; count: number }[];
+  staleInstallments: StaleInstallment[];
   lastAuditTime: string;
 }
 
@@ -650,13 +659,132 @@ export async function runFullAudit(): Promise<AuditResult> {
     }
   }
 
+  // 5. Stale installments — paid rows after an unpaid row
+  const staleInstallments = await detectStaleInstallments(payments, invoices);
+
   return {
     missingPayments,
     mathDiscrepancies,
     unknownVendors,
     duplicateInvoices,
+    staleInstallments,
     lastAuditTime: new Date().toISOString(),
   };
+}
+
+async function detectStaleInstallments(
+  allPayments: any[],
+  allInvoices: any[],
+): Promise<StaleInstallment[]> {
+  // Group payments by invoice_id
+  const byInvoice = new Map<string, any[]>();
+  for (const p of allPayments) {
+    const iid = (p as any).invoice_id;
+    if (!iid) continue;
+    const arr = byInvoice.get(iid) ?? [];
+    arr.push(p);
+    byInvoice.set(iid, arr);
+  }
+
+  // We need full payment rows with is_paid, due_date, installment_label
+  // The audit already fetches only amount_due — need a targeted query
+  const invoiceIds = [...byInvoice.keys()];
+  if (invoiceIds.length === 0) return [];
+
+  const { data: fullPayments } = await supabase
+    .from("invoice_payments")
+    .select("id, invoice_id, due_date, is_paid, amount_due, installment_label")
+    .order("due_date", { ascending: true });
+
+  const fullByInvoice = new Map<string, any[]>();
+  for (const p of fullPayments ?? []) {
+    if (!p.invoice_id) continue;
+    const arr = fullByInvoice.get(p.invoice_id) ?? [];
+    arr.push(p);
+    fullByInvoice.set(p.invoice_id, arr);
+  }
+
+  const invoiceMap = new Map(allInvoices.map(i => [i.id, i]));
+  const results: StaleInstallment[] = [];
+
+  for (const [invoiceId, rows] of fullByInvoice) {
+    if (rows.length < 2) continue;
+    // Sort by due_date ascending
+    rows.sort((a: any, b: any) => a.due_date.localeCompare(b.due_date));
+
+    let foundUnpaid = false;
+    const staleRows: any[] = [];
+    for (const row of rows) {
+      if (!row.is_paid) {
+        foundUnpaid = true;
+      } else if (foundUnpaid && row.is_paid) {
+        staleRows.push({
+          id: row.id,
+          due_date: row.due_date,
+          amount_due: Number(row.amount_due),
+          installment_label: row.installment_label,
+        });
+      }
+    }
+
+    if (staleRows.length > 0) {
+      const inv = invoiceMap.get(invoiceId);
+      results.push({
+        invoice_id: invoiceId,
+        invoice_number: inv?.invoice_number ?? "Unknown",
+        vendor: inv?.vendor ?? "Unknown",
+        total: inv?.total ?? 0,
+        staleRows,
+      });
+    }
+  }
+
+  return results;
+}
+
+/** Reset stale installments for a single invoice: reset all paid rows after the last consecutive paid row */
+export async function fixStaleInstallments(invoiceId: string): Promise<number> {
+  const { data: rows } = await supabase
+    .from("invoice_payments")
+    .select("id, due_date, is_paid, amount_due")
+    .eq("invoice_id", invoiceId)
+    .order("due_date", { ascending: true });
+
+  if (!rows || rows.length === 0) return 0;
+
+  let foundUnpaid = false;
+  const staleIds: string[] = [];
+  const staleAmounts: number[] = [];
+  for (const row of rows) {
+    if (!row.is_paid) {
+      foundUnpaid = true;
+    } else if (foundUnpaid && row.is_paid) {
+      staleIds.push(row.id);
+      staleAmounts.push(Number(row.amount_due));
+    }
+  }
+
+  if (staleIds.length === 0) return 0;
+
+  for (let i = 0; i < staleIds.length; i++) {
+    const { error } = await supabase
+      .from("invoice_payments")
+      .update({
+        is_paid: false,
+        paid_date: null,
+        amount_paid: 0,
+        balance_remaining: staleAmounts[i],
+        payment_status: "unpaid",
+        last_payment_date: null,
+      } as any)
+      .eq("id", staleIds[i]);
+    if (error) throw error;
+  }
+
+  // Sync parent invoice status
+  await syncInvoicePaymentStatus(invoiceId);
+
+  return staleIds.length;
 }
 
 // Invoice-level rollup (computed, not stored)

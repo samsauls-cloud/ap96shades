@@ -6,20 +6,20 @@ import { Badge } from "@/components/ui/badge";
 import { AlertTriangle, CheckCircle2, XCircle, Loader2, RefreshCw, ShieldCheck, ShieldAlert, ChevronDown, ChevronRight } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { formatCurrency, formatDate } from "@/lib/supabase-queries";
-import { generatePaymentsForInvoice, recalculatePaymentsForInvoice, type AuditResult } from "@/lib/payment-queries";
+import { generatePaymentsForInvoice, recalculatePaymentsForInvoice, fixStaleInstallments, type AuditResult } from "@/lib/payment-queries";
 import { toast } from "sonner";
 
 type AuditStatus = "clean" | "warning" | "error";
-type IssueCategory = "missingPayments" | "mathDiscrepancies" | "unknownVendors" | "duplicateInvoices";
+type IssueCategory = "missingPayments" | "mathDiscrepancies" | "unknownVendors" | "duplicateInvoices" | "staleInstallments";
 
 function getAuditStatus(audit: AuditResult): AuditStatus {
   if (audit.mathDiscrepancies.length > 0) return "error";
-  if (audit.missingPayments.length > 0 || audit.unknownVendors.length > 0 || audit.duplicateInvoices.length > 0) return "warning";
+  if (audit.missingPayments.length > 0 || audit.unknownVendors.length > 0 || audit.duplicateInvoices.length > 0 || audit.staleInstallments.length > 0) return "warning";
   return "clean";
 }
 
 function getIssueCount(audit: AuditResult): number {
-  return audit.missingPayments.length + audit.mathDiscrepancies.length + audit.unknownVendors.length + audit.duplicateInvoices.length;
+  return audit.missingPayments.length + audit.mathDiscrepancies.length + audit.unknownVendors.length + audit.duplicateInvoices.length + audit.staleInstallments.length;
 }
 
 interface IssueDef {
@@ -40,6 +40,8 @@ function getIssueChips(audit: AuditResult): IssueDef[] {
     chips.push({ key: "unknownVendors", count: audit.unknownVendors.length, label: "Unknown Vendors", color: "text-orange-600 dark:text-orange-400", bgColor: "bg-orange-500/10 hover:bg-orange-500/20 border-orange-500/30" });
   if (audit.duplicateInvoices.length > 0)
     chips.push({ key: "duplicateInvoices", count: audit.duplicateInvoices.length, label: "Duplicates", color: "text-red-600 dark:text-red-400", bgColor: "bg-red-500/10 hover:bg-red-500/20 border-red-500/30" });
+  if (audit.staleInstallments.length > 0)
+    chips.push({ key: "staleInstallments", count: audit.staleInstallments.length, label: "Stale Installments", color: "text-purple-600 dark:text-purple-400", bgColor: "bg-purple-500/10 hover:bg-purple-500/20 border-purple-500/30" });
   return chips;
 }
 
@@ -98,6 +100,7 @@ export function AuditPanel({ audit, onRefresh, isLoading, totalInvoices, highlig
   const [recalcId, setRecalcId] = useState<string | null>(null);
   const [confirmRecalc, setConfirmRecalc] = useState<{ id: string; invoiceNumber: string; vendor: string; total: number; invoiceDate: string; poNumber: string | null; paymentTerms: string | null } | null>(null);
   const [sortField, setSortField] = useState<string>("vendor");
+  const [fixingStaleId, setFixingStaleId] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
   if (!audit) return null;
@@ -340,6 +343,59 @@ export function AuditPanel({ audit, onRefresh, isLoading, totalInvoices, highlig
                   <span className="font-mono">{d.invoice_number}</span>
                   <span>{d.vendor}</span>
                   <span className="font-semibold text-red-500">{d.count}× duplicates</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 5. Stale Installments */}
+        {audit.staleInstallments.length > 0 && (
+          <div id="audit-staleInstallments" className={`rounded-lg p-3 transition-colors ${isHighlighted("staleInstallments") ? "ring-2 ring-purple-500/50 bg-purple-500/5" : ""}`}>
+            <p className="text-xs font-semibold mb-2 flex items-center gap-1.5">
+              <AlertTriangle className="h-3.5 w-3.5 text-purple-500" />
+              Stale Paid Installments ({audit.staleInstallments.length})
+            </p>
+            <p className="text-[10px] text-muted-foreground mb-2">
+              These invoices have paid installments after an unpaid one — likely a data artifact from marking the wrong tranche.
+            </p>
+            <div className="space-y-2">
+              {audit.staleInstallments.map(si => (
+                <div key={si.invoice_id} className="rounded border border-purple-500/20 p-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-xs font-mono truncate">{si.invoice_number}</p>
+                      <p className="text-[10px] text-muted-foreground">{si.vendor} · {formatCurrency(si.total)}</p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-[10px] h-6 shrink-0"
+                      onClick={async () => {
+                        setFixingStaleId(si.invoice_id);
+                        try {
+                          const count = await fixStaleInstallments(si.invoice_id);
+                          toast.success(`Reset ${count} stale installment${count !== 1 ? "s" : ""} for ${si.invoice_number}`);
+                          onRefresh();
+                        } catch (e: any) {
+                          toast.error(e.message);
+                        } finally {
+                          setFixingStaleId(null);
+                        }
+                      }}
+                      disabled={fixingStaleId === si.invoice_id}
+                    >
+                      {fixingStaleId === si.invoice_id ? <Loader2 className="h-3 w-3 animate-spin" /> : "Fix"}
+                    </Button>
+                  </div>
+                  <div className="mt-1.5 space-y-0.5">
+                    {si.staleRows.map(r => (
+                      <div key={r.id} className="flex items-center justify-between text-[10px] text-purple-600 dark:text-purple-400">
+                        <span>{r.installment_label ?? r.due_date} — due {formatDate(r.due_date)}</span>
+                        <span className="font-semibold">{formatCurrency(r.amount_due)} ← stale paid</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               ))}
             </div>
