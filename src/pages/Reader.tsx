@@ -335,31 +335,18 @@ export default function ReaderPage() {
         return;
       }
 
-      // New record
-      if (isAtomic) {
-        updateDoc(docId, {
-          status: "staged",
-          vendor: invoice.vendor,
-          doc_type: invoice.doc_type,
-          invoice_number: invoice.invoice_number,
-          total: invoice.total || 0,
-          line_items_count: lineItemsCount,
-          invoiceData: invoice,
-        });
-      } else {
-        // ── PRE-SAVE REVIEW: hold for user approval instead of saving immediately ──
-        updateDoc(docId, {
-          status: "review",
-          vendor: invoice.vendor,
-          doc_type: invoice.doc_type,
-          invoice_number: invoice.invoice_number,
-          total: invoice.total || 0,
-          line_items_count: lineItemsCount,
-          invoiceData: invoice,
-          parsedData: parsed,
-          reviewTerms: invoice.payment_terms ?? "",
-        });
-      }
+      // ── PRE-SAVE REVIEW: always hold for user approval ──
+      updateDoc(docId, {
+        status: "review",
+        vendor: invoice.vendor,
+        doc_type: invoice.doc_type,
+        invoice_number: invoice.invoice_number,
+        total: invoice.total || 0,
+        line_items_count: lineItemsCount,
+        invoiceData: invoice,
+        parsedData: parsed,
+        reviewTerms: invoice.payment_terms ?? "",
+      });
     } catch (err: any) {
       updateDoc(docId, { status: "error", error: err.message });
     }
@@ -511,9 +498,7 @@ export default function ReaderPage() {
       toast.info(`Batch cancelled. ${completed} of ${filesToProcess.length} processed.`);
     }
 
-    if (atomicMode && !cancelRef.current) {
-      await finalizeAtomicBatch(fileDocPairs);
-    }
+    // Atomic mode no longer auto-saves — all docs go through review
 
     setProcessing(false);
     setBatchTotal(0);
