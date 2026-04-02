@@ -1000,6 +1000,65 @@ export default function AuditPage() {
                 </CardContent>
               </Card>
             </Section>
+
+            {/* ── Database Scale Health ── */}
+            {scaleHealth && (
+              <Section title="Database Scale Health" icon={Database} defaultOpen>
+                <Card className="bg-card border-border">
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      {scaleHealth.overallStatus === 'clean' && <CheckCircle2 className="h-4 w-4 text-emerald-500" />}
+                      {scaleHealth.overallStatus === 'warning' && <AlertTriangle className="h-4 w-4 text-amber-500" />}
+                      {scaleHealth.overallStatus === 'error' && <AlertTriangle className="h-4 w-4 text-destructive" />}
+                      <span className="text-xs font-semibold">
+                        {scaleHealth.overallStatus === 'clean' ? 'All tables within safe limits' :
+                         scaleHealth.overallStatus === 'warning' ? 'Some tables growing — monitor' :
+                         'Tables approaching query limits — pagination required'}
+                      </span>
+                    </div>
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="border-border">
+                          <TableHead className="text-[10px] font-semibold">Table</TableHead>
+                          <TableHead className="text-[10px] font-semibold text-right">Row Count</TableHead>
+                          <TableHead className="text-[10px] font-semibold">Status</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {scaleHealth.tables.map(t => (
+                          <TableRow key={t.name} className="border-border">
+                            <TableCell className="text-[10px] font-mono">{t.name}</TableCell>
+                            <TableCell className="text-[10px] text-right tabular-nums font-medium">
+                              {t.count.toLocaleString()}
+                            </TableCell>
+                            <TableCell>
+                              {t.status === 'ok' && (
+                                <Badge className="text-[9px] bg-emerald-500/10 text-emerald-500 border-emerald-500/20">
+                                  ✅ OK
+                                </Badge>
+                              )}
+                              {t.status === 'warn' && (
+                                <Badge className="text-[9px] bg-amber-500/10 text-amber-500 border-amber-500/20">
+                                  ⚠ Growing
+                                </Badge>
+                              )}
+                              {t.status === 'critical' && (
+                                <Badge className="text-[9px] bg-destructive/10 text-destructive border-destructive/20">
+                                  🔴 Near Limit
+                                </Badge>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                    <p className="text-[9px] text-muted-foreground mt-2">
+                      All queries use automatic pagination (up to 500K rows). This panel monitors growth to ensure data integrity.
+                    </p>
+                  </CardContent>
+                </Card>
+              </Section>
+            )}
           </>
         )}
       </main>
