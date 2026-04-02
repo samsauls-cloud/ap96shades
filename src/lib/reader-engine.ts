@@ -49,7 +49,7 @@ export const MAX_RETRIES_OTHER = 3;
 export const RETRY_COOLDOWN = 30_000;
 export const FETCH_TIMEOUT = 60_000;
 
-export type DocStatus = "processing" | "done" | "error" | "duplicate" | "retrying" | "staged" | "waiting-retry" | "extended";
+export type DocStatus = "processing" | "done" | "error" | "duplicate" | "retrying" | "staged" | "waiting-retry" | "extended" | "review" | "saving" | "discarded";
 
 export interface ProcessedDoc {
   id: string;
