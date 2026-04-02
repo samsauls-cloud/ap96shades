@@ -669,13 +669,13 @@ export default function APDashboard() {
                   {filteredHistory.length > 0 ? (
                     <PaymentTable
                       payments={filteredHistory}
-                      onRowClick={p => p.invoice_id && navigate(`/invoices?open=${p.invoice_id}`)}
+                      onRowClick={p => handleOpenInvoice(p.invoice_id)}
                       onRecordPayment={() => {}}
                       serverDate={effectiveDate}
                       selectedIds={new Set()}
                       onToggleSelected={() => {}}
                       onQuickPay={handleQuickPay}
-                      navigate={navigate}
+                      onOpenInvoice={handleOpenInvoice}
                     />
                   ) : (
                     <div className="p-8 text-center text-muted-foreground text-sm">
