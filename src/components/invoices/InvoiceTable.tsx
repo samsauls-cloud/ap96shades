@@ -75,7 +75,7 @@ export function InvoiceTable({ invoices, filters, onSort, onRowClick, totalCount
               <TableHead className="text-xs font-semibold">Terms</TableHead>
               <TableHead className="text-xs font-semibold">Tags</TableHead>
               <SortableHead field="status" label="Status" filters={filters} onSort={onSort} />
-              <TableHead className="text-xs font-semibold">Recon</TableHead>
+              <TableHead className="text-xs font-semibold">Flags</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
