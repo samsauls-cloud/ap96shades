@@ -999,8 +999,33 @@ export default function ReaderPage() {
         {/* Processed cards */}
         {docs.length > 0 && (
           <div className="space-y-2">
-            <h3 className="text-xs font-semibold text-muted-foreground">Processed Documents</h3>
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-semibold text-muted-foreground">Processed Documents</h3>
+              {docsAwaitingReview.length > 1 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-xs gap-1.5"
+                  onClick={handleApproveAll}
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  Approve All ({docsAwaitingReview.length}) with extracted terms
+                </Button>
+              )}
+            </div>
             {docs.map(d => {
+              // Show review card for docs awaiting approval
+              if (d.status === "review") {
+                return (
+                  <InvoiceReviewCard
+                    key={d.id}
+                    doc={d}
+                    onApprove={handleApproveDoc}
+                    onDiscard={handleDiscardDoc}
+                  />
+                );
+              }
+
               const isFailed = d.status === "error" && d.error !== "Cancelled";
               return (
                 <Card
