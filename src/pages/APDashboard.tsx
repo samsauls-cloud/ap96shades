@@ -77,7 +77,7 @@ function getVendorColor(vendor: string): string {
 export default function APDashboard() {
   const queryClient = useQueryClient();
   
-  const [generating, setGenerating] = useState(false);
+  // const [generating, setGenerating] = useState(false); // Archived 2026-04-02
   const [selectedPayment, setSelectedPayment] = useState<InvoicePayment | null>(null);
   const [drawerInvoice, setDrawerInvoice] = useState<VendorInvoice | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
