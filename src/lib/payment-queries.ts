@@ -561,11 +561,20 @@ export async function backfillDueDates(): Promise<number> {
 
 // ── Audit queries ─────────────────────────────────────────
 
+export interface StaleInstallment {
+  invoice_id: string;
+  invoice_number: string;
+  vendor: string;
+  total: number;
+  staleRows: { id: string; due_date: string; amount_due: number; installment_label: string | null }[];
+}
+
 export interface AuditResult {
   missingPayments: { id: string; invoice_number: string; vendor: string; total: number; invoice_date: string; po_number: string | null; payment_terms: string | null }[];
   mathDiscrepancies: { id: string; invoice_number: string; vendor: string; total: number; installmentsSum: number; discrepancy: number; invoice_date: string; po_number: string | null; payment_terms: string | null }[];
   unknownVendors: { id: string; invoice_number: string; vendor: string; total: number }[];
   duplicateInvoices: { invoice_number: string; vendor: string; count: number }[];
+  staleInstallments: StaleInstallment[];
   lastAuditTime: string;
 }
 
