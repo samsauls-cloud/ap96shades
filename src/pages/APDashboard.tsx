@@ -734,7 +734,6 @@ export default function APDashboard() {
       />
     </div>
   );
-  );
 }
 
 function PaymentTable({ payments, onRowClick, onRecordPayment, serverDate, selectedIds, onToggleSelected, onQuickPay, onOpenInvoice }: {
