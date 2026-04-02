@@ -685,6 +685,7 @@ export default function ReaderPage() {
       } catch { /* silent */ }
 
       queryClient.invalidateQueries({ queryKey: ["vendor_invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["invoice_payments"] });
       queryClient.invalidateQueries({ queryKey: ["invoice_stats"] });
       queryClient.invalidateQueries({ queryKey: ["distinct_vendors"] });
       toast.success(`${confirmedInvoice.vendor} — ${confirmedInvoice.invoice_number} saved and scheduled`);
