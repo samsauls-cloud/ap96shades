@@ -1,7 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { VendorInvoice, LineItem } from "@/lib/supabase-queries";
 import { getLineItems } from "@/lib/supabase-queries";
-import { fetchAllRows } from "@/lib/supabase-fetch-all";
+import { fetchAllRows, fetchParallel } from "@/lib/supabase-fetch-all";
 
 /** Safely coerce a value to number — treats "", null, undefined, NaN as 0 */
 function safeNum(v: any): number {
