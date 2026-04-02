@@ -116,19 +116,7 @@ export function InvoiceTable({ invoices, filters, onSort, onRowClick, totalCount
                 </TableCell>
                 <TableCell><StatusBadge status={inv.status} docType={inv.doc_type} /></TableCell>
                 <TableCell>
-                  <span
-                    className="cursor-pointer"
-                    onClick={e => {
-                      e.stopPropagation();
-                      onRowClick(inv);
-                    }}
-                  >
-                    <ReconStatusBadge
-                      status={(inv as any).recon_status || (inv as any).reconciliation_status || 'pending'}
-                      isStale={(inv as any).recon_stale === true}
-                      staleReason={(inv as any).recon_stale_reason}
-                    />
-                  </span>
+                  <InvoiceFlags invoice={inv} />
                 </TableCell>
               </TableRow>
             ))}
