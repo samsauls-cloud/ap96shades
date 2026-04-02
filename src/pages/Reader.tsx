@@ -625,7 +625,88 @@ export default function ReaderPage() {
     toast.success(`Retry complete. ${completed} file(s) reprocessed.`);
   };
 
-  // Compute stats
+  // ── Pre-save review: Approve & Save handler ──
+  const handleApproveDoc = useCallback(async (docId: string, confirmedTerms: string) => {
+    const doc = docs.find(d => d.id === docId);
+    if (!doc?.invoiceData) return;
+
+    updateDoc(docId, { status: "saving" as any });
+
+    try {
+      const confirmedInvoice = {
+        ...doc.invoiceData,
+        payment_terms: confirmedTerms,
+        terms_status: "confirmed",
+        terms_confidence: "high",
+      };
+
+      const saved = await insertInvoice(confirmedInvoice);
+      updateDoc(docId, { status: "done", dbId: saved.id });
+
+      // Auto-generate payment installments — skip for proformas
+      if (!isProforma({ doc_type: confirmedInvoice.doc_type || "" })) {
+        try {
+          await generatePaymentsForInvoice(
+            saved.id, confirmedInvoice.invoice_date, confirmedInvoice.total || 0,
+            confirmedInvoice.vendor, confirmedInvoice.invoice_number,
+            confirmedInvoice.po_number ?? null
+          );
+        } catch { /* silent */ }
+      }
+
+      // Auto-check for pending matches
+      try {
+        const lineItems = doc.parsedData?.line_items || [];
+        const pendingMatches = await checkPendingMatches(saved.id, confirmedInvoice.invoice_number, lineItems);
+        if (pendingMatches.length > 0) {
+          for (const pm of pendingMatches) {
+            toast(`📥 Invoice ${pm.invoiceNumber} matches ${pm.matchedLineCount} unmatched lines from "${pm.sessionName}"`, {
+              description: 'Go to Receiving to reconcile',
+              duration: 8000,
+            });
+          }
+        }
+      } catch { /* silent */ }
+
+      // PO linkage
+      if (confirmedInvoice.po_number) {
+        const poResult = await updatePOTotalInvoiced(confirmedInvoice.po_number, confirmedInvoice.vendor);
+        if (poResult.count > 1) {
+          updateDoc(docId, {
+            poLinkInfo: `✓ Linked to PO ${confirmedInvoice.po_number} (${poResult.count} invoices against this PO total ${formatCurrency(poResult.total)})`,
+          });
+        }
+      }
+
+      // Auto-run SKU check
+      try {
+        const skuResult = await runQuickSKUCheck(doc.parsedData?.line_items || []);
+        setSkuResults(prev => new Map(prev).set(docId, skuResult));
+      } catch { /* silent */ }
+
+      queryClient.invalidateQueries({ queryKey: ["vendor_invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["invoice_stats"] });
+      queryClient.invalidateQueries({ queryKey: ["distinct_vendors"] });
+      toast.success(`${confirmedInvoice.vendor} — ${confirmedInvoice.invoice_number} saved and scheduled`);
+    } catch (err: any) {
+      updateDoc(docId, { status: "error", error: `Save failed: ${err.message}` });
+      toast.error(`Save failed: ${err.message}`);
+    }
+  }, [docs, queryClient]);
+
+  const handleDiscardDoc = useCallback((docId: string) => {
+    setDocs(prev => prev.filter(d => d.id !== docId));
+    toast("Invoice discarded — nothing was saved");
+  }, []);
+
+  const docsAwaitingReview = docs.filter(d => d.status === "review");
+
+  const handleApproveAll = useCallback(async () => {
+    for (const doc of docsAwaitingReview) {
+      await handleApproveDoc(doc.id, doc.reviewTerms ?? "");
+    }
+  }, [docsAwaitingReview, handleApproveDoc]);
+
   const stats = docs.reduce<BatchStats>((s, d) => {
     if (d.status === "done") {
       s.saved++;
