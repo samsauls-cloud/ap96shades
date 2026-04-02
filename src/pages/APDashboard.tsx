@@ -4,6 +4,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { InvoiceNav } from "@/components/invoices/InvoiceNav";
+import { InvoiceDrawer } from "@/components/invoices/InvoiceDrawer";
+import type { VendorInvoice } from "@/lib/supabase-queries";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
