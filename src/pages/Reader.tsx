@@ -10,7 +10,7 @@ import { Switch } from "@/components/ui/switch";
 import { Link } from "react-router-dom";
 import { InvoiceNav } from "@/components/invoices/InvoiceNav";
 import { DocTypeBadge } from "@/components/invoices/Badges";
-import { insertInvoice, formatCurrency, type VendorInvoiceInsert, getLineItems, isProforma } from "@/lib/supabase-queries";
+import { insertInvoice, formatCurrency, type VendorInvoiceInsert, getLineItems, isProforma, isCreditMemo } from "@/lib/supabase-queries";
 import { supabase } from "@/integrations/supabase/client";
 import { checkPendingMatches } from "@/lib/pending-match";
 import { generatePaymentsForInvoice } from "@/lib/payment-queries";
@@ -618,18 +618,41 @@ export default function ReaderPage() {
     updateDoc(docId, { status: "saving" as any });
 
     try {
+      const isCreditDoc = isCreditMemo({ doc_type: doc.invoiceData.doc_type || "" });
+
       const confirmedInvoice = {
         ...doc.invoiceData,
-        payment_terms: confirmedTerms,
-        terms_status: "confirmed",
-        terms_confidence: "high",
+        payment_terms: isCreditDoc ? "credit_memo" : confirmedTerms,
+        terms_status: isCreditDoc ? "confirmed" : "confirmed",
+        terms_confidence: isCreditDoc ? "auto" : "high",
+        ...(isCreditDoc ? { status: "open" } : {}),
       };
 
       const saved = await insertInvoice(confirmedInvoice);
       updateDoc(docId, { status: "done", dbId: saved.id });
 
-      // Auto-generate payment installments — skip for proformas
-      if (!isProforma({ doc_type: confirmedInvoice.doc_type || "" })) {
+      if (isCreditDoc) {
+        // Create single credit memo payment row
+        try {
+          const { supabase } = await import("@/integrations/supabase/client");
+          await supabase.from("invoice_payments").insert({
+            invoice_id: saved.id,
+            vendor: confirmedInvoice.vendor,
+            invoice_number: confirmedInvoice.invoice_number,
+            invoice_amount: confirmedInvoice.total || 0,
+            invoice_date: confirmedInvoice.invoice_date,
+            amount_due: confirmedInvoice.total || 0,
+            balance_remaining: confirmedInvoice.total || 0,
+            amount_paid: 0,
+            is_paid: false,
+            payment_status: "unpaid",
+            terms: "credit_memo",
+            installment_label: "Credit",
+            due_date: confirmedInvoice.invoice_date,
+          });
+        } catch { /* silent */ }
+      } else if (!isProforma({ doc_type: confirmedInvoice.doc_type || "" })) {
+        // Auto-generate payment installments — skip for proformas
         try {
           await generatePaymentsForInvoice(
             saved.id, confirmedInvoice.invoice_date, confirmedInvoice.total || 0,
@@ -673,7 +696,7 @@ export default function ReaderPage() {
       queryClient.invalidateQueries({ queryKey: ["invoice_payments"] });
       queryClient.invalidateQueries({ queryKey: ["invoice_stats"] });
       queryClient.invalidateQueries({ queryKey: ["distinct_vendors"] });
-      toast.success(`${confirmedInvoice.vendor} — ${confirmedInvoice.invoice_number} saved and scheduled`);
+      toast.success(`${confirmedInvoice.vendor} — ${confirmedInvoice.invoice_number} saved${isCreditDoc ? " (credit memo)" : " and scheduled"}`);
     } catch (err: any) {
       updateDoc(docId, { status: "error", error: `Save failed: ${err.message}` });
       toast.error(`Save failed: ${err.message}`);
