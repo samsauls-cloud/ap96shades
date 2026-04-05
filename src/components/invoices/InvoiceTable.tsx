@@ -7,7 +7,7 @@ import { ChevronUp, ChevronDown, ChevronsUpDown, Camera } from "lucide-react";
 import { StatusBadge, DocTypeBadge } from "./Badges";
 import { InvoiceFlags } from "./InvoiceFlags";
 import type { VendorInvoice, InvoiceFilters } from "@/lib/supabase-queries";
-import { formatCurrency, formatDate, getTotalUnits } from "@/lib/supabase-queries";
+import { formatCurrency, formatDate, getTotalUnits, isCreditMemo } from "@/lib/supabase-queries";
 
 interface Props {
   invoices: VendorInvoice[];
@@ -102,7 +102,9 @@ export function InvoiceTable({ invoices, filters, onSort, onRowClick, totalCount
                 <TableCell className="text-xs">{formatDate(inv.invoice_date)}</TableCell>
                 <TableCell className="text-xs">{(inv as any).due_date ? formatDate((inv as any).due_date) : "—"}</TableCell>
                 <TableCell className="text-xs text-right tabular-nums">{getTotalUnits(inv)}</TableCell>
-                <TableCell className="text-right font-semibold text-sm tabular-nums">{formatCurrency(inv.total)}</TableCell>
+                <TableCell className={`text-right font-semibold text-sm tabular-nums ${isCreditMemo(inv) ? "text-emerald-600" : ""}`}>
+                  {isCreditMemo(inv) ? `–${formatCurrency(Math.abs(inv.total))}` : formatCurrency(inv.total)}
+                </TableCell>
                 <TableCell className="text-xs text-muted-foreground">{inv.payment_terms || "—"}</TableCell>
                 <TableCell>
                   <div className="flex flex-wrap gap-1">
@@ -140,7 +142,9 @@ export function InvoiceTable({ invoices, filters, onSort, onRowClick, totalCount
                 <p className="font-mono text-xs text-muted-foreground truncate">{inv.invoice_number}</p>
               </div>
               <div className="text-right shrink-0">
-                <p className="font-semibold text-sm tabular-nums">{formatCurrency(inv.total)}</p>
+                <p className={`font-semibold text-sm tabular-nums ${isCreditMemo(inv) ? "text-emerald-600" : ""}`}>
+                  {isCreditMemo(inv) ? `–${formatCurrency(Math.abs(inv.total))}` : formatCurrency(inv.total)}
+                </p>
                 <div className="flex gap-1 justify-end">
                   <StatusBadge status={inv.status} docType={inv.doc_type} />
                   <InvoiceFlags invoice={inv} />

@@ -263,7 +263,7 @@ export function parsedToInvoice(parsed: any, filename: string, pdfUrl?: string |
     account_number: parsed.account_number,
     ship_to: parsed.ship_to,
     carrier: parsed.carrier,
-    payment_terms: paymentTerms,
+    payment_terms: isCreditMemo ? "credit_memo" : paymentTerms,
     subtotal: subtotal ?? parsed.subtotal,
     tax: parsed.tax,
     freight: parsed.freight,
@@ -280,6 +280,7 @@ export function parsedToInvoice(parsed: any, filename: string, pdfUrl?: string |
       payment_terms_extracted: extractedTerms || null,
       payment_terms_source: "extraction",
       shipping_terms: shippingTerms,
+      ...(isCreditMemo ? { status: "open" } : {}),
       ...(pdfUrl ? { pdf_url: pdfUrl } : {}),
     }) as any),
   };

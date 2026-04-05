@@ -1,6 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import type { InvoiceStatus, DocType } from "@/lib/supabase-queries";
-import { isProforma } from "@/lib/supabase-queries";
+import { isProforma, isCreditMemo } from "@/lib/supabase-queries";
 
 const statusConfig: Record<InvoiceStatus, { label: string; className: string }> = {
   unpaid: { label: "Unpaid", className: "bg-status-unpaid/15 text-status-unpaid border-status-unpaid/30" },
@@ -13,6 +13,7 @@ const docTypeConfig: Record<string, { label: string; className: string }> = {
   INVOICE: { label: "INV", className: "bg-doc-invoice/15 text-doc-invoice border-doc-invoice/30" },
   PO: { label: "PO", className: "bg-doc-po/15 text-doc-po border-doc-po/30" },
   proforma: { label: "proforma", className: "bg-muted text-muted-foreground border-border opacity-70" },
+  credit_memo: { label: "CREDIT", className: "bg-emerald-500/15 text-emerald-600 border-emerald-500/30" },
 };
 
 const reconStatusConfig: Record<string, { label: string; className: string }> = {
@@ -40,6 +41,9 @@ export function StatusBadge({ status, docType }: { status: string; docType?: str
 export function DocTypeBadge({ docType }: { docType: string }) {
   if (isProforma({ doc_type: docType })) {
     return <Badge variant="outline" className="text-xs font-semibold bg-muted text-muted-foreground border-border opacity-70">proforma</Badge>;
+  }
+  if (isCreditMemo({ doc_type: docType })) {
+    return <Badge variant="outline" className="text-xs font-semibold bg-emerald-500/15 text-emerald-600 border-emerald-500/30">CREDIT</Badge>;
   }
   const c = docTypeConfig[docType] ?? { label: docType, className: "bg-muted text-muted-foreground border-border" };
   return <Badge variant="outline" className={`text-xs font-semibold ${c.className}`}>{c.label}</Badge>;
