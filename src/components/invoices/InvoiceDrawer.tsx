@@ -17,7 +17,7 @@ import { TagInput } from "./TagInput";
 import { SKUCheckTab } from "./SKUCheckTab";
 import { TermsConfirmationPanel } from "./TermsConfirmationPanel";
 import type { VendorInvoice, InvoiceStatus } from "@/lib/supabase-queries";
-import { formatCurrency, formatDate, getLineItems, getTotalUnits, lineItemsToCSV, updateInvoiceStatus, updateInvoiceNotes, updateInvoiceTags, fetchDistinctTags, deleteInvoice, isProforma } from "@/lib/supabase-queries";
+import { formatCurrency, formatDate, getLineItems, getTotalUnits, lineItemsToCSV, updateInvoiceStatus, updateInvoiceNotes, updateInvoiceTags, fetchDistinctTags, deleteInvoice, isProforma, isCreditMemo } from "@/lib/supabase-queries";
 import { generatePaymentsForInvoice, fetchPaymentsForInvoice } from "@/lib/payment-queries";
 import { supabase } from "@/integrations/supabase/client";
 import { uploadPDFToStorage } from "@/lib/reader-engine";
@@ -485,13 +485,13 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
         {/* Match Report */}
         <MatchReportSection invoice={inv} />
 
-        {/* Terms Confirmation Panel — show when needs_review */}
-        {!isProforma(inv) && (inv as any).terms_status === "needs_review" && (
+        {/* Terms Confirmation Panel — show when needs_review (NOT for credit memos) */}
+        {!isProforma(inv) && !isCreditMemo(inv) && (inv as any).terms_status === "needs_review" && (
           <TermsConfirmationPanel invoice={inv} onConfirmed={onUpdate} />
         )}
 
-        {/* Medium confidence banner */}
-        {!isProforma(inv) && (inv as any).terms_confidence === "medium" && (inv as any).terms_status === "confirmed" && (
+        {/* Medium confidence banner (NOT for credit memos) */}
+        {!isProforma(inv) && !isCreditMemo(inv) && (inv as any).terms_confidence === "medium" && (inv as any).terms_status === "confirmed" && (
           <div className="mb-4 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
             <p className="text-xs text-amber-700 font-medium flex items-center gap-1.5">
               <AlertCircle className="h-3.5 w-3.5" /> Terms interpreted — verify before payment
@@ -499,12 +499,26 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
           </div>
         )}
 
-        {/* Payment schedule — show for confirmed or when payments exist */}
+        {/* Credit memo banner */}
+        {isCreditMemo(inv) && (
+          <div className="mb-4 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+            <p className="text-sm font-semibold text-emerald-600 flex items-center gap-2">
+              💳 CREDIT MEMO
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              This credit offsets the vendor's AP balance. Negative amount is included in totals automatically.
+            </p>
+          </div>
+        )}
+
+        {/* Payment schedule — show for confirmed or when payments exist (NOT terms actions for credit memos) */}
         {!isProforma(inv) && ((inv as any).terms_status === "confirmed" || existingPayments.length > 0) && (
           <div className="mb-4">
             <div className="flex items-center justify-between mb-2">
-              <h3 className="text-xs font-semibold text-muted-foreground">Payment Schedule</h3>
-              {existingPayments.length === 0 && (
+              <h3 className="text-xs font-semibold text-muted-foreground">
+                {isCreditMemo(inv) ? "Credit Applied" : "Payment Schedule"}
+              </h3>
+              {!isCreditMemo(inv) && existingPayments.length === 0 && (
                 <Button
                   size="sm"
                   variant="outline"
@@ -532,15 +546,20 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
             </div>
             {existingPayments.length > 0 ? (
               <div className="space-y-1">
-                {existingPayments.map(p => (
-                  <div key={p.id} className={`flex items-center justify-between text-[10px] p-2 rounded border border-border ${p.is_paid ? "opacity-50" : ""}`}>
-                    <span>{p.installment_label} — Due {formatDate(p.due_date)}</span>
-                    <span className="font-medium tabular-nums">{formatCurrency(Number(p.amount_due))}</span>
-                    <span className={p.is_paid ? "text-green-500" : "text-muted-foreground"}>
-                      {p.is_paid ? "✓ Paid" : "Unpaid"}
-                    </span>
-                  </div>
-                ))}
+                {existingPayments.map(p => {
+                  const isCreditPayment = p.installment_label === "Credit" || (p.terms as string) === "credit_memo";
+                  return (
+                    <div key={p.id} className={`flex items-center justify-between text-[10px] p-2 rounded border border-border ${p.is_paid ? "opacity-50" : ""}`}>
+                      <span>{p.installment_label} — Due {formatDate(p.due_date)}</span>
+                      <span className={`font-medium tabular-nums ${isCreditPayment ? "text-emerald-600" : ""}`}>
+                        {isCreditPayment ? `–${formatCurrency(Math.abs(Number(p.amount_due)))}` : formatCurrency(Number(p.amount_due))}
+                      </span>
+                      <span className={isCreditPayment ? "text-emerald-600" : p.is_paid ? "text-green-500" : "text-muted-foreground"}>
+                        {isCreditPayment ? "Credit Applied" : p.is_paid ? "✓ Paid" : "Unpaid"}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             ) : (
               <p className="text-[10px] text-muted-foreground">No payment schedule generated yet.</p>
