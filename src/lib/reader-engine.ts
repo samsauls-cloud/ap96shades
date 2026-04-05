@@ -36,6 +36,30 @@ For Luxottica special/individual orders (not standard procurement), terms are EO
 MARCOLIN PAYMENT TERMS:
 Marcolin uses EOM-based split payment terms written as "Check X-Y-Z days EoM" or "X/Y/Z days EoM" where X, Y, Z are day offsets from end of invoice month. Common Marcolin terms: "50-80-110 days EoM" = three equal tranches due at 50, 80, and 110 days after end of invoice month. Set payment_terms_extracted.type to "eom_split", eom_based to true, days to [X, Y, Z] (the three numbers), installments to 3. Store the raw term text exactly as written. Do NOT extract just one number.
 
+CREDIT MEMO DETECTION — set doc_type = "credit_memo" if ANY of these are true:
+- The word "Credit" appears as a standalone header/title on the document (distinct from appearing in body text)
+- The phrase "Credit Note" appears as the document title
+- The vendor is Luxottica AND the header reads "Credit" (not "Invoice")
+- The vendor is Kering AND the header reads "Credit Note"
+
+LUXOTTICA CREDIT EXTRACTION RULES:
+- Amounts are printed with a TRAILING minus sign (e.g. "$727.68-"). Parse these as NEGATIVE numbers (e.g. -727.68)
+- total = the "Total Invoice To Pay" value, stored as a NEGATIVE number
+- subtotal = same as total (Lux credits have no separate tax line)
+- tax = 0
+- Line items will have real UPC codes and frame models — extract them fully
+- po_number = the "Purchase Order No." field
+- Extract the Order Reason code (e.g. "Z1F - CARRIER-SHIPMENT") into notes
+
+KERING CREDIT EXTRACTION RULES:
+- Amounts are printed as POSITIVE numbers — the doc type signals the credit
+- total = the "Total amount" line (which includes tax) stored as a NEGATIVE number (e.g. 1674.44 on the PDF → -1674.44 stored)
+- subtotal = the "Net value" line, stored as a NEGATIVE number
+- tax = the "Tax" line, stored as a NEGATIVE number
+- Line items are general settlement descriptions with NO UPC codes — extract description and net total per line; upc = null for all lines
+- Extract the "Bill.doc." reference number into notes as "References billing doc: [number] dated [date]"
+- Extract brand summary (BTV/GUC/SLP etc.) into vendor_brands array
+
 Return ONLY valid JSON: { doc_type, vendor, vendor_brands[], invoice_number, invoice_date (YYYY-MM-DD), po_number, account_number, ship_to, carrier, payment_terms, payment_terms_extracted, shipping_terms, subtotal, tax, freight, total, currency, needs_review, line_items[{upc, item_number, sku, description, brand, model, color_code, color_desc, size, temple, qty_ordered, qty_shipped, qty, unit_price, line_total}], notes }. CRITICAL: Return ONLY raw JSON. No markdown, no code fences, no backticks, no preamble, no explanation. Your response must start with { and end with }. Nothing before {. Nothing after }.`;
 
 export const CONCURRENCY = 4;
@@ -205,10 +229,14 @@ export function parsedToInvoice(parsed: any, filename: string, pdfUrl?: string |
   const confidence = extractedTerms?.confidence ?? "low";
   const docType = parsed.doc_type || "INVOICE";
   const isProformaDoc = docType.toLowerCase().includes("proforma") || docType.toLowerCase().includes("pro forma") || docType.toLowerCase().includes("pro-forma");
+  const isCreditMemo = docType.toLowerCase() === "credit_memo";
 
   let termsStatus = "needs_review";
-  let termsConfidence = confidence;
-  if (isProformaDoc) {
+  let termsConfidence: string | null = confidence;
+  if (isCreditMemo) {
+    termsStatus = "confirmed";
+    termsConfidence = "auto";
+  } else if (isProformaDoc) {
     termsStatus = "proforma";
     termsConfidence = null;
   } else if (confidence === "high") {
@@ -235,7 +263,7 @@ export function parsedToInvoice(parsed: any, filename: string, pdfUrl?: string |
     account_number: parsed.account_number,
     ship_to: parsed.ship_to,
     carrier: parsed.carrier,
-    payment_terms: paymentTerms,
+    payment_terms: isCreditMemo ? "credit_memo" : paymentTerms,
     subtotal: subtotal ?? parsed.subtotal,
     tax: parsed.tax,
     freight: parsed.freight,
@@ -252,6 +280,7 @@ export function parsedToInvoice(parsed: any, filename: string, pdfUrl?: string |
       payment_terms_extracted: extractedTerms || null,
       payment_terms_source: "extraction",
       shipping_terms: shippingTerms,
+      ...(isCreditMemo ? { status: "open" } : {}),
       ...(pdfUrl ? { pdf_url: pdfUrl } : {}),
     }) as any),
   };
