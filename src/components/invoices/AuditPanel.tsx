@@ -317,18 +317,62 @@ export function AuditPanel({ audit, onRefresh, isLoading, totalInvoices, highlig
         {/* 3. Unknown Vendors */}
         {audit.unknownVendors.length > 0 && (
           <div id="audit-unknownVendors" className={`rounded-lg p-3 transition-colors ${isHighlighted("unknownVendors") ? "ring-2 ring-orange-500/50 bg-orange-500/5" : ""}`}>
-            <p className="text-xs font-semibold mb-2 flex items-center gap-1.5">
-              <AlertTriangle className="h-3.5 w-3.5 text-orange-500" />
-              Unknown Vendors ({audit.unknownVendors.length})
-            </p>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-semibold flex items-center gap-1.5">
+                <AlertTriangle className="h-3.5 w-3.5 text-orange-500" />
+                Unknown Vendors ({audit.unknownVendors.length})
+              </p>
+              {(() => {
+                const fixable = audit.unknownVendors.filter(inv => {
+                  const normalized = normalizeVendor(inv.vendor);
+                  return normalized !== inv.vendor && isKnownVendor(normalized);
+                });
+                if (fixable.length === 0) return null;
+                return (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-[10px] h-6 px-2 gap-1"
+                    disabled={fixingVendors}
+                    onClick={async () => {
+                      setFixingVendors(true);
+                      try {
+                        for (const inv of fixable) {
+                          const normalized = normalizeVendor(inv.vendor);
+                          await supabase.from("vendor_invoices").update({ vendor: normalized }).eq("id", inv.id);
+                          // Also update payment rows
+                          await supabase.from("invoice_payments").update({ vendor: normalized }).eq("invoice_id", inv.id);
+                        }
+                        toast.success(`Fixed ${fixable.length} vendor name(s)`);
+                        onRefresh();
+                      } catch (e: any) {
+                        toast.error(e.message);
+                      } finally {
+                        setFixingVendors(false);
+                      }
+                    }}
+                  >
+                    {fixingVendors ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                    Fix {fixable.length} Vendor Name{fixable.length > 1 ? "s" : ""}
+                  </Button>
+                );
+              })()}
+            </div>
             <div className="space-y-1">
-              {audit.unknownVendors.map(inv => (
-                <div key={inv.id} className="flex items-center justify-between rounded border border-orange-500/20 p-2 text-xs">
-                  <span className="font-mono truncate mr-2">{inv.invoice_number}</span>
-                  <span className="px-1.5 py-0.5 rounded bg-orange-500/10 text-orange-600 text-[10px] font-medium shrink-0">⚠ {inv.vendor}</span>
-                  <span className="text-right tabular-nums ml-2">{formatCurrency(inv.total)}</span>
-                </div>
-              ))}
+              {audit.unknownVendors.map(inv => {
+                const normalized = normalizeVendor(inv.vendor);
+                const canFix = normalized !== inv.vendor && isKnownVendor(normalized);
+                return (
+                  <div key={inv.id} className="flex items-center justify-between rounded border border-orange-500/20 p-2 text-xs">
+                    <span className="font-mono truncate mr-2">{inv.invoice_number}</span>
+                    <span className="px-1.5 py-0.5 rounded bg-orange-500/10 text-orange-600 text-[10px] font-medium shrink-0">
+                      ⚠ {inv.vendor}
+                      {canFix && <span className="text-muted-foreground ml-1">→ {normalized}</span>}
+                    </span>
+                    <span className="text-right tabular-nums ml-2">{formatCurrency(inv.total)}</span>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
