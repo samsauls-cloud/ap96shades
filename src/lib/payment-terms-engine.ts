@@ -347,6 +347,21 @@ export function resolvePaymentSchedule(
   const rule = getVendorTermsRule(vendor);
 
   if (rule) {
+    // Safilo "60 Days EOM" — EOM + 60 single payment
+    if (rule.vendor_match?.includes?.('safilo') && termsLower.includes('60') && termsLower.includes('eom')) {
+      const eom = endOfMonth(documentDate);
+      const due = addDays(eom, 60);
+      const tranches = [makeTranche(1, 'Full', due, 1.0)];
+      return {
+        vendor_terms_type: 'eom_single',
+        baseline_date: eom,
+        tranches,
+        next_due: tranches[0].is_overdue ? null : tranches[0],
+        total_amount: totalAmount,
+        is_fully_overdue: tranches[0].is_overdue,
+        human_label: '60 Days EOM — Single payment',
+      };
+    }
     // If terms explicitly say EOM (Net EOM), override the default split
     if (isNetEom) {
       return buildNetEomSchedule(documentDate, totalAmount);

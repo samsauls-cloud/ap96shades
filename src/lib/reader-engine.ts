@@ -206,6 +206,30 @@ export async function callAnthropicAPI(
   return extractJSON(textContent);
 }
 
+/**
+ * Fix ambiguous years in extracted dates.
+ * If a date parses to a year far from the current year (e.g. 2020 when we're in 2026),
+ * attempt to correct it using the current decade.
+ */
+function normalizeInvoiceYear(dateStr: string): string {
+  if (!dateStr) return dateStr;
+  const match = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return dateStr;
+  const year = parseInt(match[1]);
+  const currentYear = new Date().getFullYear();
+  // If parsed year is more than 2 years in the past or future, it's likely wrong
+  // Check if swapping the last two digits of the decade fixes it
+  if (Math.abs(year - currentYear) > 2) {
+    // Try interpreting the last 2 digits in the current century
+    const twoDigit = year % 100;
+    const corrected = Math.floor(currentYear / 100) * 100 + twoDigit;
+    if (Math.abs(corrected - currentYear) <= 2) {
+      return `${corrected}-${match[2]}-${match[3]}`;
+    }
+  }
+  return dateStr;
+}
+
 export function parsedToInvoice(parsed: any, filename: string, pdfUrl?: string | null): VendorInvoiceInsert {
   const vendor = normalizeVendor(parsed.vendor);
   const rawLineItems = parsed.line_items || [];
@@ -254,11 +278,15 @@ export function parsedToInvoice(parsed: any, filename: string, pdfUrl?: string |
     if (cleaned === "" || cleaned === ",") paymentTerms = null;
   }
 
+  // Normalize invoice_date — fix 2-digit year bugs (e.g. "2020-04-01" when invoice is from 2026)
+  let invoiceDate = parsed.invoice_date || new Date().toISOString().split("T")[0];
+  invoiceDate = normalizeInvoiceYear(invoiceDate);
+
   return {
     vendor,
     doc_type: docType,
     invoice_number: parsed.invoice_number || filename,
-    invoice_date: parsed.invoice_date || new Date().toISOString().split("T")[0],
+    invoice_date: invoiceDate,
     po_number: parsed.po_number,
     account_number: parsed.account_number,
     ship_to: parsed.ship_to,

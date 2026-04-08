@@ -2,6 +2,11 @@ import { useState, useMemo } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { CheckCircle2, AlertCircle, AlertTriangle, Loader2, X } from "lucide-react";
 import { formatCurrency, isCreditMemo } from "@/lib/supabase-queries";
 import { resolvePaymentSchedule } from "@/lib/payment-terms-engine";
@@ -192,14 +197,35 @@ export function InvoiceReviewCard({ doc, onApprove, onDiscard }: Props) {
               <><CheckCircle2 className="h-3.5 w-3.5" /> {isCredit ? "Approve Credit" : "Approve & Save"}</>
             )}
           </Button>
-          <Button
-            variant="outline"
-            className="gap-1.5 text-muted-foreground"
-            onClick={() => onDiscard(doc.id)}
-            disabled={saving}
-          >
-            <X className="h-3.5 w-3.5" /> Discard
-          </Button>
+
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button
+                variant="outline"
+                className="gap-1.5 text-muted-foreground"
+                disabled={saving}
+              >
+                <X className="h-3.5 w-3.5" /> Discard
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Discard this invoice?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Are you sure you want to discard this invoice? It will not be saved.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => onDiscard(doc.id)}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                >
+                  Discard
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       </CardContent>
     </Card>
