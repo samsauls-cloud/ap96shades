@@ -66,6 +66,10 @@ const VENDOR_MAP: Record<string, string> = {
   "smith optics inc": "Smith Optics",
   "smith optics inc.": "Smith Optics",
   "smith optics, inc.": "Smith Optics",
+  "smith sport optics": "Smith Optics",
+  "smith sport optics inc": "Smith Optics",
+  "smith sport optics inc.": "Smith Optics",
+  "smith sport optics, inc.": "Smith Optics",
   "smith": "Smith Optics",
   // Legacy extras
   "chanel": "Chanel",
