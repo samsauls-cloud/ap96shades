@@ -69,7 +69,7 @@ export const VENDOR_TERMS_REGISTRY: VendorTermsRule[] = [
     // NOTE: overridden to eom_split [30,60,90] when payment_terms contains "30/60/90"
   },
   {
-    vendor_match: ['smith optics', 'smith'],
+    vendor_match: ['smith optics', 'smith sport optics', 'smith'],
     terms_type: 'use_invoice',
     offsets: [],
     description: 'Read terms from invoice — no standing terms configured yet',
