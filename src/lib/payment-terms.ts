@@ -253,8 +253,13 @@ export function termsToLabel(terms: ExtractedTerms): string {
 function calculateDueDate(invoiceDate: string, eomBased: boolean, offsetDays: number): Date {
   const d = new Date(invoiceDate + "T00:00:00");
   if (eomBased) {
-    const endOfMonth = lastDayOfMonth(d);
-    return addDays(endOfMonth, offsetDays);
+    const eom = lastDayOfMonth(d);
+    // For multiples of 30, use calendar month advancement to avoid off-by-one in short months
+    if (offsetDays > 0 && offsetDays % 30 === 0) {
+      const months = offsetDays / 30;
+      return new Date(eom.getFullYear(), eom.getMonth() + months + 1, 0);
+    }
+    return addDays(eom, offsetDays);
   }
   return addDays(d, offsetDays);
 }
@@ -392,6 +397,26 @@ export function calculateInstallments(
     }];
   }
 
+  // ── Safilo "60 Days EOM" — EOM + 60 single payment ──
+  if (normalized === 'Safilo' && termsLower.includes('60') && termsLower.includes('eom')) {
+    const parsedTotal = typeof total === "number" ? total : parseFloat(String(total)) || 0;
+    if (parsedTotal <= 0) return [];
+    const d = new Date(invoiceDate + "T00:00:00");
+    const eom = lastDayOfMonth(d);
+    const due = addDays(eom, 60);
+    return [{
+      vendor: normalized,
+      invoice_number: invoiceNumber,
+      po_number: poNumber,
+      invoice_amount: parsedTotal,
+      invoice_date: invoiceDate,
+      terms: "60 Days EOM",
+      installment_label: null,
+      due_date: format(due, "yyyy-MM-dd"),
+      amount_due: parsedTotal,
+    }];
+  }
+
   // ── Kering "bank transfer 30/60/90 inv. date" — actually EOM-based ──
   if (normalized === 'Kering' && termsLower.includes('bank transfer') && termsLower.includes('30/60/90')) {
     const parsedTotal = typeof total === "number" ? total : parseFloat(String(total)) || 0;
@@ -401,17 +426,23 @@ export function calculateInstallments(
     const eom = lastDayOfMonth(d);
     const baseAmount = parseFloat((parsedTotal / 3).toFixed(2));
     const lastAmount = parseFloat((parsedTotal - baseAmount * 2).toFixed(2));
-    return offsets.map((offset, index) => ({
-      vendor: normalized,
-      invoice_number: invoiceNumber,
-      po_number: poNumber,
-      invoice_amount: parsedTotal,
-      invoice_date: invoiceDate,
-      terms: "EOM 30/60/90",
-      installment_label: `${index + 1} of 3`,
-      due_date: format(addDays(eom, offset), "yyyy-MM-dd"),
-      amount_due: index === 2 ? lastAmount : baseAmount,
-    }));
+    return offsets.map((offset, index) => {
+      // Use month-based advancement for multiples of 30
+      const dueDate = offset % 30 === 0
+        ? new Date(eom.getFullYear(), eom.getMonth() + (offset / 30) + 1, 0)
+        : addDays(eom, offset);
+      return {
+        vendor: normalized,
+        invoice_number: invoiceNumber,
+        po_number: poNumber,
+        invoice_amount: parsedTotal,
+        invoice_date: invoiceDate,
+        terms: "EOM 30/60/90",
+        installment_label: `${index + 1} of 3`,
+        due_date: format(dueDate, "yyyy-MM-dd"),
+        amount_due: index === 2 ? lastAmount : baseAmount,
+      };
+    });
   }
 
   // ── Luxottica special handling ──────────────────────────
