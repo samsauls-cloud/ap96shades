@@ -7,6 +7,8 @@ import { AlertTriangle, CheckCircle2, XCircle, Loader2, RefreshCw, ShieldCheck, 
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { formatCurrency, formatDate } from "@/lib/supabase-queries";
 import { generatePaymentsForInvoice, recalculatePaymentsForInvoice, fixStaleInstallments, type AuditResult } from "@/lib/payment-queries";
+import { normalizeVendor, isKnownVendor } from "@/lib/invoice-dedup";
+import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
 type AuditStatus = "clean" | "warning" | "error";
@@ -101,6 +103,7 @@ export function AuditPanel({ audit, onRefresh, isLoading, totalInvoices, highlig
   const [confirmRecalc, setConfirmRecalc] = useState<{ id: string; invoiceNumber: string; vendor: string; total: number; invoiceDate: string; poNumber: string | null; paymentTerms: string | null } | null>(null);
   const [sortField, setSortField] = useState<string>("vendor");
   const [fixingStaleId, setFixingStaleId] = useState<string | null>(null);
+  const [fixingVendors, setFixingVendors] = useState(false);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
   if (!audit) return null;
