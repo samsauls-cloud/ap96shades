@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Upload, CheckCircle2, AlertCircle, Loader2, XCircle, ExternalLink, Copy, RotateCcw, Timer, Zap, Package, FileSpreadsheet, Camera, ImageIcon } from "lucide-react";
+import { Upload, CheckCircle2, AlertCircle, Loader2, XCircle, ExternalLink, Copy, RotateCcw, Timer, Zap, Package, FileSpreadsheet, Camera, ImageIcon, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -23,8 +23,9 @@ import {
   fileToBase64, batchInsertInvoices, sleep, runRollingQueue, getRetryConfig,
 } from "@/lib/reader-engine";
 import {
-  checkInvoiceDuplicate, mergeExtendedInvoice, updatePOTotalInvoiced, normalizeVendor,
+  checkInvoiceDuplicate, mergeExtendedInvoice, updatePOTotalInvoiced, normalizeVendor, isKnownVendor,
 } from "@/lib/invoice-dedup";
+import { getVendorTermsRule } from "@/lib/vendor-terms-registry";
 import { parseCSVToPOs, fileToText } from "@/lib/csv-po-parser";
 import { isImageFile, imageToBase64, callAnthropicImageAPI } from "@/lib/photo-capture-engine";
 import { runQuickSKUCheck, type SKUCheckResult } from "@/lib/sku-check-engine";
