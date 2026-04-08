@@ -1023,6 +1023,49 @@ export default function ReaderPage() {
           </Card>
         )}
 
+        {/* New Vendor Detection Alert */}
+        {newVendors.length > 0 && (
+          <Card className="bg-card border-amber-500/40">
+            <CardContent className="p-4">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
+                <div className="space-y-2 flex-1">
+                  <p className="text-sm font-semibold text-amber-500">
+                    New Vendor{newVendors.length > 1 ? "s" : ""} Detected — Setup Required
+                  </p>
+                  {newVendors.map(nv => (
+                    <div key={nv.vendor} className="text-xs space-y-1 bg-amber-500/5 rounded p-2">
+                      <p className="font-medium">{nv.vendor}</p>
+                      <ul className="text-muted-foreground space-y-0.5 list-disc list-inside">
+                        {!nv.hasTermsRule && (
+                          <li>
+                            <span className="font-medium text-amber-400">Payment terms rule needed</span> — Add to{" "}
+                            <code className="text-[10px] bg-secondary px-1 rounded">vendor-terms-registry.ts</code>{" "}
+                            with correct terms_type and offsets
+                          </li>
+                        )}
+                        <li>
+                          <span className="font-medium text-amber-400">Vendor alias mapping needed</span> — Add to{" "}
+                          <code className="text-[10px] bg-secondary px-1 rounded">VENDOR_MAP</code> in{" "}
+                          <code className="text-[10px] bg-secondary px-1 rounded">invoice-dedup.ts</code>{" "}
+                          with all name variations
+                        </li>
+                        <li>
+                          <span className="font-medium text-amber-400">Invoice reading rules</span> — Review extracted data for this vendor's
+                          invoice format, check if AI prompt needs vendor-specific instructions
+                        </li>
+                      </ul>
+                      <p className="text-[10px] text-muted-foreground mt-1">
+                        {nv.docIds.length} document{nv.docIds.length > 1 ? "s" : ""} from this vendor in current batch
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Processed cards */}
         {docs.length > 0 && (
           <div className="space-y-2">
