@@ -3,6 +3,10 @@
  *
  * Single source of truth for all vendor payment terms.
  * Add new vendors here — never hardcode terms elsewhere.
+ *
+ * When adding a new vendor, also update:
+ *  - KNOWN_VENDORS + VENDOR_MAP in src/lib/invoice-dedup.ts
+ *  - SYSTEM_PROMPT vendor list in src/lib/reader-engine.ts
  */
 
 export type TermsType =
@@ -63,6 +67,12 @@ export const VENDOR_TERMS_REGISTRY: VendorTermsRule[] = [
     due_offset: 30,          // baseline + 30 = due
     description: 'EOM +30 — Single payment',
     // NOTE: overridden to eom_split [30,60,90] when payment_terms contains "30/60/90"
+  },
+  {
+    vendor_match: ['smith optics', 'smith'],
+    terms_type: 'use_invoice',
+    offsets: [],
+    description: 'Read terms from invoice — no standing terms configured yet',
   },
 ];
 

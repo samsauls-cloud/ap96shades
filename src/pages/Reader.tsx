@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Upload, CheckCircle2, AlertCircle, Loader2, XCircle, ExternalLink, Copy, RotateCcw, Timer, Zap, Package, FileSpreadsheet, Camera, ImageIcon } from "lucide-react";
+import { Upload, CheckCircle2, AlertCircle, Loader2, XCircle, ExternalLink, Copy, RotateCcw, Timer, Zap, Package, FileSpreadsheet, Camera, ImageIcon, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -23,8 +23,9 @@ import {
   fileToBase64, batchInsertInvoices, sleep, runRollingQueue, getRetryConfig,
 } from "@/lib/reader-engine";
 import {
-  checkInvoiceDuplicate, mergeExtendedInvoice, updatePOTotalInvoiced, normalizeVendor,
+  checkInvoiceDuplicate, mergeExtendedInvoice, updatePOTotalInvoiced, normalizeVendor, isKnownVendor,
 } from "@/lib/invoice-dedup";
+import { getVendorTermsRule } from "@/lib/vendor-terms-registry";
 import { parseCSVToPOs, fileToText } from "@/lib/csv-po-parser";
 import { isImageFile, imageToBase64, callAnthropicImageAPI } from "@/lib/photo-capture-engine";
 import { runQuickSKUCheck, type SKUCheckResult } from "@/lib/sku-check-engine";
@@ -716,6 +717,22 @@ export default function ReaderPage() {
     }
   }, [docsAwaitingReview, handleApproveDoc]);
 
+  // ── New vendor detection ──
+  const newVendors = (() => {
+    const seen = new Set<string>();
+    const results: { vendor: string; hasTermsRule: boolean; docIds: string[] }[] = [];
+    for (const d of docs) {
+      const v = d.vendor;
+      if (!v || v === "Unknown" || seen.has(v)) continue;
+      seen.add(v);
+      if (!isKnownVendor(v)) {
+        const rule = getVendorTermsRule(v);
+        results.push({ vendor: v, hasTermsRule: !!rule, docIds: docs.filter(dd => dd.vendor === v).map(dd => dd.id) });
+      }
+    }
+    return results;
+  })();
+
   const stats = docs.reduce<BatchStats>((s, d) => {
     if (d.status === "done") {
       s.saved++;
@@ -1002,6 +1019,49 @@ export default function ReaderPage() {
                   </Button>
                 </div>
               )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* New Vendor Detection Alert */}
+        {newVendors.length > 0 && (
+          <Card className="bg-card border-amber-500/40">
+            <CardContent className="p-4">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
+                <div className="space-y-2 flex-1">
+                  <p className="text-sm font-semibold text-amber-500">
+                    New Vendor{newVendors.length > 1 ? "s" : ""} Detected — Setup Required
+                  </p>
+                  {newVendors.map(nv => (
+                    <div key={nv.vendor} className="text-xs space-y-1 bg-amber-500/5 rounded p-2">
+                      <p className="font-medium">{nv.vendor}</p>
+                      <ul className="text-muted-foreground space-y-0.5 list-disc list-inside">
+                        {!nv.hasTermsRule && (
+                          <li>
+                            <span className="font-medium text-amber-400">Payment terms rule needed</span> — Add to{" "}
+                            <code className="text-[10px] bg-secondary px-1 rounded">vendor-terms-registry.ts</code>{" "}
+                            with correct terms_type and offsets
+                          </li>
+                        )}
+                        <li>
+                          <span className="font-medium text-amber-400">Vendor alias mapping needed</span> — Add to{" "}
+                          <code className="text-[10px] bg-secondary px-1 rounded">VENDOR_MAP</code> in{" "}
+                          <code className="text-[10px] bg-secondary px-1 rounded">invoice-dedup.ts</code>{" "}
+                          with all name variations
+                        </li>
+                        <li>
+                          <span className="font-medium text-amber-400">Invoice reading rules</span> — Review extracted data for this vendor's
+                          invoice format, check if AI prompt needs vendor-specific instructions
+                        </li>
+                      </ul>
+                      <p className="text-[10px] text-muted-foreground mt-1">
+                        {nv.docIds.length} document{nv.docIds.length > 1 ? "s" : ""} from this vendor in current batch
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </CardContent>
           </Card>
         )}
