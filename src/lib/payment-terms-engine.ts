@@ -89,6 +89,21 @@ function makeTranche(
   };
 }
 
+// ─── helpers (month-based offsets) ──────────────────────────────────────────
+
+/**
+ * Add N days to EOM using month-based rounding so that EOM+30 ≈ end-of-next-month,
+ * EOM+60 ≈ end-of-month+2, etc. This avoids 30-day months producing off-by-one dates.
+ * For offsets that are multiples of 30, we use calendar month advancement instead.
+ */
+function addMonthsFromEom(eom: Date, offsetDays: number): Date {
+  if (offsetDays > 0 && offsetDays % 30 === 0) {
+    const months = offsetDays / 30;
+    return new Date(eom.getFullYear(), eom.getMonth() + months + 1, 0);
+  }
+  return addDays(eom, offsetDays);
+}
+
 // ─── LUXOTTICA logic ────────────────────────────────────────────────────────
 
 export function buildLuxSplitSchedule(
@@ -96,9 +111,9 @@ export function buildLuxSplitSchedule(
   totalAmount: number
 ): PaymentSchedule {
   const baseline = endOfMonth(documentDate);
-  const t1 = addDays(baseline, 30);
-  const t2 = addDays(baseline, 60);
-  const t3 = addDays(baseline, 90);
+  const t1 = addMonthsFromEom(baseline, 30);
+  const t2 = addMonthsFromEom(baseline, 60);
+  const t3 = addMonthsFromEom(baseline, 90);
 
   const tranches: PaymentTranche[] = [
     makeTranche(1, '1/3', t1, 1/3, 'DE10'),
@@ -121,7 +136,7 @@ export function buildLuxSplitSchedule(
 
 /**
  * Build an EOM split schedule with custom day offsets.
- * Used for Marcolin (50/80/110) and any vendor with non-standard splits.
+ * Uses month-based rounding for multiples-of-30 offsets.
  */
 export function buildEomSplitSchedule(
   documentDate: Date,
@@ -134,7 +149,7 @@ export function buildEomSplitSchedule(
     makeTranche(
       i + 1,
       `${i + 1}/${offsets.length}`,
-      addDays(baseline, offset),
+      addMonthsFromEom(baseline, offset),
       1 / offsets.length
     )
   );
