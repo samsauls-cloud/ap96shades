@@ -431,10 +431,17 @@ export function calculateInstallments(
     const baseAmount = parseFloat((parsedTotal / 3).toFixed(2));
     const lastAmount = parseFloat((parsedTotal - baseAmount * 2).toFixed(2));
     return offsets.map((offset, index) => {
-      // Use month-based advancement for multiples of 30
-      const dueDate = offset % 30 === 0
-        ? new Date(eom.getFullYear(), eom.getMonth() + (offset / 30) + 1, 0)
-        : addDays(eom, offset);
+      // Use month-based advancement (same day-of-month as EOM)
+      let dueDate: Date;
+      if (offset % 30 === 0) {
+        const months = offset / 30;
+        const eomDay = eom.getDate();
+        const targetMonth = eom.getMonth() + months;
+        const lastDayOfTarget = new Date(eom.getFullYear(), targetMonth + 1, 0).getDate();
+        dueDate = new Date(eom.getFullYear(), targetMonth, Math.min(eomDay, lastDayOfTarget));
+      } else {
+        dueDate = addDays(eom, offset);
+      }
       return {
         vendor: normalized,
         invoice_number: invoiceNumber,
