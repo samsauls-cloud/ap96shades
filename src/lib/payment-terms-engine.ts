@@ -92,14 +92,20 @@ function makeTranche(
 // ─── helpers (month-based offsets) ──────────────────────────────────────────
 
 /**
- * Add N days to EOM using month-based rounding so that EOM+30 ≈ end-of-next-month,
- * EOM+60 ≈ end-of-month+2, etc. This avoids 30-day months producing off-by-one dates.
- * For offsets that are multiples of 30, we use calendar month advancement instead.
+ * Advance from an EOM date by N days, using month-based logic for multiples of 30.
+ * EOM+30 = same day-of-month in the next month (e.g. 4/30 → 5/30, not 5/31).
+ * If the target month has fewer days, clamp to that month's last day.
  */
 function addMonthsFromEom(eom: Date, offsetDays: number): Date {
   if (offsetDays > 0 && offsetDays % 30 === 0) {
     const months = offsetDays / 30;
-    return new Date(eom.getFullYear(), eom.getMonth() + months + 1, 0);
+    const eomDay = eom.getDate();
+    const targetYear = eom.getFullYear();
+    const targetMonth = eom.getMonth() + months;
+    // Last day of target month
+    const lastDayOfTarget = new Date(targetYear, targetMonth + 1, 0).getDate();
+    const day = Math.min(eomDay, lastDayOfTarget);
+    return new Date(targetYear, targetMonth, day);
   }
   return addDays(eom, offsetDays);
 }

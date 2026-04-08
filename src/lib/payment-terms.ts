@@ -254,10 +254,14 @@ function calculateDueDate(invoiceDate: string, eomBased: boolean, offsetDays: nu
   const d = new Date(invoiceDate + "T00:00:00");
   if (eomBased) {
     const eom = lastDayOfMonth(d);
-    // For multiples of 30, use calendar month advancement to avoid off-by-one in short months
+    // For multiples of 30, use month-based advancement (same day-of-month)
     if (offsetDays > 0 && offsetDays % 30 === 0) {
       const months = offsetDays / 30;
-      return new Date(eom.getFullYear(), eom.getMonth() + months + 1, 0);
+      const eomDay = eom.getDate();
+      const targetMonth = eom.getMonth() + months;
+      const lastDayOfTarget = new Date(eom.getFullYear(), targetMonth + 1, 0).getDate();
+      const day = Math.min(eomDay, lastDayOfTarget);
+      return new Date(eom.getFullYear(), targetMonth, day);
     }
     return addDays(eom, offsetDays);
   }
