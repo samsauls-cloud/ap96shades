@@ -45,6 +45,14 @@ export const VENDOR_TERMS_REGISTRY: VendorTermsRule[] = [
     // Kering terms are EOM-based: baseline = EOM of invoice month
   },
   {
+    vendor_match: ['safilo', 'jimmy choo', 'dior', 'fendi', 'hugo boss', 'kate spade', 'liz claiborne', 'fossil'],
+    terms_type: 'eom_single',
+    offsets: [],
+    eom_baseline_offset: 0,
+    due_offset: 60,
+    description: '60 Days EOM — Single payment',
+  },
+  {
     // Luxottica EOM +30 (standing terms — matched when invoice has EOM+30 or no explicit split)
     vendor_match: ['luxottica', 'ray-ban', 'rayban', 'oakley', 'costa',
                    'chanel', 'prada', 'versace', 'coach', 'burberry',

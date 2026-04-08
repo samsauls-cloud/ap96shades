@@ -89,6 +89,27 @@ function makeTranche(
   };
 }
 
+// ─── helpers (month-based offsets) ──────────────────────────────────────────
+
+/**
+ * Advance from an EOM date by N days, using month-based logic for multiples of 30.
+ * EOM+30 = same day-of-month in the next month (e.g. 4/30 → 5/30, not 5/31).
+ * If the target month has fewer days, clamp to that month's last day.
+ */
+function addMonthsFromEom(eom: Date, offsetDays: number): Date {
+  if (offsetDays > 0 && offsetDays % 30 === 0) {
+    const months = offsetDays / 30;
+    const eomDay = eom.getDate();
+    const targetYear = eom.getFullYear();
+    const targetMonth = eom.getMonth() + months;
+    // Last day of target month
+    const lastDayOfTarget = new Date(targetYear, targetMonth + 1, 0).getDate();
+    const day = Math.min(eomDay, lastDayOfTarget);
+    return new Date(targetYear, targetMonth, day);
+  }
+  return addDays(eom, offsetDays);
+}
+
 // ─── LUXOTTICA logic ────────────────────────────────────────────────────────
 
 export function buildLuxSplitSchedule(
@@ -96,9 +117,9 @@ export function buildLuxSplitSchedule(
   totalAmount: number
 ): PaymentSchedule {
   const baseline = endOfMonth(documentDate);
-  const t1 = addDays(baseline, 30);
-  const t2 = addDays(baseline, 60);
-  const t3 = addDays(baseline, 90);
+  const t1 = addMonthsFromEom(baseline, 30);
+  const t2 = addMonthsFromEom(baseline, 60);
+  const t3 = addMonthsFromEom(baseline, 90);
 
   const tranches: PaymentTranche[] = [
     makeTranche(1, '1/3', t1, 1/3, 'DE10'),
@@ -121,7 +142,7 @@ export function buildLuxSplitSchedule(
 
 /**
  * Build an EOM split schedule with custom day offsets.
- * Used for Marcolin (50/80/110) and any vendor with non-standard splits.
+ * Uses month-based rounding for multiples-of-30 offsets.
  */
 export function buildEomSplitSchedule(
   documentDate: Date,
@@ -134,7 +155,7 @@ export function buildEomSplitSchedule(
     makeTranche(
       i + 1,
       `${i + 1}/${offsets.length}`,
-      addDays(baseline, offset),
+      addMonthsFromEom(baseline, offset),
       1 / offsets.length
     )
   );
@@ -332,6 +353,21 @@ export function resolvePaymentSchedule(
   const rule = getVendorTermsRule(vendor);
 
   if (rule) {
+    // Safilo "60 Days EOM" — EOM + 60 single payment
+    if (rule.vendor_match?.includes?.('safilo') && termsLower.includes('60') && termsLower.includes('eom')) {
+      const eom = endOfMonth(documentDate);
+      const due = addDays(eom, 60);
+      const tranches = [makeTranche(1, 'Full', due, 1.0)];
+      return {
+        vendor_terms_type: 'eom_single',
+        baseline_date: eom,
+        tranches,
+        next_due: tranches[0].is_overdue ? null : tranches[0],
+        total_amount: totalAmount,
+        is_fully_overdue: tranches[0].is_overdue,
+        human_label: '60 Days EOM — Single payment',
+      };
+    }
     // If terms explicitly say EOM (Net EOM), override the default split
     if (isNetEom) {
       return buildNetEomSchedule(documentDate, totalAmount);
