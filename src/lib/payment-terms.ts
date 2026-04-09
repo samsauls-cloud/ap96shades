@@ -61,6 +61,37 @@ export function getVendorDefaultTerms(vendor: string): VendorTermsDefault | null
   return VENDOR_DEFAULTS[normalizeVendor(vendor)] ?? null;
 }
 
+/**
+ * Async version that checks DB-defined vendor terms (from New Vendor Wizard)
+ * before falling back to the static VENDOR_DEFAULTS map.
+ */
+export async function getVendorDefaultTermsAsync(vendor: string): Promise<VendorTermsDefault | null> {
+  // Static lookup first
+  const staticResult = getVendorDefaultTerms(vendor);
+  if (staticResult) return staticResult;
+
+  // Dynamic DB lookup
+  const { getDynamicVendorTermsRule } = await import('@/lib/dynamic-vendor-lookup');
+  const rule = await getDynamicVendorTermsRule(vendor);
+  if (!rule) return null;
+
+  // Map VendorTermsRule → VendorTermsDefault
+  const typeMap: Record<string, TermType> = {
+    eom_split: "eom_split",
+    eom_single: "eom_single",
+    days_split: "net_split",
+    net_single: "net_single",
+    net_eom: "eom_single",
+  };
+  return {
+    type: typeMap[rule.terms_type] ?? "unknown",
+    days: rule.offsets,
+    installments: rule.offsets.length || 1,
+    eom_based: rule.terms_type.startsWith("eom"),
+    label: rule.description,
+  };
+}
+
 // ── Parse payment_terms text into structured terms ────────
 export function parsePaymentTermsText(rawText: string | null | undefined): ExtractedTerms {
   const empty: ExtractedTerms = {
