@@ -456,6 +456,38 @@ export function calculateInstallments(
     });
   }
 
+  // ── Maui Jim "Split Payment EOM" — parse all intervals, EOM + offset → round to month-end ──
+  // NOTE: Previously imported Maui Jim invoices with "Split Payment EOM" terms
+  // may have incorrect installment counts (3 instead of 4). Review and re-import if needed.
+  if (normalized === 'Maui Jim' && termsLower.includes('eom') && (termsLower.includes('split') || /\d+\s*[,/]\s*\d+/.test(termsLower))) {
+    const allNums = termsLower.match(/\d+/g)?.map(Number) ?? [];
+    const offsets = allNums.filter(n => n >= 30);
+    if (offsets.length > 0) {
+      const parsedTotal = typeof total === "number" ? total : parseFloat(String(total)) || 0;
+      if (parsedTotal <= 0) return [];
+      const d = new Date(invoiceDate + "T00:00:00");
+      const eom = lastDayOfMonth(d);
+      const count = offsets.length;
+      const baseAmount = parseFloat((parsedTotal / count).toFixed(2));
+      const lastAmt = parseFloat((parsedTotal - baseAmount * (count - 1)).toFixed(2));
+      return offsets.map((offset, index) => {
+        const raw = addDays(eom, offset);
+        const rounded = lastDayOfMonth(raw);
+        return {
+          vendor: normalized,
+          invoice_number: invoiceNumber,
+          po_number: poNumber,
+          invoice_amount: parsedTotal,
+          invoice_date: invoiceDate,
+          terms: `Split Payment EOM ${offsets.join('/')}`,
+          installment_label: `${index + 1} of ${count}`,
+          due_date: format(rounded, "yyyy-MM-dd"),
+          amount_due: index === count - 1 ? lastAmt : baseAmount,
+        };
+      });
+    }
+  }
+
   // ── Luxottica special handling ──────────────────────────
   // EOM+30 is the default for all Luxottica unless explicitly "30/60/90"
   if (isLuxotticaVendor(normalized)) {
