@@ -308,7 +308,7 @@ export function buildGeneralSchedule(
 
 // ─── MAIN RESOLVER ──────────────────────────────────────────────────────────
 
-import { getVendorTermsRule, isLuxotticaVendor } from './vendor-terms-registry';
+import { getVendorTermsRule, getVendorTermsRuleAsync, isLuxotticaVendor } from './vendor-terms-registry';
 
 export function resolvePaymentSchedule(
   vendor: string,
