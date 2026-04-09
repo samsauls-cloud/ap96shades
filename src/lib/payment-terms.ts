@@ -250,8 +250,11 @@ export function termsToLabel(terms: ExtractedTerms): string {
 }
 
 // ── Due date calculation (any vendor, any term type) ──────
+// IMPORTANT: Always preserves the invoice's full 4-digit year.
+// Never defaults to a wrong century (e.g. 2020 instead of 2026).
 function calculateDueDate(invoiceDate: string, eomBased: boolean, offsetDays: number): Date {
   const d = new Date(invoiceDate + "T00:00:00");
+  const invoiceYear = d.getFullYear();
   if (eomBased) {
     const eom = lastDayOfMonth(d);
     // For multiples of 30, use month-based advancement (same day-of-month)
@@ -259,9 +262,11 @@ function calculateDueDate(invoiceDate: string, eomBased: boolean, offsetDays: nu
       const months = offsetDays / 30;
       const eomDay = eom.getDate();
       const targetMonth = eom.getMonth() + months;
-      const lastDayOfTarget = new Date(eom.getFullYear(), targetMonth + 1, 0).getDate();
+      // Use eom year (derived from invoice date) — never a default/wrong year
+      const targetYear = eom.getFullYear();
+      const lastDayOfTarget = new Date(targetYear, targetMonth + 1, 0).getDate();
       const day = Math.min(eomDay, lastDayOfTarget);
-      return new Date(eom.getFullYear(), targetMonth, day);
+      return new Date(targetYear, targetMonth, day);
     }
     return addDays(eom, offsetDays);
   }
