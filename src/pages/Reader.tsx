@@ -30,6 +30,7 @@ import { parseCSVToPOs, fileToText } from "@/lib/csv-po-parser";
 import { isImageFile, imageToBase64, callAnthropicImageAPI } from "@/lib/photo-capture-engine";
 import { runQuickSKUCheck, type SKUCheckResult } from "@/lib/sku-check-engine";
 import { InvoiceReviewCard } from "@/components/invoices/InvoiceReviewCard";
+import { NewVendorWizard } from "@/components/invoices/NewVendorWizard";
 
 function formatElapsed(ms: number): string {
   const s = Math.floor(ms / 1000);
@@ -785,6 +786,9 @@ export default function ReaderPage() {
     <div className="min-h-screen bg-background">
       <InvoiceNav />
       <main className="max-w-5xl mx-auto px-4 sm:px-6 py-6 space-y-6">
+
+        {/* Define New Vendor Wizard */}
+        <NewVendorWizard apiKey={apiKey} />
 
         {/* API Key */}
         <Card className="bg-card border-border">
