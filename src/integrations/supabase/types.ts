@@ -923,6 +923,83 @@ export type Database = {
         }
         Relationships: []
       }
+      vendor_definitions: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          customer_number: string | null
+          default_currency: string
+          id: string
+          is_active: boolean
+          remit_to_address: string | null
+          updated_at: string
+          vendor_key: string
+          vendor_name: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          customer_number?: string | null
+          default_currency?: string
+          id?: string
+          is_active?: boolean
+          remit_to_address?: string | null
+          updated_at?: string
+          vendor_key: string
+          vendor_name: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          customer_number?: string | null
+          default_currency?: string
+          id?: string
+          is_active?: boolean
+          remit_to_address?: string | null
+          updated_at?: string
+          vendor_key?: string
+          vendor_name?: string
+        }
+        Relationships: []
+      }
+      vendor_field_mappings: {
+        Row: {
+          confirmed_at: string
+          confirmed_by: string | null
+          created_at: string
+          field_name: string
+          id: string
+          source_note: string | null
+          vendor_id: string
+        }
+        Insert: {
+          confirmed_at?: string
+          confirmed_by?: string | null
+          created_at?: string
+          field_name: string
+          id?: string
+          source_note?: string | null
+          vendor_id: string
+        }
+        Update: {
+          confirmed_at?: string
+          confirmed_by?: string | null
+          created_at?: string
+          field_name?: string
+          id?: string
+          source_note?: string | null
+          vendor_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vendor_field_mappings_vendor_id_fkey"
+            columns: ["vendor_id"]
+            isOneToOne: false
+            referencedRelation: "vendor_definitions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       vendor_invoices: {
         Row: {
           account_number: string | null
@@ -1136,6 +1213,53 @@ export type Database = {
             columns: ["reconciled_session_id"]
             isOneToOne: false
             referencedRelation: "po_receiving_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      vendor_term_definitions: {
+        Row: {
+          created_at: string
+          day_intervals: number[]
+          id: string
+          is_default: boolean
+          offset_type: string
+          payment_count: number
+          term_label: string | null
+          term_type: string
+          updated_at: string
+          vendor_id: string
+        }
+        Insert: {
+          created_at?: string
+          day_intervals?: number[]
+          id?: string
+          is_default?: boolean
+          offset_type?: string
+          payment_count?: number
+          term_label?: string | null
+          term_type?: string
+          updated_at?: string
+          vendor_id: string
+        }
+        Update: {
+          created_at?: string
+          day_intervals?: number[]
+          id?: string
+          is_default?: boolean
+          offset_type?: string
+          payment_count?: number
+          term_label?: string | null
+          term_type?: string
+          updated_at?: string
+          vendor_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vendor_term_definitions_vendor_id_fkey"
+            columns: ["vendor_id"]
+            isOneToOne: false
+            referencedRelation: "vendor_definitions"
             referencedColumns: ["id"]
           },
         ]
