@@ -1140,6 +1140,51 @@ export type Database = {
           },
         ]
       }
+      vendor_terms_config: {
+        Row: {
+          created_at: string
+          description: string
+          due_offset: number | null
+          eom_based: boolean
+          eom_baseline_offset: number | null
+          id: string
+          is_active: boolean
+          offsets: number[]
+          terms_type: string
+          updated_at: string
+          vendor_match_strings: string[]
+          vendor_name: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string
+          due_offset?: number | null
+          eom_based?: boolean
+          eom_baseline_offset?: number | null
+          id?: string
+          is_active?: boolean
+          offsets?: number[]
+          terms_type?: string
+          updated_at?: string
+          vendor_match_strings?: string[]
+          vendor_name: string
+        }
+        Update: {
+          created_at?: string
+          description?: string
+          due_offset?: number | null
+          eom_based?: boolean
+          eom_baseline_offset?: number | null
+          id?: string
+          is_active?: boolean
+          offsets?: number[]
+          terms_type?: string
+          updated_at?: string
+          vendor_match_strings?: string[]
+          vendor_name?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
