@@ -349,6 +349,19 @@ export function resolvePaymentSchedule(
     return buildLuxEomSingleSchedule(documentDate, totalAmount);
   }
 
+  // ── Maui Jim "Split Payment EOM" — EOM + offsets, rounded to month-end ──
+  // NOTE: Previously imported Maui Jim invoices with "Split Payment EOM" terms
+  // may have incorrect installment counts (3 instead of 4). Review and re-import if needed.
+  const isMauiJim = (vendor ?? '').toLowerCase().includes('maui');
+  if (isMauiJim && termsLower.includes('eom') && (termsLower.includes('split') || /\d+\s*[,/]\s*\d+/.test(termsLower))) {
+    // Parse ALL intervals from the term string (e.g. "Split Payment EOM 60,90,120,150" → [60,90,120,150])
+    const allNums = termsLower.match(/\d+/g)?.map(Number) ?? [];
+    const offsets = allNums.filter(n => n >= 30); // filter out noise like "3" from "3 payments"
+    if (offsets.length > 0) {
+      return buildMauiEomSplitSchedule(documentDate, totalAmount, offsets);
+    }
+  }
+
   // ── All other vendors: use registry ──
   const rule = getVendorTermsRule(vendor);
 
@@ -401,6 +414,31 @@ export function resolvePaymentSchedule(
 
   // ── Fallback: read from invoice payment_terms string ──
   return buildGeneralSchedule(documentDate, totalAmount, paymentTerms ?? null);
+}
+
+// ─── Maui Jim EOM split (EOM + offset → round to end of resulting month) ───
+
+function buildMauiEomSplitSchedule(
+  documentDate: Date,
+  totalAmount: number,
+  offsets: number[],
+): PaymentSchedule {
+  const eom = endOfMonth(documentDate);
+  const tranches = offsets.map((offset, i) => {
+    // EOM + offset days, then round to end of that resulting month
+    const raw = addDays(eom, offset);
+    const rounded = endOfMonth(raw);
+    return makeTranche(i + 1, `${i + 1}/${offsets.length}`, rounded, 1 / offsets.length);
+  });
+  return {
+    vendor_terms_type: 'split_thirds',
+    baseline_date: eom,
+    tranches,
+    next_due: tranches.find(t => !t.is_overdue) ?? null,
+    total_amount: totalAmount,
+    is_fully_overdue: tranches.every(t => t.is_overdue),
+    human_label: `Split Payment EOM ${offsets.join('/')} — ${offsets.length} tranches`,
+  };
 }
 
 // ─── Days split (no EOM step) ───────────────────────────────────────────────

@@ -37,8 +37,8 @@ export const VENDOR_TERMS_REGISTRY: VendorTermsRule[] = [
   {
     vendor_match: ['maui jim', 'maui'],
     terms_type: 'days_split',
-    offsets: [90, 120, 150],
-    description: 'Days 90/120/150 — 3 equal tranches from invoice date',
+    offsets: [60, 90, 120, 150],
+    description: 'Days 60/90/120/150 — 4 equal tranches from invoice date (default; overridden by "Split Payment EOM" when present)',
   },
   {
     vendor_match: ['kering', 'gucci', 'saint laurent', 'balenciaga',
