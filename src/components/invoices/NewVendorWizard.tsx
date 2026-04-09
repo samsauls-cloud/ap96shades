@@ -853,7 +853,7 @@ export function NewVendorWizard({ apiKey, onComplete }: NewVendorWizardProps) {
         {/* ── Done ── */}
         {step === "done" && (
           <div className="flex flex-col items-center justify-center py-12 text-center">
-            <CheckCircle2 className="h-12 w-12 text-green-500 mb-4" />
+            <CheckCircle2 className="h-12 w-12 text-primary mb-4" />
             <h3 className="text-lg font-semibold mb-1">Vendor Defined</h3>
             <p className="text-sm text-muted-foreground mb-1">
               <span className="font-medium text-foreground">{savedVendorName}</span> has been added to the system.
