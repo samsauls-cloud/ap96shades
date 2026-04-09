@@ -25,7 +25,7 @@ import {
 import {
   checkInvoiceDuplicate, mergeExtendedInvoice, updatePOTotalInvoiced, normalizeVendor, isKnownVendor,
 } from "@/lib/invoice-dedup";
-import { getVendorTermsRule } from "@/lib/vendor-terms-registry";
+import { getVendorTermsRule, getVendorTermsRuleAsync } from "@/lib/vendor-terms-registry";
 import { parseCSVToPOs, fileToText } from "@/lib/csv-po-parser";
 import { isImageFile, imageToBase64, callAnthropicImageAPI } from "@/lib/photo-capture-engine";
 import { runQuickSKUCheck, type SKUCheckResult } from "@/lib/sku-check-engine";
