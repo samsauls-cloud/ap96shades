@@ -548,7 +548,7 @@ export function NewVendorWizard({ apiKey, onComplete }: NewVendorWizardProps) {
       toast.error(`Save failed: ${err.message}`);
       setStep("terms"); // go back to terms step
     }
-  }, [data, termType, offsetType, dayIntervalsStr, paymentCount, uploadedFile]);
+  }, [data, termType, offsetType, dayIntervalsStr, paymentCount, uploadedFile, originalExtractedVendorName]);
 
   // Compute preview schedule
   const computeSchedule = useCallback((): { label: string; dueDate: string }[] => {
