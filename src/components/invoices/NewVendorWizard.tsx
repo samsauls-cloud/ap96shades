@@ -206,6 +206,8 @@ export function NewVendorWizard({ apiKey, onComplete }: NewVendorWizardProps) {
   // Done step state
   const [savedVendorName, setSavedVendorName] = useState("");
   const [savedInvoiceNumber, setSavedInvoiceNumber] = useState("");
+  // Track original extracted vendor name (before user edits)
+  const [originalExtractedVendorName, setOriginalExtractedVendorName] = useState<string | null>(null);
 
   const handleFileUpload = useCallback(async (file: File) => {
     if (!apiKey) {
@@ -324,6 +326,7 @@ export function NewVendorWizard({ apiKey, onComplete }: NewVendorWizardProps) {
       };
 
       setData(normalized);
+      setOriginalExtractedVendorName(String(normalized.vendor_name?.value || ""));
       setStep("confirm");
 
       // Pre-populate terms step from extraction
@@ -474,13 +477,26 @@ export function NewVendorWizard({ apiKey, onComplete }: NewVendorWizardProps) {
         if (fErr) throw new Error(`Field mappings save failed: ${fErr.message}`);
       }
 
-      // 4. Also insert into vendor_alias_map so normalizeVendor can find this vendor
+      // 4. Insert into vendor_alias_map with comprehensive aliases
+      // Build alias set: vendor_key, confirmed name (lowercase), and original extracted name if different
+      const aliasSet = new Set<string>([vendorName.toLowerCase(), vendorKey]);
+      const originalName = originalExtractedVendorName || "";
+      if (originalName && originalName.toLowerCase() !== vendorName.toLowerCase()) {
+        aliasSet.add(originalName.toLowerCase());
+        // Also add stripped version (no punctuation)
+        const strippedOriginal = originalName.toLowerCase().replace(/[.,]/g, "").replace(/\s+/g, " ").trim();
+        aliasSet.add(strippedOriginal);
+      }
+      // Add stripped version of confirmed name too
+      const strippedConfirmed = vendorName.toLowerCase().replace(/[.,]/g, "").replace(/\s+/g, " ").trim();
+      if (strippedConfirmed !== vendorName.toLowerCase()) aliasSet.add(strippedConfirmed);
+
       await supabase
         .from("vendor_alias_map")
         .insert({
           vendor_name: vendorName,
           vendor_id: vendorKey,
-          aliases: [vendorName.toLowerCase(), vendorKey],
+          aliases: Array.from(aliasSet),
           vendor_type: "frame",
         });
 
@@ -532,7 +548,7 @@ export function NewVendorWizard({ apiKey, onComplete }: NewVendorWizardProps) {
       toast.error(`Save failed: ${err.message}`);
       setStep("terms"); // go back to terms step
     }
-  }, [data, termType, offsetType, dayIntervalsStr, paymentCount, uploadedFile]);
+  }, [data, termType, offsetType, dayIntervalsStr, paymentCount, uploadedFile, originalExtractedVendorName]);
 
   // Compute preview schedule
   const computeSchedule = useCallback((): { label: string; dueDate: string }[] => {
