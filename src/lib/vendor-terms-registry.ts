@@ -77,7 +77,7 @@ export const VENDOR_TERMS_REGISTRY: VendorTermsRule[] = [
 ];
 
 /**
- * Look up the terms rule for a given vendor name.
+ * Look up the terms rule for a given vendor name (static registry only).
  * Returns null if no rule matched — caller should fall back to
  * reading payment_terms from the invoice directly.
  */
@@ -86,6 +86,20 @@ export function getVendorTermsRule(vendor: string): VendorTermsRule | null {
   return VENDOR_TERMS_REGISTRY.find(rule =>
     rule.vendor_match.some(match => v.includes(match))
   ) ?? null;
+}
+
+/**
+ * Look up terms rule with dynamic DB fallback.
+ * Checks wizard-defined vendor_definitions first, then static registry.
+ */
+export async function getVendorTermsRuleAsync(vendor: string): Promise<VendorTermsRule | null> {
+  // 1. Try dynamic (DB-defined) vendors first
+  const { getDynamicVendorTermsRule } = await import('./dynamic-vendor-lookup');
+  const dynamic = await getDynamicVendorTermsRule(vendor);
+  if (dynamic) return dynamic;
+
+  // 2. Fall back to static registry
+  return getVendorTermsRule(vendor);
 }
 
 /** Check if a vendor is Luxottica based on the registry */

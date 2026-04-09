@@ -80,17 +80,34 @@ const VENDOR_MAP: Record<string, string> = {
 };
 
 /**
- * Normalize vendor name. Uses punctuation-stripped lowercase matching.
+ * Normalize vendor name (sync — static map only).
  * Returns the canonical vendor name or the trimmed raw string if unknown.
  */
 export function normalizeVendor(raw: string | null | undefined): string {
   if (!raw) return "Unknown";
-  // Try exact lowercase match first, then stripped version
   const lower = raw.toLowerCase().trim();
   if (VENDOR_MAP[lower]) return VENDOR_MAP[lower];
   const stripped = lower.replace(/[.,]/g, "").replace(/\s+/g, " ").trim();
   if (VENDOR_MAP[stripped]) return VENDOR_MAP[stripped];
   return raw.trim();
+}
+
+/**
+ * Normalize vendor name with async DB lookup.
+ * Checks wizard-defined aliases in vendor_alias_map first, then static map.
+ */
+export async function normalizeVendorAsync(raw: string | null | undefined): Promise<string> {
+  if (!raw) return "Unknown";
+  // Try static map first (fast path)
+  const staticResult = normalizeVendor(raw);
+  if (staticResult !== raw.trim()) return staticResult; // matched static map
+
+  // Try dynamic DB lookup
+  const { resolveDynamicVendorName } = await import('@/lib/dynamic-vendor-lookup');
+  const dynamic = await resolveDynamicVendorName(raw);
+  if (dynamic) return dynamic;
+
+  return staticResult;
 }
 
 /**
