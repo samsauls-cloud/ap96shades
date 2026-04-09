@@ -718,21 +718,26 @@ export default function ReaderPage() {
     }
   }, [docsAwaitingReview, handleApproveDoc]);
 
-  // ── New vendor detection ──
-  const newVendors = (() => {
-    const seen = new Set<string>();
-    const results: { vendor: string; hasTermsRule: boolean; docIds: string[] }[] = [];
-    for (const d of docs) {
-      const v = d.vendor;
-      if (!v || v === "Unknown" || seen.has(v)) continue;
-      seen.add(v);
-      if (!isKnownVendor(v)) {
-        const rule = getVendorTermsRule(v);
-        results.push({ vendor: v, hasTermsRule: !!rule, docIds: docs.filter(dd => dd.vendor === v).map(dd => dd.id) });
+  // ── New vendor detection (async — checks DB-defined vendors too) ──
+  const [newVendors, setNewVendors] = useState<{ vendor: string; hasTermsRule: boolean; docIds: string[] }[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const seen = new Set<string>();
+      const results: { vendor: string; hasTermsRule: boolean; docIds: string[] }[] = [];
+      for (const d of docs) {
+        const v = d.vendor;
+        if (!v || v === "Unknown" || seen.has(v)) continue;
+        seen.add(v);
+        if (!isKnownVendor(v)) {
+          const rule = await getVendorTermsRuleAsync(v);
+          results.push({ vendor: v, hasTermsRule: !!rule, docIds: docs.filter(dd => dd.vendor === v).map(dd => dd.id) });
+        }
       }
-    }
-    return results;
-  })();
+      if (!cancelled) setNewVendors(results);
+    })();
+    return () => { cancelled = true; };
+  }, [docs]);
 
   const stats = docs.reduce<BatchStats>((s, d) => {
     if (d.status === "done") {
