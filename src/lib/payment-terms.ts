@@ -250,8 +250,11 @@ export function termsToLabel(terms: ExtractedTerms): string {
 }
 
 // ── Due date calculation (any vendor, any term type) ──────
+// IMPORTANT: Always preserves the invoice's full 4-digit year.
+// Never defaults to a wrong century (e.g. 2020 instead of 2026).
 function calculateDueDate(invoiceDate: string, eomBased: boolean, offsetDays: number): Date {
   const d = new Date(invoiceDate + "T00:00:00");
+  const invoiceYear = d.getFullYear();
   if (eomBased) {
     const eom = lastDayOfMonth(d);
     // For multiples of 30, use month-based advancement (same day-of-month)
@@ -259,9 +262,11 @@ function calculateDueDate(invoiceDate: string, eomBased: boolean, offsetDays: nu
       const months = offsetDays / 30;
       const eomDay = eom.getDate();
       const targetMonth = eom.getMonth() + months;
-      const lastDayOfTarget = new Date(eom.getFullYear(), targetMonth + 1, 0).getDate();
+      // Use eom year (derived from invoice date) — never a default/wrong year
+      const targetYear = eom.getFullYear();
+      const lastDayOfTarget = new Date(targetYear, targetMonth + 1, 0).getDate();
       const day = Math.min(eomDay, lastDayOfTarget);
-      return new Date(eom.getFullYear(), targetMonth, day);
+      return new Date(targetYear, targetMonth, day);
     }
     return addDays(eom, offsetDays);
   }
@@ -493,7 +498,37 @@ export function calculateInstallments(
   if (isLuxotticaVendor(normalized)) {
     const isSplit = termsLower.includes('30/60/90') || termsLower.includes('split');
 
-    if (!isSplit) {
+    if (isSplit) {
+      // EOM 30/60/90 — three tranches at EOM+30, EOM+60, EOM+90
+      // EOM itself is NEVER a payment date.
+      const parsedTotal = typeof total === "number" ? total : parseFloat(String(total)) || 0;
+      if (parsedTotal <= 0) return [];
+      const offsets = [30, 60, 90];
+      const d = new Date(invoiceDate + "T00:00:00");
+      const eom = lastDayOfMonth(d);
+      const baseAmount = parseFloat((parsedTotal / 3).toFixed(2));
+      const lastAmount = parseFloat((parsedTotal - baseAmount * 2).toFixed(2));
+      return offsets.map((offset, index) => {
+        // Month-based advancement: EOM day-of-month stays aligned
+        const months = offset / 30;
+        const eomDay = eom.getDate();
+        const targetYear = eom.getFullYear();
+        const targetMonth = eom.getMonth() + months;
+        const lastDayOfTarget = new Date(targetYear, targetMonth + 1, 0).getDate();
+        const dueDate = new Date(targetYear, targetMonth, Math.min(eomDay, lastDayOfTarget));
+        return {
+          vendor: normalized,
+          invoice_number: invoiceNumber,
+          po_number: poNumber,
+          invoice_amount: parsedTotal,
+          invoice_date: invoiceDate,
+          terms: "EOM 30/60/90",
+          installment_label: `${index + 1} of 3`,
+          due_date: format(dueDate, "yyyy-MM-dd"),
+          amount_due: index === 2 ? lastAmount : baseAmount,
+        };
+      });
+    } else {
       // EOM+30 single payment: EOM → +30 (baseline) → +30 (due)
       const parsedTotal = typeof total === "number" ? total : parseFloat(String(total)) || 0;
       if (parsedTotal <= 0) return [];
