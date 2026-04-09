@@ -326,6 +326,7 @@ export function NewVendorWizard({ apiKey, onComplete }: NewVendorWizardProps) {
       };
 
       setData(normalized);
+      setOriginalExtractedVendorName(String(normalized.vendor_name?.value || ""));
       setStep("confirm");
 
       // Pre-populate terms step from extraction
