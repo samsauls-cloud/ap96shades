@@ -206,6 +206,8 @@ export function NewVendorWizard({ apiKey, onComplete }: NewVendorWizardProps) {
   // Done step state
   const [savedVendorName, setSavedVendorName] = useState("");
   const [savedInvoiceNumber, setSavedInvoiceNumber] = useState("");
+  // Track original extracted vendor name (before user edits)
+  const [originalExtractedVendorName, setOriginalExtractedVendorName] = useState<string | null>(null);
 
   const handleFileUpload = useCallback(async (file: File) => {
     if (!apiKey) {
