@@ -420,6 +420,77 @@ export function resolvePaymentSchedule(
   return buildGeneralSchedule(documentDate, totalAmount, paymentTerms ?? null);
 }
 
+/**
+ * Async version of resolvePaymentSchedule that checks DB-defined vendor terms
+ * (from the "Define New Vendor" wizard) before falling back to the static registry.
+ */
+export async function resolvePaymentScheduleAsync(
+  vendor: string,
+  category: 'Procurement' | 'Special Order' | 'Credit',
+  documentDate: Date,
+  totalAmount: number,
+  paymentTerms?: string | null
+): Promise<PaymentSchedule> {
+
+  // Credits never have a payment schedule
+  if (category === 'Credit' || totalAmount < 0) {
+    return resolvePaymentSchedule(vendor, category, documentDate, totalAmount, paymentTerms);
+  }
+
+  // Known static vendors (Luxottica, Kering, etc.) — use sync path
+  if (isLuxotticaVendor(vendor) || getVendorTermsRule(vendor)) {
+    return resolvePaymentSchedule(vendor, category, documentDate, totalAmount, paymentTerms);
+  }
+
+  // Try dynamic DB-defined vendor terms
+  const dynamicRule = await getVendorTermsRuleAsync(vendor);
+  if (dynamicRule) {
+    if (dynamicRule.terms_type === 'eom_split') {
+      return buildEomSplitSchedule(documentDate, totalAmount, dynamicRule.offsets, dynamicRule.description);
+    }
+    if (dynamicRule.terms_type === 'days_split') {
+      return buildDaysSplitSchedule(documentDate, totalAmount, dynamicRule.offsets, dynamicRule.description);
+    }
+    if (dynamicRule.terms_type === 'eom_single') {
+      const eom = endOfMonth(documentDate);
+      const baselineOffset = dynamicRule.eom_baseline_offset ?? 0;
+      const dueOffset = dynamicRule.due_offset ?? dynamicRule.offsets[0] ?? 30;
+      const baseline = addDays(eom, baselineOffset);
+      const due = addDays(baseline, dueOffset);
+      const tranches = [makeTranche(1, 'Full', due, 1.0)];
+      return {
+        vendor_terms_type: 'eom_single',
+        baseline_date: baseline,
+        tranches,
+        next_due: tranches[0].is_overdue ? null : tranches[0],
+        total_amount: totalAmount,
+        is_fully_overdue: tranches[0].is_overdue,
+        human_label: dynamicRule.description,
+      };
+    }
+    if (dynamicRule.terms_type === 'net_single') {
+      const n = dynamicRule.offsets[0] || 30;
+      const due = addDays(documentDate, n);
+      const tranches = [makeTranche(1, 'Full', due, 1.0)];
+      return {
+        vendor_terms_type: 'net_single',
+        baseline_date: documentDate,
+        tranches,
+        next_due: tranches[0].is_overdue ? null : tranches[0],
+        total_amount: totalAmount,
+        is_fully_overdue: tranches[0].is_overdue,
+        human_label: dynamicRule.description,
+      };
+    }
+    if (dynamicRule.terms_type === 'net_eom') {
+      return buildNetEomSchedule(documentDate, totalAmount);
+    }
+  }
+
+  // Final fallback: general schedule from invoice terms string
+  return buildGeneralSchedule(documentDate, totalAmount, paymentTerms ?? null);
+}
+
 // ─── Maui Jim EOM split (EOM + offset → round to end of resulting month) ───
 
 function buildMauiEomSplitSchedule(
