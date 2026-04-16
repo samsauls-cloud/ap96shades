@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, CheckCircle2, XCircle, Loader2, RefreshCw, ShieldCheck, ShieldAlert, ChevronDown, ChevronRight } from "lucide-react";
+import { AlertTriangle, CheckCircle2, XCircle, Loader2, RefreshCw, ShieldCheck, ShieldAlert, ChevronDown, ChevronRight, Ban } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { formatCurrency, formatDate } from "@/lib/supabase-queries";
-import { generatePaymentsForInvoice, recalculatePaymentsForInvoice, checkRecalcSafety, fixStaleInstallments, type AuditResult } from "@/lib/payment-queries";
+import { generatePaymentsForInvoice, recalculatePaymentsForInvoice, runRecalcGuards, fixStaleInstallments, type AuditResult, type RecalcGuardResult } from "@/lib/payment-queries";
 import { normalizeVendor, isKnownVendor } from "@/lib/invoice-dedup";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
