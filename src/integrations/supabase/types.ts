@@ -1010,8 +1010,12 @@ export type Database = {
           doc_type: string
           due_date: string | null
           entered_after_recon: boolean | null
+          extracted_terms_confidence: string | null
+          extracted_terms_preset: string | null
+          extracted_terms_source_text: string | null
           filename: string | null
           final_bill_amount: number | null
+          final_terms_preset: string | null
           freight: number | null
           has_discrepancy: boolean | null
           id: string
@@ -1074,8 +1078,12 @@ export type Database = {
           doc_type?: string
           due_date?: string | null
           entered_after_recon?: boolean | null
+          extracted_terms_confidence?: string | null
+          extracted_terms_preset?: string | null
+          extracted_terms_source_text?: string | null
           filename?: string | null
           final_bill_amount?: number | null
+          final_terms_preset?: string | null
           freight?: number | null
           has_discrepancy?: boolean | null
           id?: string
@@ -1138,8 +1146,12 @@ export type Database = {
           doc_type?: string
           due_date?: string | null
           entered_after_recon?: boolean | null
+          extracted_terms_confidence?: string | null
+          extracted_terms_preset?: string | null
+          extracted_terms_source_text?: string | null
           filename?: string | null
           final_bill_amount?: number | null
+          final_terms_preset?: string | null
           freight?: number | null
           has_discrepancy?: boolean | null
           id?: string
