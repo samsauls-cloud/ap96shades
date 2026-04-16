@@ -12,6 +12,7 @@ import { normalizeVendor, isKnownVendor } from "@/lib/invoice-dedup";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { ScheduleDivergencesSection } from "./ScheduleDivergencesSection";
+import { PendingMigrationSection } from "./PendingMigrationSection";
 
 type AuditStatus = "clean" | "warning" | "error";
 type IssueCategory = "missingPayments" | "mathDiscrepancies" | "unknownVendors" | "duplicateInvoices" | "staleInstallments";
@@ -594,6 +595,11 @@ export function AuditPanel({ audit, onRefresh, isLoading, totalInvoices, highlig
             </div>
           </div>
         )}
+
+        {/* Pending Migration — Option B impact-report-then-approve flow */}
+        <div className="pt-1">
+          <PendingMigrationSection onCompleted={onRefresh} />
+        </div>
 
         {/* Schedule Divergences (read-only) — always available regardless of issue state */}
         <div className="pt-1">
