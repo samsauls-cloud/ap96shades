@@ -33,8 +33,24 @@ Luxottica invoices use a unique EOM-based split payment system. When you see ter
 Set payment_terms_extracted.type to "eom_split", eom_based to true, days to [30, 60, 90], and installments to 3.
 For Luxottica special/individual orders (not standard procurement), terms are EOM+30+30: end of invoice month + 30 days = baseline, then + 30 days = due date. Set type to "eom_single", eom_based to true, days to [30], installments to 1.
 
-MARCOLIN PAYMENT TERMS:
-Marcolin uses EOM-based split payment terms written as "Check X-Y-Z days EoM" or "X/Y/Z days EoM" where X, Y, Z are day offsets from end of invoice month. Common Marcolin terms: "50-80-110 days EoM" = three equal tranches due at 50, 80, and 110 days after end of invoice month. Set payment_terms_extracted.type to "eom_split", eom_based to true, days to [X, Y, Z] (the three numbers), installments to 3. Store the raw term text exactly as written. Do NOT extract just one number.
+MARCOLIN PAYMENT TERMS — DUAL-TERMS VENDOR (CRITICAL):
+Marcolin invoices use ONE of two payment term structures. You MUST detect which one:
+
+OPTION A — "Check 20 EoM": A SINGLE payment due 20 days after end of invoice month.
+  Textual cues: "Check 20 EoM", "EOM 20", "Fine mese + 20gg", "20 days EoM", "Check 20 days end of month", single-payment language with "20" and "EoM/EOM".
+  → Set terms_preset to "check_20_eom"
+
+OPTION B — "EOM 50/80/110": THREE equal installments due at 50, 80, and 110 days after end of invoice month.
+  Textual cues: "50/80/110", "EOM 50/80/110", "Check 50-80-110 days EoM", "50-80-110 days EoM", three-installment language.
+  → Set terms_preset to "eom_50_80_110"
+
+If NEITHER pattern is clearly matched, set terms_preset to "uncertain" and terms_confidence to "low". Do NOT default to either option.
+
+For Marcolin invoices, also return:
+- terms_preset: one of "check_20_eom", "eom_50_80_110", or "uncertain"
+- terms_source_text: the EXACT raw text snippet from the PDF that you used to determine the terms (for audit trail)
+
+Set payment_terms_extracted.type to "eom_single" for Check 20 EoM (with days: [20], installments: 1) or "eom_split" for EOM 50/80/110 (with days: [50, 80, 110], installments: 3). Always set eom_based to true for Marcolin.
 
 CREDIT MEMO DETECTION — set doc_type = "credit_memo" if ANY of these are true:
 - The word "Credit" appears as a standalone header/title on the document (distinct from appearing in body text)
@@ -60,7 +76,7 @@ KERING CREDIT EXTRACTION RULES:
 - Extract the "Bill.doc." reference number into notes as "References billing doc: [number] dated [date]"
 - Extract brand summary (BTV/GUC/SLP etc.) into vendor_brands array
 
-Return ONLY valid JSON: { doc_type, vendor, vendor_brands[], invoice_number, invoice_date (YYYY-MM-DD), po_number, account_number, ship_to, carrier, payment_terms, payment_terms_extracted, shipping_terms, subtotal, tax, freight, total, currency, needs_review, line_items[{upc, item_number, sku, description, brand, model, color_code, color_desc, size, temple, qty_ordered, qty_shipped, qty, unit_price, line_total}], notes }. CRITICAL: Return ONLY raw JSON. No markdown, no code fences, no backticks, no preamble, no explanation. Your response must start with { and end with }. Nothing before {. Nothing after }.`;
+Return ONLY valid JSON: { doc_type, vendor, vendor_brands[], invoice_number, invoice_date (YYYY-MM-DD), po_number, account_number, ship_to, carrier, payment_terms, payment_terms_extracted, shipping_terms, terms_preset (for Marcolin only: "check_20_eom"|"eom_50_80_110"|"uncertain"|null), terms_source_text (for Marcolin only: raw PDF snippet used for terms detection), subtotal, tax, freight, total, currency, needs_review, line_items[{upc, item_number, sku, description, brand, model, color_code, color_desc, size, temple, qty_ordered, qty_shipped, qty, unit_price, line_total}], notes }. CRITICAL: Return ONLY raw JSON. No markdown, no code fences, no backticks, no preamble, no explanation. Your response must start with { and end with }. Nothing before {. Nothing after }.`;
 
 export const CONCURRENCY = 4;
 export const RETRY_CONCURRENCY = 3;
@@ -255,6 +271,15 @@ export function parsedToInvoice(parsed: any, filename: string, pdfUrl?: string |
   const isProformaDoc = docType.toLowerCase().includes("proforma") || docType.toLowerCase().includes("pro forma") || docType.toLowerCase().includes("pro-forma");
   const isCreditMemo = docType.toLowerCase() === "credit_memo";
 
+  // Marcolin dual-terms audit fields
+  const isMarcolinVendor = /marcolin|tom ford|guess|swarovski|montblanc/i.test(vendor);
+  const extractedTermsPreset = isMarcolinVendor ? (parsed.terms_preset || null) : null;
+  const extractedTermsConfidence = isMarcolinVendor ? (confidence || null) : null;
+  const extractedTermsSourceText = isMarcolinVendor ? (parsed.terms_source_text || extractedTerms?.raw_text || null) : null;
+
+  // For Marcolin with uncertain terms, force needs_review regardless of confidence
+  const marcolinUncertain = isMarcolinVendor && (extractedTermsPreset === "uncertain" || confidence === "low");
+
   let termsStatus = "needs_review";
   let termsConfidence: string | null = confidence;
   if (isCreditMemo) {
@@ -263,6 +288,9 @@ export function parsedToInvoice(parsed: any, filename: string, pdfUrl?: string |
   } else if (isProformaDoc) {
     termsStatus = "proforma";
     termsConfidence = null;
+  } else if (marcolinUncertain) {
+    termsStatus = "needs_review";
+    termsConfidence = "low";
   } else if (confidence === "high") {
     termsStatus = "confirmed";
   } else if (confidence === "medium") {
@@ -308,6 +336,10 @@ export function parsedToInvoice(parsed: any, filename: string, pdfUrl?: string |
       payment_terms_extracted: extractedTerms || null,
       payment_terms_source: "extraction",
       shipping_terms: shippingTerms,
+      // Marcolin audit columns
+      ...(extractedTermsPreset ? { extracted_terms_preset: extractedTermsPreset } : {}),
+      ...(extractedTermsConfidence ? { extracted_terms_confidence: extractedTermsConfidence } : {}),
+      ...(extractedTermsSourceText ? { extracted_terms_source_text: extractedTermsSourceText } : {}),
       ...(isCreditMemo ? { status: "open" } : {}),
       ...(pdfUrl ? { pdf_url: pdfUrl } : {}),
     }) as any),

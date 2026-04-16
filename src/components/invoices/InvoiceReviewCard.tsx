@@ -31,15 +31,33 @@ export function InvoiceReviewCard({ doc, onApprove, onDiscard }: Props) {
   const isNewVendor = getVendorTermsRule(vendor) === null;
   const isCredit = isCreditMemo({ doc_type: doc.doc_type || doc.parsedData?.doc_type || "" });
 
+  // Marcolin dual-terms detection
+  const isMarcolinVendor = /marcolin|tom ford|guess|swarovski|montblanc/i.test(vendor);
+  const marcolinPreset = doc.parsedData?.terms_preset as string | undefined;
+  const marcolinSourceText = doc.parsedData?.terms_source_text as string | undefined;
+  const marcolinUncertain = isMarcolinVendor && (!marcolinPreset || marcolinPreset === "uncertain" || termsConfidence === "low");
+
+  // Marcolin preset dropdown state
+  const [selectedMarcolinPreset, setSelectedMarcolinPreset] = useState<string>(
+    marcolinPreset === "check_20_eom" ? "Check 20 EoM"
+      : marcolinPreset === "eom_50_80_110" ? "EOM 50/80/110"
+      : ""
+  );
+
+  // When Marcolin preset changes, sync the terms text field
+  const effectiveTerms = isMarcolinVendor && selectedMarcolinPreset
+    ? selectedMarcolinPreset
+    : terms;
+
   const previewInstallments = useMemo(() => {
-    if (isCredit || !terms.trim() || !invoiceDate) return [];
+    if (isCredit || !effectiveTerms.trim() || !invoiceDate) return [];
     try {
       const schedule = resolvePaymentSchedule(
         vendor,
         "Procurement",
         new Date(invoiceDate),
         total,
-        terms
+        effectiveTerms
       );
       return schedule.tranches.map((t) => ({
         label: t.tranche_label,
@@ -51,12 +69,13 @@ export function InvoiceReviewCard({ doc, onApprove, onDiscard }: Props) {
     } catch {
       return [];
     }
-  }, [terms, invoiceDate, vendor, total, isCredit]);
+  }, [effectiveTerms, invoiceDate, vendor, total, isCredit]);
 
   const handleApprove = async () => {
     setSaving(true);
     try {
-      await onApprove(doc.id, isCredit ? "credit_memo" : terms);
+      const finalTerms = isCredit ? "credit_memo" : effectiveTerms;
+      await onApprove(doc.id, finalTerms);
     } finally {
       setSaving(false);
     }
@@ -109,8 +128,66 @@ export function InvoiceReviewCard({ doc, onApprove, onDiscard }: Props) {
           </div>
         )}
 
-        {/* PAYMENT TERMS — editable (hidden for credit memos) */}
-        {!isCredit && (
+        {/* MARCOLIN DUAL-TERMS — preset selector (only for Marcolin invoices) */}
+        {!isCredit && isMarcolinVendor && (
+          <div className="space-y-2">
+            {/* Warning banner for uncertain terms */}
+            {marcolinUncertain && (
+              <div className="rounded-lg border-2 border-amber-500/40 bg-amber-500/10 p-3">
+                <p className="text-xs font-semibold text-amber-600 flex items-center gap-1.5 mb-1">
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  Payment terms could not be confidently read — please verify before approving.
+                </p>
+                <p className="text-[10px] text-muted-foreground">
+                  Marcolin uses two different term structures. Select the correct one below.
+                </p>
+              </div>
+            )}
+
+            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+              Marcolin Payment Terms
+            </label>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant={selectedMarcolinPreset === "Check 20 EoM" ? "default" : "outline"}
+                size="sm"
+                className={`flex-1 text-xs ${marcolinUncertain && !selectedMarcolinPreset ? "border-amber-500/50" : ""}`}
+                onClick={() => {
+                  setSelectedMarcolinPreset("Check 20 EoM");
+                  setTerms("Check 20 EoM");
+                }}
+              >
+                Check 20 EoM
+                <span className="text-[9px] ml-1 opacity-70">(1 payment)</span>
+              </Button>
+              <Button
+                type="button"
+                variant={selectedMarcolinPreset === "EOM 50/80/110" ? "default" : "outline"}
+                size="sm"
+                className={`flex-1 text-xs ${marcolinUncertain && !selectedMarcolinPreset ? "border-amber-500/50" : ""}`}
+                onClick={() => {
+                  setSelectedMarcolinPreset("EOM 50/80/110");
+                  setTerms("EOM 50/80/110");
+                }}
+              >
+                EOM 50/80/110
+                <span className="text-[9px] ml-1 opacity-70">(3 payments)</span>
+              </Button>
+            </div>
+
+            {/* Show source text from extractor */}
+            {marcolinSourceText && (
+              <div className="text-[10px] text-muted-foreground bg-muted/40 rounded p-2">
+                <span className="font-medium">Extractor saw: </span>
+                <span className="italic">"{marcolinSourceText}"</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* PAYMENT TERMS — editable (hidden for credit memos and Marcolin) */}
+        {!isCredit && !isMarcolinVendor && (
           <div className="space-y-1.5">
             <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
               Payment Terms
@@ -143,7 +220,7 @@ export function InvoiceReviewCard({ doc, onApprove, onDiscard }: Props) {
         )}
 
         {/* PAYMENT SCHEDULE PREVIEW (hidden for credit memos) */}
-        {!isCredit && terms.trim() && (
+        {!isCredit && effectiveTerms.trim() && (
           <div className="space-y-1.5">
             <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
               Payment Schedule Preview
@@ -189,7 +266,7 @@ export function InvoiceReviewCard({ doc, onApprove, onDiscard }: Props) {
           <Button
             className={`flex-1 gap-1.5 ${isCredit ? "bg-emerald-600 hover:bg-emerald-700" : ""}`}
             onClick={handleApprove}
-            disabled={(!isCredit && !terms.trim()) || saving}
+            disabled={(!isCredit && !effectiveTerms.trim()) || saving}
           >
             {saving ? (
               <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Saving…</>

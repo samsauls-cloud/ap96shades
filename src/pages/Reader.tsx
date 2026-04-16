@@ -622,12 +622,26 @@ export default function ReaderPage() {
     try {
       const isCreditDoc = isCreditMemo({ doc_type: doc.invoiceData.doc_type || "" });
 
+      // Determine Marcolin final_terms_preset for audit
+      const isMarcolinDoc = /marcolin|tom ford|guess|swarovski|montblanc/i.test(doc.invoiceData.vendor || "");
+      let finalTermsPreset: string | null = null;
+      if (isMarcolinDoc && !isCreditDoc) {
+        const termsLower = confirmedTerms.toLowerCase();
+        if (/check\s*20/i.test(termsLower) || /20\s*(days?)?\s*e[o0]m/i.test(termsLower)) {
+          finalTermsPreset = "check_20_eom";
+        } else if (/50.*80.*110/i.test(termsLower)) {
+          finalTermsPreset = "eom_50_80_110";
+        }
+      }
+
       const confirmedInvoice = {
         ...doc.invoiceData,
         payment_terms: isCreditDoc ? "credit_memo" : confirmedTerms,
         terms_status: isCreditDoc ? "confirmed" : "confirmed",
         terms_confidence: isCreditDoc ? "auto" : "high",
         ...(isCreditDoc ? { status: "open" } : {}),
+        // Marcolin audit: persist final confirmed preset
+        ...(finalTermsPreset ? { final_terms_preset: finalTermsPreset } : {}),
       };
 
       const saved = await insertInvoice(confirmedInvoice);

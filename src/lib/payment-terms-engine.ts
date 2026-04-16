@@ -366,6 +366,39 @@ export function resolvePaymentSchedule(
     }
   }
 
+  // ── MARCOLIN dual-terms: Check 20 EoM vs EOM 50/80/110 ──
+  const isMarcolinVendor = (vendor ?? '').toLowerCase().match(/marcolin|tom ford|guess|swarovski|montblanc/);
+  if (isMarcolinVendor) {
+    // Detect "Check 20 EoM" pattern
+    const isCheck20 =
+      /check\s*20/i.test(termsLower) ||
+      /20\s*(days?)?\s*e[o0]m/i.test(termsLower) ||
+      /e[o0]m\s*\+?\s*20\b/i.test(termsLower) ||
+      /fine\s*mese\s*\+?\s*20/i.test(termsLower);
+
+    if (isCheck20) {
+      // Single payment: EOM + 20 days
+      const eom = endOfMonth(documentDate);
+      const due = addDays(eom, 20);
+      const tranches = [makeTranche(1, 'Full', due, 1.0)];
+      return {
+        vendor_terms_type: 'eom_single',
+        baseline_date: eom,
+        tranches,
+        next_due: tranches[0].is_overdue ? null : tranches[0],
+        total_amount: totalAmount,
+        is_fully_overdue: tranches[0].is_overdue,
+        human_label: 'Check 20 EoM — Single payment',
+      };
+    }
+
+    // Default Marcolin: EOM 50/80/110
+    if (isNetEom) {
+      return buildNetEomSchedule(documentDate, totalAmount);
+    }
+    return buildEomSplitSchedule(documentDate, totalAmount, [50, 80, 110], 'EOM 50/80/110 — 3 equal tranches');
+  }
+
   // ── All other vendors: use registry ──
   const rule = getVendorTermsRule(vendor);
 
@@ -389,6 +422,7 @@ export function resolvePaymentSchedule(
     if (isNetEom) {
       return buildNetEomSchedule(documentDate, totalAmount);
     }
+    // Skip Marcolin from generic registry path (handled above)
     if (rule.terms_type === 'eom_split') {
       return buildEomSplitSchedule(documentDate, totalAmount, rule.offsets, rule.description);
     }
