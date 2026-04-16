@@ -31,15 +31,33 @@ export function InvoiceReviewCard({ doc, onApprove, onDiscard }: Props) {
   const isNewVendor = getVendorTermsRule(vendor) === null;
   const isCredit = isCreditMemo({ doc_type: doc.doc_type || doc.parsedData?.doc_type || "" });
 
+  // Marcolin dual-terms detection
+  const isMarcolinVendor = /marcolin|tom ford|guess|swarovski|montblanc/i.test(vendor);
+  const marcolinPreset = doc.parsedData?.terms_preset as string | undefined;
+  const marcolinSourceText = doc.parsedData?.terms_source_text as string | undefined;
+  const marcolinUncertain = isMarcolinVendor && (!marcolinPreset || marcolinPreset === "uncertain" || termsConfidence === "low");
+
+  // Marcolin preset dropdown state
+  const [selectedMarcolinPreset, setSelectedMarcolinPreset] = useState<string>(
+    marcolinPreset === "check_20_eom" ? "Check 20 EoM"
+      : marcolinPreset === "eom_50_80_110" ? "EOM 50/80/110"
+      : ""
+  );
+
+  // When Marcolin preset changes, sync the terms text field
+  const effectiveTerms = isMarcolinVendor && selectedMarcolinPreset
+    ? selectedMarcolinPreset
+    : terms;
+
   const previewInstallments = useMemo(() => {
-    if (isCredit || !terms.trim() || !invoiceDate) return [];
+    if (isCredit || !effectiveTerms.trim() || !invoiceDate) return [];
     try {
       const schedule = resolvePaymentSchedule(
         vendor,
         "Procurement",
         new Date(invoiceDate),
         total,
-        terms
+        effectiveTerms
       );
       return schedule.tranches.map((t) => ({
         label: t.tranche_label,
@@ -51,12 +69,13 @@ export function InvoiceReviewCard({ doc, onApprove, onDiscard }: Props) {
     } catch {
       return [];
     }
-  }, [terms, invoiceDate, vendor, total, isCredit]);
+  }, [effectiveTerms, invoiceDate, vendor, total, isCredit]);
 
   const handleApprove = async () => {
     setSaving(true);
     try {
-      await onApprove(doc.id, isCredit ? "credit_memo" : terms);
+      const finalTerms = isCredit ? "credit_memo" : effectiveTerms;
+      await onApprove(doc.id, finalTerms);
     } finally {
       setSaving(false);
     }
