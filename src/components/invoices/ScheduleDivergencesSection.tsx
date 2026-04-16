@@ -19,12 +19,16 @@ import { surveyScheduleDivergences, type DivergentInvoice } from "@/lib/divergen
 
 type SortMode = "magnitude_days_desc" | "magnitude_dollars_desc" | "vendor_asc" | "invoice_asc";
 
-export function ScheduleDivergencesSection() {
+interface Props {
+  defaultOpen?: boolean;
+}
+
+export function ScheduleDivergencesSection({ defaultOpen = false }: Props = {}) {
   const [loading, setLoading] = useState(false);
   const [hasRun, setHasRun] = useState(false);
   const [items, setItems] = useState<DivergentInvoice[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const [vendorFilter, setVendorFilter] = useState<string>("all");
   const [sortMode, setSortMode] = useState<SortMode>("magnitude_days_desc");
   const [expandedId, setExpandedId] = useState<string | null>(null);
