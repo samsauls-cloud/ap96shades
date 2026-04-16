@@ -191,6 +191,21 @@ export default function InvoicesPage() {
           </div>
         )}
 
+        {/* Pending Migration — top-level, only when candidates exist (actionable, shown first) */}
+        {migrationCount > 0 && (
+          <PendingMigrationSection
+            defaultOpen
+            onCompleted={() => {
+              refetchMigration();
+              refetchDivergences();
+              handleRefresh();
+            }}
+          />
+        )}
+
+        {/* Schedule Divergences — top-level, only when divergences exist (informational, shown below) */}
+        {divergenceCount > 0 && <ScheduleDivergencesSection defaultOpen />}
+
         <InvoiceFiltersBar filters={filters} onChange={setFilters} vendors={vendors} tags={allTags} />
 
         <div className="flex flex-wrap gap-2 items-center">
