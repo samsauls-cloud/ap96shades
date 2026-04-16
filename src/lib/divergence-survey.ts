@@ -13,7 +13,6 @@
  *   - any credit row (terms='credit_memo' OR installment_label='Credit' OR amount_due<0)
  */
 
-import { supabase } from "@/integrations/supabase/client";
 import { fetchAllRows } from "@/lib/supabase-fetch-all";
 import { resolvePaymentSchedule } from "@/lib/payment-terms-engine";
 
