@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, CheckCircle2, XCircle, Loader2, RefreshCw, ShieldCheck, ShieldAlert, ChevronDown, ChevronRight } from "lucide-react";
+import { AlertTriangle, CheckCircle2, XCircle, Loader2, RefreshCw, ShieldCheck, ShieldAlert, ChevronDown, ChevronRight, Ban } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { formatCurrency, formatDate } from "@/lib/supabase-queries";
-import { generatePaymentsForInvoice, recalculatePaymentsForInvoice, checkRecalcSafety, fixStaleInstallments, type AuditResult } from "@/lib/payment-queries";
+import { generatePaymentsForInvoice, recalculatePaymentsForInvoice, runRecalcGuards, fixStaleInstallments, type AuditResult, type RecalcGuardResult } from "@/lib/payment-queries";
 import { normalizeVendor, isKnownVendor } from "@/lib/invoice-dedup";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -101,9 +102,9 @@ export function AuditPanel({ audit, onRefresh, isLoading, totalInvoices, highlig
   const [generatingId, setGeneratingId] = useState<string | null>(null);
   const [recalcId, setRecalcId] = useState<string | null>(null);
   const [confirmRecalc, setConfirmRecalc] = useState<{ id: string; invoiceNumber: string; vendor: string; total: number; invoiceDate: string; poNumber: string | null; paymentTerms: string | null } | null>(null);
-  const [safetyResult, setSafetyResult] = useState<{ safe: boolean; details: string[] } | null>(null);
-  const [safetyLoading, setSafetyLoading] = useState(false);
-  const [forceRecalc, setForceRecalc] = useState(false);
+  const [guardResult, setGuardResult] = useState<RecalcGuardResult | null>(null);
+  const [guardLoading, setGuardLoading] = useState(false);
+  const [typedConfirm, setTypedConfirm] = useState("");
   const [sortField, setSortField] = useState<string>("vendor");
   const [fixingStaleId, setFixingStaleId] = useState<string | null>(null);
   const [fixingVendors, setFixingVendors] = useState(false);
@@ -125,35 +126,40 @@ export function AuditPanel({ audit, onRefresh, isLoading, totalInvoices, highlig
     }
   };
 
+  const dismissRecalc = () => {
+    setConfirmRecalc(null);
+    setGuardResult(null);
+    setTypedConfirm("");
+  };
+
   const handleRequestRecalc = async (inv: { id: string; invoiceNumber: string; vendor: string; total: number; invoiceDate: string; poNumber: string | null; paymentTerms: string | null }) => {
     setConfirmRecalc(inv);
-    setSafetyResult(null);
-    setForceRecalc(false);
-    setSafetyLoading(true);
+    setGuardResult(null);
+    setTypedConfirm("");
+    setGuardLoading(true);
     try {
-      const result = await checkRecalcSafety(inv.id);
-      setSafetyResult(result);
+      const result = await runRecalcGuards(inv.id, inv.invoiceDate, inv.total, inv.vendor, inv.invoiceNumber, inv.poNumber, inv.paymentTerms);
+      setGuardResult(result);
     } catch (e: any) {
-      toast.error(`Safety check failed: ${e.message}`);
-      setSafetyResult({ safe: false, details: ["Safety check failed — refusing recalculation"] });
+      toast.error(`Guard check failed: ${e.message}`);
+      dismissRecalc();
     } finally {
-      setSafetyLoading(false);
+      setGuardLoading(false);
     }
   };
 
   const handleRecalcConfirm = async () => {
-    if (!confirmRecalc) return;
+    if (!confirmRecalc || !guardResult) return;
+    const isManualOverride = guardResult.guard === "manual_correction" && !guardResult.blocked && guardResult.diverged;
     setRecalcId(confirmRecalc.id);
     try {
       const count = await recalculatePaymentsForInvoice(
         confirmRecalc.id, confirmRecalc.invoiceDate, confirmRecalc.total,
         confirmRecalc.vendor, confirmRecalc.invoiceNumber, confirmRecalc.poNumber,
-        confirmRecalc.paymentTerms, forceRecalc
+        confirmRecalc.paymentTerms, isManualOverride
       );
       toast.success(`Recalculated: ${count} new installments for ${confirmRecalc.invoiceNumber}`);
-      setConfirmRecalc(null);
-      setSafetyResult(null);
-      setForceRecalc(false);
+      dismissRecalc();
       onRefresh();
     } catch (e: any) {
       toast.error(e.message);
@@ -187,6 +193,136 @@ export function AuditPanel({ audit, onRefresh, isLoading, totalInvoices, highlig
 
   const isHighlighted = (cat: IssueCategory) => highlightSection === cat;
 
+  /* ─── Guard dialog renderer ─── */
+  const renderGuardDialog = () => {
+    if (!confirmRecalc) return null;
+
+    if (guardLoading) {
+      return (
+        <div className="p-3 rounded-lg bg-muted/50 border border-border space-y-2">
+          <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+            <Loader2 className="h-3 w-3 animate-spin" /> Running safety checks for <span className="font-mono">{confirmRecalc.invoiceNumber}</span>…
+          </p>
+        </div>
+      );
+    }
+
+    if (!guardResult) return null;
+
+    // Guard 1: Credit memo hard block
+    if (guardResult.guard === "credit_memo" && guardResult.blocked) {
+      return (
+        <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/30 space-y-2">
+          <p className="text-xs font-semibold text-destructive flex items-center gap-1.5">
+            <Ban className="h-3.5 w-3.5" /> Cannot Recalculate Credit Memos
+          </p>
+          <p className="text-[10px] text-destructive/80 whitespace-pre-line">{guardResult.message}</p>
+          <Button size="sm" variant="outline" className="text-xs h-7" onClick={dismissRecalc}>Close</Button>
+        </div>
+      );
+    }
+
+    // Guard 2: Paid-row hard block
+    if (guardResult.guard === "paid_rows" && guardResult.blocked) {
+      return (
+        <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/30 space-y-2">
+          <p className="text-xs font-semibold text-destructive flex items-center gap-1.5">
+            <Ban className="h-3.5 w-3.5" /> Cannot Recalculate — Payment History Exists
+          </p>
+          <p className="text-[10px] text-destructive/80 whitespace-pre-line">{guardResult.message}</p>
+          <Button size="sm" variant="outline" className="text-xs h-7" onClick={dismissRecalc}>Close</Button>
+        </div>
+      );
+    }
+
+    // Guard 3: Manual-correction — typed confirmation
+    if (guardResult.guard === "manual_correction" && !guardResult.blocked && guardResult.diverged) {
+      return (
+        <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/30 space-y-3">
+          <p className="text-xs font-semibold text-destructive flex items-center gap-1.5">
+            <ShieldAlert className="h-3.5 w-3.5" /> Manual Corrections Detected
+          </p>
+          <p className="text-[10px] text-destructive/80">
+            The existing payment schedule for invoice <span className="font-mono">{confirmRecalc.invoiceNumber}</span> differs from what would be generated from the current payment terms. Recalculating will destroy the manual corrections and replace them with engine-computed values.
+          </p>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div className="p-2 rounded bg-destructive/5 border border-destructive/20">
+              <p className="text-[9px] font-semibold text-destructive mb-1">CURRENT (will be deleted)</p>
+              {guardResult.existing.length === 0 ? (
+                <p className="text-[10px] text-muted-foreground italic">No rows</p>
+              ) : (
+                <ul className="text-[10px] space-y-0.5">
+                  {guardResult.existing.map((r, i) => (
+                    <li key={i} className="flex justify-between text-destructive/70">
+                      <span>{r.due_date}</span>
+                      <span className="tabular-nums">{formatCurrency(r.amount_due)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <div className="p-2 rounded bg-green-500/5 border border-green-500/20">
+              <p className="text-[9px] font-semibold text-green-600 dark:text-green-400 mb-1">NEW (will be generated)</p>
+              {guardResult.proposed.length === 0 ? (
+                <p className="text-[10px] text-muted-foreground italic">No rows (no terms engine)</p>
+              ) : (
+                <ul className="text-[10px] space-y-0.5">
+                  {guardResult.proposed.map((r, i) => (
+                    <li key={i} className="flex justify-between text-green-700 dark:text-green-400">
+                      <span>{r.due_date}</span>
+                      <span className="tabular-nums">{formatCurrency(r.amount_due)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <p className="text-[10px] text-destructive/80 font-medium">To confirm, type <span className="font-mono font-bold">RECALCULATE</span> below:</p>
+            <Input
+              value={typedConfirm}
+              onChange={e => setTypedConfirm(e.target.value)}
+              placeholder="Type RECALCULATE to confirm"
+              className="h-7 text-xs font-mono border-destructive/30 focus:border-destructive"
+            />
+          </div>
+
+          <div className="flex gap-2">
+            <Button
+              size="sm" variant="destructive" className="text-xs h-7"
+              onClick={handleRecalcConfirm}
+              disabled={!!recalcId || typedConfirm !== "RECALCULATE"}
+            >
+              {recalcId ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
+              Confirm Recalculate
+            </Button>
+            <Button size="sm" variant="ghost" className="text-xs h-7" onClick={dismissRecalc}>Cancel</Button>
+          </div>
+        </div>
+      );
+    }
+
+    // Clean — simple confirmation (unchanged behavior)
+    return (
+      <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/30 space-y-2">
+        <p className="text-xs font-medium text-destructive">
+          This will delete existing payment records for invoice <span className="font-mono">{confirmRecalc.invoiceNumber}</span> and regenerate them from the payment terms engine.
+        </p>
+        <p className="text-[10px] text-muted-foreground">
+          ✓ No paid rows, credit memos, or manual corrections detected. Safe to recalculate.
+        </p>
+        <div className="flex gap-2">
+          <Button size="sm" variant="destructive" className="text-xs h-7" onClick={handleRecalcConfirm} disabled={!!recalcId}>
+            {recalcId ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null} Confirm Recalculate
+          </Button>
+          <Button size="sm" variant="ghost" className="text-xs h-7" onClick={dismissRecalc}>Cancel</Button>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <Card className="bg-card border-border">
       <CardHeader className="pb-3">
@@ -207,47 +343,8 @@ export function AuditPanel({ audit, onRefresh, isLoading, totalInvoices, highlig
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Recalc confirmation dialog */}
-        {confirmRecalc && (
-          <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/30 space-y-2">
-            <p className="text-xs font-medium text-destructive">
-              Recalculate payment schedule for invoice <span className="font-mono">{confirmRecalc.invoiceNumber}</span> ({confirmRecalc.vendor})?
-            </p>
-            {safetyLoading && (
-              <p className="text-[10px] text-muted-foreground flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" /> Checking for protected rows…</p>
-            )}
-            {safetyResult && !safetyResult.safe && (
-              <div className="p-2 rounded bg-destructive/20 border border-destructive/40 space-y-1">
-                <p className="text-[10px] font-semibold text-destructive flex items-center gap-1">
-                  <ShieldAlert className="h-3 w-3" /> Protected rows detected — recalculation blocked:
-                </p>
-                <ul className="text-[10px] text-destructive/80 list-disc pl-4 space-y-0.5">
-                  {safetyResult.details.map((d, i) => <li key={i}>{d}</li>)}
-                </ul>
-                <label className="flex items-center gap-1.5 mt-1 text-[10px] text-destructive cursor-pointer">
-                  <input type="checkbox" checked={forceRecalc} onChange={e => setForceRecalc(e.target.checked)} className="rounded border-destructive" />
-                  I understand — force recalculate anyway (destroys all existing payment data)
-                </label>
-              </div>
-            )}
-            {safetyResult && safetyResult.safe && (
-              <p className="text-[10px] text-muted-foreground">
-                ✓ No paid, partial, voided, or manually-corrected rows found. Safe to recalculate.
-              </p>
-            )}
-            <div className="flex gap-2">
-              <Button
-                size="sm" variant="destructive" className="text-xs h-7"
-                onClick={handleRecalcConfirm}
-                disabled={!!recalcId || safetyLoading || (safetyResult && !safetyResult.safe && !forceRecalc)}
-              >
-                {recalcId ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
-                {safetyResult && !safetyResult.safe ? "Force Recalculate" : "Confirm Recalculate"}
-              </Button>
-              <Button size="sm" variant="ghost" className="text-xs h-7" onClick={() => { setConfirmRecalc(null); setSafetyResult(null); setForceRecalc(false); }}>Cancel</Button>
-            </div>
-          </div>
-        )}
+        {/* Recalc guard dialog */}
+        {renderGuardDialog()}
 
         {/* 1. Missing Payments */}
         {audit.missingPayments.length > 0 && (

@@ -657,6 +657,45 @@ export type Database = {
           },
         ]
       }
+      recalc_audit_log: {
+        Row: {
+          action: string
+          created_at: string
+          id: string
+          invoice_id: string | null
+          invoice_number: string | null
+          metadata: Json | null
+          new_values: Json | null
+          old_values: Json | null
+          performed_by: string | null
+          vendor: string | null
+        }
+        Insert: {
+          action: string
+          created_at?: string
+          id?: string
+          invoice_id?: string | null
+          invoice_number?: string | null
+          metadata?: Json | null
+          new_values?: Json | null
+          old_values?: Json | null
+          performed_by?: string | null
+          vendor?: string | null
+        }
+        Update: {
+          action?: string
+          created_at?: string
+          id?: string
+          invoice_id?: string | null
+          invoice_number?: string | null
+          metadata?: Json | null
+          new_values?: Json | null
+          old_values?: Json | null
+          performed_by?: string | null
+          vendor?: string | null
+        }
+        Relationships: []
+      }
       recon_stale_queue: {
         Row: {
           brand: string | null
