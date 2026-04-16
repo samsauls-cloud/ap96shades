@@ -22,10 +22,11 @@ import { toast } from "sonner";
 
 interface Props {
   onCompleted?: () => void;
+  defaultOpen?: boolean;
 }
 
-export function PendingMigrationSection({ onCompleted }: Props) {
-  const [open, setOpen] = useState(false);
+export function PendingMigrationSection({ onCompleted, defaultOpen = false }: Props) {
+  const [open, setOpen] = useState(defaultOpen);
   const [loading, setLoading] = useState(false);
   const [hasRun, setHasRun] = useState(false);
   const [report, setReport] = useState<MigrationImpactReport | null>(null);

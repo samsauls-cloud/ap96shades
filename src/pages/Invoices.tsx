@@ -18,6 +18,10 @@ import { InvoiceNav } from "@/components/invoices/InvoiceNav";
 import { POView } from "@/components/invoices/POView";
 import { NeedsReviewQueue } from "@/components/invoices/NeedsReviewQueue";
 import { AuditBanner, AuditPanel } from "@/components/invoices/AuditPanel";
+import { PendingMigrationSection } from "@/components/invoices/PendingMigrationSection";
+import { ScheduleDivergencesSection } from "@/components/invoices/ScheduleDivergencesSection";
+import { buildMauiEomMigrationReport } from "@/lib/engine-migrations";
+import { surveyScheduleDivergences } from "@/lib/divergence-survey";
 
 export default function InvoicesPage() {
   const queryClient = useQueryClient();
@@ -35,6 +39,22 @@ export default function InvoicesPage() {
     queryFn: runFullAudit,
     staleTime: 60_000,
   });
+
+  // Pending Migration count (Maui Jim Phase 1) — drives top-level visibility
+  const { data: migrationReport, refetch: refetchMigration } = useQuery({
+    queryKey: ["pending_migration_maui"],
+    queryFn: buildMauiEomMigrationReport,
+    staleTime: 60_000,
+  });
+  const migrationCount = migrationReport?.candidates.length ?? 0;
+
+  // Schedule Divergences count — drives top-level visibility
+  const { data: divergences, refetch: refetchDivergences } = useQuery({
+    queryKey: ["schedule_divergences_count"],
+    queryFn: surveyScheduleDivergences,
+    staleTime: 60_000,
+  });
+  const divergenceCount = divergences?.length ?? 0;
 
   const { data, isLoading } = useQuery({
     queryKey: ["vendor_invoices", filters],
@@ -170,6 +190,21 @@ export default function InvoicesPage() {
             )}
           </div>
         )}
+
+        {/* Pending Migration — top-level, only when candidates exist (actionable, shown first) */}
+        {migrationCount > 0 && (
+          <PendingMigrationSection
+            defaultOpen
+            onCompleted={() => {
+              refetchMigration();
+              refetchDivergences();
+              handleRefresh();
+            }}
+          />
+        )}
+
+        {/* Schedule Divergences — top-level, only when divergences exist (informational, shown below) */}
+        {divergenceCount > 0 && <ScheduleDivergencesSection defaultOpen />}
 
         <InvoiceFiltersBar filters={filters} onChange={setFilters} vendors={vendors} tags={allTags} />
 
