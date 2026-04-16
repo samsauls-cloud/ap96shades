@@ -152,7 +152,13 @@ export default function APDashboard() {
   }, [refreshAll, queryClient]);
 
   const calendarMonths = getRollingMonths(effectiveDate);
-  const activePayments = payments.filter(p => p.payment_status !== "void");
+  const activePayments = payments.filter(
+    p =>
+      p.payment_status !== "void" &&
+      p.payment_status !== "paid" &&
+      !p.is_paid &&
+      (p.balance_remaining ?? 0) > 0
+  );
 
   // ── Vendor × Month grid data ─────────────────────────
   const { vendorGrid, allVendorTotals, grandTotal } = useMemo(() => {
