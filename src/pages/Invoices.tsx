@@ -18,6 +18,10 @@ import { InvoiceNav } from "@/components/invoices/InvoiceNav";
 import { POView } from "@/components/invoices/POView";
 import { NeedsReviewQueue } from "@/components/invoices/NeedsReviewQueue";
 import { AuditBanner, AuditPanel } from "@/components/invoices/AuditPanel";
+import { PendingMigrationSection } from "@/components/invoices/PendingMigrationSection";
+import { ScheduleDivergencesSection } from "@/components/invoices/ScheduleDivergencesSection";
+import { buildMauiEomMigrationReport } from "@/lib/engine-migrations";
+import { surveyScheduleDivergences } from "@/lib/divergence-survey";
 
 export default function InvoicesPage() {
   const queryClient = useQueryClient();
