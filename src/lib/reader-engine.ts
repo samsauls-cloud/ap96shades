@@ -76,7 +76,7 @@ KERING CREDIT EXTRACTION RULES:
 - Extract the "Bill.doc." reference number into notes as "References billing doc: [number] dated [date]"
 - Extract brand summary (BTV/GUC/SLP etc.) into vendor_brands array
 
-Return ONLY valid JSON: { doc_type, vendor, vendor_brands[], invoice_number, invoice_date (YYYY-MM-DD), po_number, account_number, ship_to, carrier, payment_terms, payment_terms_extracted, shipping_terms, subtotal, tax, freight, total, currency, needs_review, line_items[{upc, item_number, sku, description, brand, model, color_code, color_desc, size, temple, qty_ordered, qty_shipped, qty, unit_price, line_total}], notes }. CRITICAL: Return ONLY raw JSON. No markdown, no code fences, no backticks, no preamble, no explanation. Your response must start with { and end with }. Nothing before {. Nothing after }.`;
+Return ONLY valid JSON: { doc_type, vendor, vendor_brands[], invoice_number, invoice_date (YYYY-MM-DD), po_number, account_number, ship_to, carrier, payment_terms, payment_terms_extracted, shipping_terms, terms_preset (for Marcolin only: "check_20_eom"|"eom_50_80_110"|"uncertain"|null), terms_source_text (for Marcolin only: raw PDF snippet used for terms detection), subtotal, tax, freight, total, currency, needs_review, line_items[{upc, item_number, sku, description, brand, model, color_code, color_desc, size, temple, qty_ordered, qty_shipped, qty, unit_price, line_total}], notes }. CRITICAL: Return ONLY raw JSON. No markdown, no code fences, no backticks, no preamble, no explanation. Your response must start with { and end with }. Nothing before {. Nothing after }.`;
 
 export const CONCURRENCY = 4;
 export const RETRY_CONCURRENCY = 3;
@@ -271,6 +271,15 @@ export function parsedToInvoice(parsed: any, filename: string, pdfUrl?: string |
   const isProformaDoc = docType.toLowerCase().includes("proforma") || docType.toLowerCase().includes("pro forma") || docType.toLowerCase().includes("pro-forma");
   const isCreditMemo = docType.toLowerCase() === "credit_memo";
 
+  // Marcolin dual-terms audit fields
+  const isMarcolinVendor = /marcolin|tom ford|guess|swarovski|montblanc/i.test(vendor);
+  const extractedTermsPreset = isMarcolinVendor ? (parsed.terms_preset || null) : null;
+  const extractedTermsConfidence = isMarcolinVendor ? (confidence || null) : null;
+  const extractedTermsSourceText = isMarcolinVendor ? (parsed.terms_source_text || extractedTerms?.raw_text || null) : null;
+
+  // For Marcolin with uncertain terms, force needs_review regardless of confidence
+  const marcolinUncertain = isMarcolinVendor && (extractedTermsPreset === "uncertain" || confidence === "low");
+
   let termsStatus = "needs_review";
   let termsConfidence: string | null = confidence;
   if (isCreditMemo) {
@@ -279,6 +288,9 @@ export function parsedToInvoice(parsed: any, filename: string, pdfUrl?: string |
   } else if (isProformaDoc) {
     termsStatus = "proforma";
     termsConfidence = null;
+  } else if (marcolinUncertain) {
+    termsStatus = "needs_review";
+    termsConfidence = "low";
   } else if (confidence === "high") {
     termsStatus = "confirmed";
   } else if (confidence === "medium") {
