@@ -220,7 +220,7 @@ export function InvoiceReviewCard({ doc, onApprove, onDiscard }: Props) {
         )}
 
         {/* PAYMENT SCHEDULE PREVIEW (hidden for credit memos) */}
-        {!isCredit && terms.trim() && (
+        {!isCredit && effectiveTerms.trim() && (
           <div className="space-y-1.5">
             <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
               Payment Schedule Preview
@@ -266,7 +266,7 @@ export function InvoiceReviewCard({ doc, onApprove, onDiscard }: Props) {
           <Button
             className={`flex-1 gap-1.5 ${isCredit ? "bg-emerald-600 hover:bg-emerald-700" : ""}`}
             onClick={handleApprove}
-            disabled={(!isCredit && !terms.trim()) || saving}
+            disabled={(!isCredit && !effectiveTerms.trim()) || saving}
           >
             {saving ? (
               <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Saving…</>
