@@ -101,6 +101,9 @@ export function AuditPanel({ audit, onRefresh, isLoading, totalInvoices, highlig
   const [generatingId, setGeneratingId] = useState<string | null>(null);
   const [recalcId, setRecalcId] = useState<string | null>(null);
   const [confirmRecalc, setConfirmRecalc] = useState<{ id: string; invoiceNumber: string; vendor: string; total: number; invoiceDate: string; poNumber: string | null; paymentTerms: string | null } | null>(null);
+  const [safetyResult, setSafetyResult] = useState<{ safe: boolean; details: string[] } | null>(null);
+  const [safetyLoading, setSafetyLoading] = useState(false);
+  const [forceRecalc, setForceRecalc] = useState(false);
   const [sortField, setSortField] = useState<string>("vendor");
   const [fixingStaleId, setFixingStaleId] = useState<string | null>(null);
   const [fixingVendors, setFixingVendors] = useState(false);
@@ -122,6 +125,22 @@ export function AuditPanel({ audit, onRefresh, isLoading, totalInvoices, highlig
     }
   };
 
+  const handleRequestRecalc = async (inv: { id: string; invoiceNumber: string; vendor: string; total: number; invoiceDate: string; poNumber: string | null; paymentTerms: string | null }) => {
+    setConfirmRecalc(inv);
+    setSafetyResult(null);
+    setForceRecalc(false);
+    setSafetyLoading(true);
+    try {
+      const result = await checkRecalcSafety(inv.id);
+      setSafetyResult(result);
+    } catch (e: any) {
+      toast.error(`Safety check failed: ${e.message}`);
+      setSafetyResult({ safe: false, details: ["Safety check failed — refusing recalculation"] });
+    } finally {
+      setSafetyLoading(false);
+    }
+  };
+
   const handleRecalcConfirm = async () => {
     if (!confirmRecalc) return;
     setRecalcId(confirmRecalc.id);
@@ -129,10 +148,12 @@ export function AuditPanel({ audit, onRefresh, isLoading, totalInvoices, highlig
       const count = await recalculatePaymentsForInvoice(
         confirmRecalc.id, confirmRecalc.invoiceDate, confirmRecalc.total,
         confirmRecalc.vendor, confirmRecalc.invoiceNumber, confirmRecalc.poNumber,
-        confirmRecalc.paymentTerms
+        confirmRecalc.paymentTerms, forceRecalc
       );
       toast.success(`Recalculated: ${count} new installments for ${confirmRecalc.invoiceNumber}`);
       setConfirmRecalc(null);
+      setSafetyResult(null);
+      setForceRecalc(false);
       onRefresh();
     } catch (e: any) {
       toast.error(e.message);
