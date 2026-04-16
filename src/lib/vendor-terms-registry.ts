@@ -28,11 +28,12 @@ export interface VendorTermsRule {
 
 export const VENDOR_TERMS_REGISTRY: VendorTermsRule[] = [
   {
+    // Marcolin default: EOM 50/80/110 (used when no explicit "Check 20" terms detected)
+    // The resolver checks for "check 20" / "20 eom" patterns first and overrides to single payment
     vendor_match: ['marcolin', 'tom ford', 'guess', 'swarovski', 'montblanc'],
     terms_type: 'eom_split',
     offsets: [50, 80, 110],
     description: 'EOM 50/80/110 — 3 equal tranches',
-    // NOTE: overridden to eom_single [20] when payment_terms contains "check 20" or "20 days eom"
   },
   {
     vendor_match: ['maui jim', 'maui'],
