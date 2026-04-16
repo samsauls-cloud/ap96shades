@@ -33,8 +33,24 @@ Luxottica invoices use a unique EOM-based split payment system. When you see ter
 Set payment_terms_extracted.type to "eom_split", eom_based to true, days to [30, 60, 90], and installments to 3.
 For Luxottica special/individual orders (not standard procurement), terms are EOM+30+30: end of invoice month + 30 days = baseline, then + 30 days = due date. Set type to "eom_single", eom_based to true, days to [30], installments to 1.
 
-MARCOLIN PAYMENT TERMS:
-Marcolin uses EOM-based split payment terms written as "Check X-Y-Z days EoM" or "X/Y/Z days EoM" where X, Y, Z are day offsets from end of invoice month. Common Marcolin terms: "50-80-110 days EoM" = three equal tranches due at 50, 80, and 110 days after end of invoice month. Set payment_terms_extracted.type to "eom_split", eom_based to true, days to [X, Y, Z] (the three numbers), installments to 3. Store the raw term text exactly as written. Do NOT extract just one number.
+MARCOLIN PAYMENT TERMS — DUAL-TERMS VENDOR (CRITICAL):
+Marcolin invoices use ONE of two payment term structures. You MUST detect which one:
+
+OPTION A — "Check 20 EoM": A SINGLE payment due 20 days after end of invoice month.
+  Textual cues: "Check 20 EoM", "EOM 20", "Fine mese + 20gg", "20 days EoM", "Check 20 days end of month", single-payment language with "20" and "EoM/EOM".
+  → Set terms_preset to "check_20_eom"
+
+OPTION B — "EOM 50/80/110": THREE equal installments due at 50, 80, and 110 days after end of invoice month.
+  Textual cues: "50/80/110", "EOM 50/80/110", "Check 50-80-110 days EoM", "50-80-110 days EoM", three-installment language.
+  → Set terms_preset to "eom_50_80_110"
+
+If NEITHER pattern is clearly matched, set terms_preset to "uncertain" and terms_confidence to "low". Do NOT default to either option.
+
+For Marcolin invoices, also return:
+- terms_preset: one of "check_20_eom", "eom_50_80_110", or "uncertain"
+- terms_source_text: the EXACT raw text snippet from the PDF that you used to determine the terms (for audit trail)
+
+Set payment_terms_extracted.type to "eom_single" for Check 20 EoM (with days: [20], installments: 1) or "eom_split" for EOM 50/80/110 (with days: [50, 80, 110], installments: 3). Always set eom_based to true for Marcolin.
 
 CREDIT MEMO DETECTION — set doc_type = "credit_memo" if ANY of these are true:
 - The word "Credit" appears as a standalone header/title on the document (distinct from appearing in body text)
