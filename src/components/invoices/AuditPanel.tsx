@@ -330,7 +330,7 @@ export function AuditPanel({ audit, onRefresh, isLoading, totalInvoices, highlig
                       <TableCell className="text-xs text-right tabular-nums">{formatCurrency(d.installmentsSum)}</TableCell>
                       <TableCell className="text-xs text-right tabular-nums font-semibold text-red-500">{formatCurrency(d.discrepancy)}</TableCell>
                       <TableCell className="text-right">
-                        <Button size="sm" variant="outline" className="text-[10px] h-6" onClick={() => setConfirmRecalc({
+                        <Button size="sm" variant="outline" className="text-[10px] h-6" onClick={() => handleRequestRecalc({
                           id: d.id, invoiceNumber: d.invoice_number, vendor: d.vendor,
                           total: d.total, invoiceDate: d.invoice_date, poNumber: d.po_number, paymentTerms: d.payment_terms,
                         })}>
