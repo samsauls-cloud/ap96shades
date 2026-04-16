@@ -53,19 +53,19 @@ function categoryFromTerms(_vendor: string, terms: string | null): "Procurement"
 
 export async function surveyScheduleDivergences(): Promise<DivergentInvoice[]> {
   // Pull confirmed invoices and all payment rows
-  const invoices = await fetchAllRows<any>(
-    () =>
-      supabase
-        .from("vendor_invoices")
-        .select("id, invoice_number, vendor, invoice_date, total, payment_terms, terms_status, doc_type")
-        .eq("terms_status", "confirmed")
-  );
-  const payments = await fetchAllRows<any>(
-    () =>
-      supabase
-        .from("invoice_payments")
-        .select("invoice_id, due_date, amount_due, is_paid, payment_status, terms, installment_label")
-  );
+  const invoices = await fetchAllRows<any>("vendor_invoices", {
+    select: "id, invoice_number, vendor, invoice_date, total, payment_terms, terms_status, doc_type",
+    orderBy: "invoice_date",
+    ascending: false,
+    filters: (q) => q.eq("terms_status", "confirmed"),
+    label: "divergence_survey_invoices",
+  });
+  const payments = await fetchAllRows<any>("invoice_payments", {
+    select: "invoice_id, due_date, amount_due, is_paid, payment_status, terms, installment_label",
+    orderBy: "due_date",
+    ascending: true,
+    label: "divergence_survey_payments",
+  });
 
   const byInvoice = new Map<string, any[]>();
   for (const p of payments) {
