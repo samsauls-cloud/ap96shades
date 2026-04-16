@@ -11,6 +11,7 @@ import { generatePaymentsForInvoice, recalculatePaymentsForInvoice, runRecalcGua
 import { normalizeVendor, isKnownVendor } from "@/lib/invoice-dedup";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { ScheduleDivergencesSection } from "./ScheduleDivergencesSection";
 
 type AuditStatus = "clean" | "warning" | "error";
 type IssueCategory = "missingPayments" | "mathDiscrepancies" | "unknownVendors" | "duplicateInvoices" | "staleInstallments";
@@ -593,6 +594,11 @@ export function AuditPanel({ audit, onRefresh, isLoading, totalInvoices, highlig
             </div>
           </div>
         )}
+
+        {/* Schedule Divergences (read-only) — always available regardless of issue state */}
+        <div className="pt-1">
+          <ScheduleDivergencesSection />
+        </div>
 
         {/* All clear */}
         {issues === 0 && (
