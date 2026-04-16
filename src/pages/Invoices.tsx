@@ -40,6 +40,22 @@ export default function InvoicesPage() {
     staleTime: 60_000,
   });
 
+  // Pending Migration count (Maui Jim Phase 1) — drives top-level visibility
+  const { data: migrationReport, refetch: refetchMigration } = useQuery({
+    queryKey: ["pending_migration_maui"],
+    queryFn: buildMauiEomMigrationReport,
+    staleTime: 60_000,
+  });
+  const migrationCount = migrationReport?.candidates.length ?? 0;
+
+  // Schedule Divergences count — drives top-level visibility
+  const { data: divergences, refetch: refetchDivergences } = useQuery({
+    queryKey: ["schedule_divergences_count"],
+    queryFn: surveyScheduleDivergences,
+    staleTime: 60_000,
+  });
+  const divergenceCount = divergences?.length ?? 0;
+
   const { data, isLoading } = useQuery({
     queryKey: ["vendor_invoices", filters],
     queryFn: () => fetchInvoices(filters),
