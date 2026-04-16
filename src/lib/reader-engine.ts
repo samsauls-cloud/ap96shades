@@ -336,6 +336,10 @@ export function parsedToInvoice(parsed: any, filename: string, pdfUrl?: string |
       payment_terms_extracted: extractedTerms || null,
       payment_terms_source: "extraction",
       shipping_terms: shippingTerms,
+      // Marcolin audit columns
+      ...(extractedTermsPreset ? { extracted_terms_preset: extractedTermsPreset } : {}),
+      ...(extractedTermsConfidence ? { extracted_terms_confidence: extractedTermsConfidence } : {}),
+      ...(extractedTermsSourceText ? { extracted_terms_source_text: extractedTermsSourceText } : {}),
       ...(isCreditMemo ? { status: "open" } : {}),
       ...(pdfUrl ? { pdf_url: pdfUrl } : {}),
     }) as any),
