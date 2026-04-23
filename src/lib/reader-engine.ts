@@ -104,7 +104,7 @@ export const RETRY_WAITS_OTHER = [20_000, 45_000, 90_000];
 export const MAX_RETRIES_429 = 4;
 export const MAX_RETRIES_OTHER = 3;
 export const RETRY_COOLDOWN = 30_000;
-export const FETCH_TIMEOUT = 60_000;
+export const FETCH_TIMEOUT = 120_000;
 
 export type DocStatus = "processing" | "done" | "error" | "duplicate" | "retrying" | "staged" | "waiting-retry" | "extended" | "review" | "saving" | "discarded";
 
@@ -198,45 +198,30 @@ export async function callAnthropicAPI(
   base64: string,
 ): Promise<any> {
   const cleanKey = apiKey.replace(/[^\x20-\x7E]/g, '').trim();
-  const response = await fetchWithTimeout("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": cleanKey,
-      "anthropic-version": "2023-06-01",
-      "anthropic-dangerous-direct-browser-access": "true",
+
+  const { data, error } = await supabase.functions.invoke("extract-invoice", {
+    body: {
+      apiKey: cleanKey,
+      base64,
     },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 8192,
-      system: SYSTEM_PROMPT,
-      messages: [{
-        role: "user",
-        content: [{
-          type: "document",
-          source: { type: "base64", media_type: "application/pdf", data: base64 },
-        }, {
-          type: "text",
-          text: "Extract all invoice/PO data from this document. Return only valid JSON.",
-        }],
-      }],
-    }),
-  }, FETCH_TIMEOUT);
+  });
 
-  if (response.status === 429) {
-    throw { isRateLimit: true };
+  if (error) {
+    const message = error.message || "Invoice extraction failed";
+    if (/429|rate limited/i.test(message)) {
+      throw { isRateLimit: true, message };
+    }
+    if (/408|timed out|timeout/i.test(message)) {
+      throw { isTimeout: true, message };
+    }
+    throw new Error(message);
   }
 
-  if (!response.ok) {
-    const err = await response.text();
-    throw new Error(`API error ${response.status}: ${err}`);
+  if (!data) {
+    throw new Error("No extraction result returned");
   }
 
-  const result = await response.json();
-  const textContent = result.content?.find((c: any) => c.type === "text")?.text;
-  if (!textContent) throw new Error("No text content in response");
-
-  return extractJSON(textContent);
+  return data;
 }
 
 /**
