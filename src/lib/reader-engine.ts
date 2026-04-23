@@ -76,14 +76,14 @@ KERING CREDIT EXTRACTION RULES:
 - Extract the "Bill.doc." reference number into notes as "References billing doc: [number] dated [date]"
 - Extract brand summary (BTV/GUC/SLP etc.) into vendor_brands array
 
-DATE FORMAT — CRITICAL FOR EUROPEAN VENDORS (Kering, Marcolin, Safilo, Luxottica EU branches):
-Kering, Marcolin, Safilo, and Luxottica EU invoices print dates in DD/MM/YYYY (or DD.MM.YYYY) format — NEVER MM/DD/YYYY. The first number is the DAY, the second is the MONTH.
-- Example: "02/04/2026" on a Kering invoice = 2 April 2026 → invoice_date "2026-04-02" (NOT "2026-02-04")
-- Example: "31/03/2026" on a Kering invoice = 31 March 2026 → invoice_date "2026-03-31"
-- Example: "15.06.2026" on a Marcolin invoice = 15 June 2026 → invoice_date "2026-06-15"
-- Cross-check: Kering filenames also encode DDMMYYYY (e.g. "...03032026.pdf" = 3 March 2026). If the filename date and body date disagree, prefer the body date but log it in notes.
-- If a date is ambiguous (e.g. day <= 12), DEFAULT to DD/MM/YYYY for these EU vendors. Only treat as MM/DD/YYYY if the document explicitly uses US date conventions (Maui Jim, Marchon, Smith Optics, Revo).
+DATE FORMAT — READ THE INVOICE LITERALLY:
+Every invoice prints dates in one of two formats. You MUST identify which format the document uses by looking at the printed dates themselves, then convert to ISO "YYYY-MM-DD".
+- If you see a date with day > 12 (e.g. "15/03/2026" or "31.03.2026"), the format is unambiguously DD/MM/YYYY → that one example tells you how to read every other date on the same document.
+- If you see a date with month > 12 (e.g. "03/15/2026"), the format is unambiguously MM/DD/YYYY.
+- DO NOT assume a format based on vendor name, currency, or country. Read what the invoice actually shows.
+- DO NOT swap, "correct", or guess. If the date on the invoice is "02/04/2026" and you cannot determine the format from other dates on the same document, return it exactly as printed and set needs_review=true with a note explaining the ambiguity.
 - ALWAYS output invoice_date and any due_date as ISO "YYYY-MM-DD".
+
 
 Return ONLY valid JSON: { doc_type, vendor, vendor_brands[], invoice_number, invoice_date (YYYY-MM-DD), po_number, account_number, ship_to, carrier, payment_terms, payment_terms_extracted, shipping_terms, terms_preset (for Marcolin only: "check_20_eom"|"eom_50_80_110"|"uncertain"|null), terms_source_text (for Marcolin only: raw PDF snippet used for terms detection), subtotal, tax, freight, total, currency, needs_review, line_items[{upc, item_number, sku, description, brand, model, color_code, color_desc, size, temple, qty_ordered, qty_shipped, qty, unit_price, line_total}], notes }. CRITICAL: Return ONLY raw JSON. No markdown, no code fences, no backticks, no preamble, no explanation. Your response must start with { and end with }. Nothing before {. Nothing after }.`;
 
@@ -255,61 +255,6 @@ function normalizeInvoiceYear(dateStr: string): string {
   return dateStr;
 }
 
-/**
- * EU-vendor date safety net.
- *
- * Background: Kering (US LLC, billed in USD) and other European parents
- * print dates as DD/MM/YYYY even on US invoices. The AI extractor occasionally
- * mis-flips them to MM/DD/YYYY when day <= 12. This function:
- *
- *   1. If the filename carries a deterministic DDMMYYYY stamp (Kering pattern
- *      "..._DDMMYYYY.pdf"), uses that as ground truth.
- *   2. Otherwise, if the parsed date's day-of-month is <= 12 AND the filename
- *      suggests the swapped reading, prefers the filename reading.
- *
- * Only applied to known EU-format vendors. US vendors are untouched.
- */
-const EU_DATE_VENDORS = /kering|gucci|saint laurent|balenciaga|bottega|alexander mcqueen|marcolin|tom ford|guess|swarovski|montblanc|safilo|carrera|hugo boss|jimmy choo|fossil/i;
-
-function reconcileEuDate(vendor: string, parsedIso: string, filename: string): string {
-  if (!parsedIso || !EU_DATE_VENDORS.test(vendor || "")) return parsedIso;
-  const isoMatch = parsedIso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!isoMatch) return parsedIso;
-  const [, y, mm, dd] = isoMatch;
-  const monthNum = parseInt(mm, 10);
-  const dayNum = parseInt(dd, 10);
-
-  // Look for an 8-digit DDMMYYYY stamp in the filename (Kering convention)
-  const fnMatch = (filename || "").match(/(?<!\d)(\d{2})(\d{2})(\d{4})(?!\d)/);
-  if (fnMatch) {
-    const [, fnDd, fnMm, fnYyyy] = fnMatch;
-    const fnDay = parseInt(fnDd, 10);
-    const fnMonth = parseInt(fnMm, 10);
-    if (fnDay >= 1 && fnDay <= 31 && fnMonth >= 1 && fnMonth <= 12) {
-      const fnIso = `${fnYyyy}-${fnMm}-${fnDd}`;
-      // Filename is ground truth for Kering-style names — use it whenever it
-      // disagrees with the parsed body date.
-      if (fnIso !== parsedIso) {
-        // Sanity: filename year within 2 of current year
-        if (Math.abs(parseInt(fnYyyy, 10) - new Date().getFullYear()) <= 2) {
-          return fnIso;
-        }
-      }
-    }
-  }
-
-  // No filename stamp — flip if both day and month are <=12 (ambiguous) AND
-  // the swap produces a valid date. Conservative: only flip when day <= 12
-  // because day > 12 means the parse must already be DD/MM (un-swappable).
-  if (dayNum <= 12 && monthNum <= 12 && dayNum !== monthNum) {
-    // Without filename evidence we leave it alone — the prompt now tells the
-    // model to default to DD/MM for these vendors, so this branch is a
-    // belt-and-braces safety net only.
-  }
-  return parsedIso;
-}
-
-
 export function parsedToInvoice(parsed: any, filename: string, pdfUrl?: string | null): VendorInvoiceInsert {
   const vendor = normalizeVendor(parsed.vendor);
   const rawLineItems = parsed.line_items || [];
@@ -373,8 +318,6 @@ export function parsedToInvoice(parsed: any, filename: string, pdfUrl?: string |
   // Normalize invoice_date — fix 2-digit year bugs (e.g. "2020-04-01" when invoice is from 2026)
   let invoiceDate = parsed.invoice_date || new Date().toISOString().split("T")[0];
   invoiceDate = normalizeInvoiceYear(invoiceDate);
-  // EU-vendor DD/MM safety net (Kering filenames carry deterministic DDMMYYYY)
-  invoiceDate = reconcileEuDate(vendor, invoiceDate, filename);
 
   return {
     vendor,
