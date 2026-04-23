@@ -76,14 +76,14 @@ KERING CREDIT EXTRACTION RULES:
 - Extract the "Bill.doc." reference number into notes as "References billing doc: [number] dated [date]"
 - Extract brand summary (BTV/GUC/SLP etc.) into vendor_brands array
 
-DATE FORMAT — CRITICAL FOR EUROPEAN VENDORS (Kering, Marcolin, Safilo, Luxottica EU branches):
-Kering, Marcolin, Safilo, and Luxottica EU invoices print dates in DD/MM/YYYY (or DD.MM.YYYY) format — NEVER MM/DD/YYYY. The first number is the DAY, the second is the MONTH.
-- Example: "02/04/2026" on a Kering invoice = 2 April 2026 → invoice_date "2026-04-02" (NOT "2026-02-04")
-- Example: "31/03/2026" on a Kering invoice = 31 March 2026 → invoice_date "2026-03-31"
-- Example: "15.06.2026" on a Marcolin invoice = 15 June 2026 → invoice_date "2026-06-15"
-- Cross-check: Kering filenames also encode DDMMYYYY (e.g. "...03032026.pdf" = 3 March 2026). If the filename date and body date disagree, prefer the body date but log it in notes.
-- If a date is ambiguous (e.g. day <= 12), DEFAULT to DD/MM/YYYY for these EU vendors. Only treat as MM/DD/YYYY if the document explicitly uses US date conventions (Maui Jim, Marchon, Smith Optics, Revo).
+DATE FORMAT — READ THE INVOICE LITERALLY:
+Every invoice prints dates in one of two formats. You MUST identify which format the document uses by looking at the printed dates themselves, then convert to ISO "YYYY-MM-DD".
+- If you see a date with day > 12 (e.g. "15/03/2026" or "31.03.2026"), the format is unambiguously DD/MM/YYYY → that one example tells you how to read every other date on the same document.
+- If you see a date with month > 12 (e.g. "03/15/2026"), the format is unambiguously MM/DD/YYYY.
+- DO NOT assume a format based on vendor name, currency, or country. Read what the invoice actually shows.
+- DO NOT swap, "correct", or guess. If the date on the invoice is "02/04/2026" and you cannot determine the format from other dates on the same document, return it exactly as printed and set needs_review=true with a note explaining the ambiguity.
 - ALWAYS output invoice_date and any due_date as ISO "YYYY-MM-DD".
+
 
 Return ONLY valid JSON: { doc_type, vendor, vendor_brands[], invoice_number, invoice_date (YYYY-MM-DD), po_number, account_number, ship_to, carrier, payment_terms, payment_terms_extracted, shipping_terms, terms_preset (for Marcolin only: "check_20_eom"|"eom_50_80_110"|"uncertain"|null), terms_source_text (for Marcolin only: raw PDF snippet used for terms detection), subtotal, tax, freight, total, currency, needs_review, line_items[{upc, item_number, sku, description, brand, model, color_code, color_desc, size, temple, qty_ordered, qty_shipped, qty, unit_price, line_total}], notes }. CRITICAL: Return ONLY raw JSON. No markdown, no code fences, no backticks, no preamble, no explanation. Your response must start with { and end with }. Nothing before {. Nothing after }.`;
 
