@@ -18,8 +18,7 @@ import { InvoiceNav } from "@/components/invoices/InvoiceNav";
 import { POView } from "@/components/invoices/POView";
 import { NeedsReviewQueue } from "@/components/invoices/NeedsReviewQueue";
 import { AuditBanner, AuditPanel } from "@/components/invoices/AuditPanel";
-import { PendingMigrationSection } from "@/components/invoices/PendingMigrationSection";
-import { ScheduleDivergencesSection } from "@/components/invoices/ScheduleDivergencesSection";
+import { ScheduleHealthPanel } from "@/components/invoices/ScheduleHealthPanel";
 import { buildMauiEomMigrationReport } from "@/lib/engine-migrations";
 import { surveyScheduleDivergences } from "@/lib/divergence-survey";
 
@@ -191,20 +190,17 @@ export default function InvoicesPage() {
           </div>
         )}
 
-        {/* Pending Migration — top-level, only when candidates exist (actionable, shown first) */}
-        {migrationCount > 0 && (
-          <PendingMigrationSection
-            defaultOpen
-            onCompleted={() => {
-              refetchMigration();
-              refetchDivergences();
-              handleRefresh();
-            }}
-          />
-        )}
-
-        {/* Schedule Divergences — top-level, only when divergences exist (informational, shown below) */}
-        {divergenceCount > 0 && <ScheduleDivergencesSection defaultOpen />}
+        {/* Schedule Health — unified panel replacing Pending Migration + Schedule Divergences.
+            Self-hides when all three buckets (action / locked / drift) are empty. */}
+        <ScheduleHealthPanel
+          report={migrationReport ?? null}
+          divergences={divergences ?? null}
+          onCompleted={() => {
+            refetchMigration();
+            refetchDivergences();
+            handleRefresh();
+          }}
+        />
 
         <InvoiceFiltersBar filters={filters} onChange={setFilters} vendors={vendors} tags={allTags} />
 
