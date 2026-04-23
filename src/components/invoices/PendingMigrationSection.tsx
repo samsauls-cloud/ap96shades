@@ -255,21 +255,65 @@ export function PendingMigrationSection({ onCompleted, defaultOpen = false }: Pr
 
           {/* Blocked list */}
           {blocked.length > 0 && (
-            <div className="rounded-md border border-border bg-background p-2.5 space-y-1">
+            <div className="rounded-md border border-border bg-background p-2.5 space-y-2">
               <p className="text-[10px] uppercase tracking-wide text-muted-foreground flex items-center gap-1">
                 <Ban className="h-3 w-3" /> Will be skipped ({blocked.length})
               </p>
-              {blocked.map((b) => (
-                <div key={b.invoice_id} className="text-[11px] flex items-center gap-2">
-                  <span className="font-mono">{b.invoice_number}</span>
-                  {b.blocked_by_guard1_credit && (
-                    <Badge variant="outline" className="text-[9px] border-red-500/40 text-red-600">Guard 1 credit</Badge>
-                  )}
-                  {b.blocked_by_guard2_paid && (
-                    <Badge variant="outline" className="text-[9px] border-red-500/40 text-red-600">Guard 2 paid</Badge>
-                  )}
-                </div>
-              ))}
+              <p className="text-[10px] text-muted-foreground leading-relaxed">
+                These invoices match the migration scope but are protected by safety guards. The engine will <strong>not</strong> rewrite their schedules — current due dates remain unchanged.
+              </p>
+              <div className="space-y-1.5">
+                {blocked.map((b) => {
+                  const paidRows = (b.stored_rows ?? []).filter(
+                    (r: any) => r.is_paid === true || r.payment_status === "paid" || Number(r.amount_paid ?? 0) > 0
+                  );
+                  const creditRows = (b.stored_rows ?? []).filter(
+                    (r: any) => r.terms === "credit_memo" || r.installment_label === "Credit" || Number(r.amount_due) < 0
+                  );
+                  return (
+                    <div key={b.invoice_id} className="rounded border border-border/60 bg-muted/20 px-2 py-1.5 space-y-1">
+                      <div className="text-[11px] flex items-center gap-2 flex-wrap">
+                        <span className="font-mono font-semibold">{b.invoice_number}</span>
+                        <span className="text-muted-foreground">·</span>
+                        <span className="text-muted-foreground">{formatDate(b.invoice_date)}</span>
+                        <span className="text-muted-foreground">·</span>
+                        <span className="text-muted-foreground">{formatCurrency(b.total)}</span>
+                        {b.blocked_by_guard1_credit && (
+                          <Badge variant="outline" className="text-[9px] border-red-500/40 text-red-600">Guard 1 credit</Badge>
+                        )}
+                        {b.blocked_by_guard2_paid && (
+                          <Badge variant="outline" className="text-[9px] border-red-500/40 text-red-600">Guard 2 paid</Badge>
+                        )}
+                        {b.max_day_shift > 0 && (
+                          <Badge variant="outline" className="text-[9px] border-border text-muted-foreground">
+                            ±{b.max_day_shift}d off ideal
+                          </Badge>
+                        )}
+                      </div>
+                      {b.blocked_by_guard2_paid && paidRows.length > 0 && (
+                        <p className="text-[10px] text-muted-foreground leading-relaxed">
+                          <strong className="text-foreground">Why skipped:</strong>{" "}
+                          {paidRows.length} of {b.stored_rows.length} installment{b.stored_rows.length === 1 ? "" : "s"} already paid
+                          {paidRows[0]?.installment_label ? ` (${paidRows.map((r: any) => r.installment_label).join(", ")})` : ""}
+                          {paidRows[0]?.paid_date ? ` on ${formatDate(paidRows[0].paid_date)}` : ""}
+                          . Rewriting the schedule would corrupt payment history.{" "}
+                          <strong className="text-foreground">Effect:</strong> due dates stay as recorded
+                          {b.max_day_shift > 0 ? ` (~${b.max_day_shift} day${b.max_day_shift === 1 ? "" : "s"} off the new EOM-rounded ideal — cosmetic, not financial)` : ""}.
+                          Once all installments clear, this invoice falls out of scope automatically.
+                        </p>
+                      )}
+                      {b.blocked_by_guard1_credit && creditRows.length > 0 && (
+                        <p className="text-[10px] text-muted-foreground leading-relaxed">
+                          <strong className="text-foreground">Why skipped:</strong> contains a credit memo or negative-amount row
+                          {creditRows[0]?.installment_label ? ` ("${creditRows[0].installment_label}")` : ""}.
+                          Credits don't follow standard payment-term math, so the engine leaves them untouched.{" "}
+                          <strong className="text-foreground">Effect:</strong> existing schedule and due dates remain as-is.
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
 
