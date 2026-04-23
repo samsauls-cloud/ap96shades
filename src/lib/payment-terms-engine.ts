@@ -92,22 +92,24 @@ function makeTranche(
 // ─── helpers (month-based offsets) ──────────────────────────────────────────
 
 /**
- * Advance from an EOM date by N days, using month-based logic for multiples of 30.
- * For EOM-based monthly tranches (offsetDays is a multiple of 30), always land
- * on the TRUE last day of the target month — NOT eom.getDate() clamped. This
- * matches AP convention: "end of month" means the actual end of THAT month
- * (e.g. May 31, June 30, July 31), regardless of what the source month's
- * day-count happened to be. Previous logic clamped a 30-day source month
- * (Apr/Jun/Sep/Nov) to day 30 in all subsequent months, producing May 30
- * instead of May 31.
+ * Advance from an EOM baseline by N days, using same-day-of-month logic for
+ * multiples of 30. AP convention for "EOM 30/60/90" is: take the baseline
+ * (end of invoice month), then keep that SAME day-of-month for each tranche,
+ * one calendar month apart per +30. So an Apr 30 baseline yields:
+ *   +30 → May 30,  +60 → June 30,  +90 → July 30.
+ * If the target month is shorter than the baseline day (e.g. Jan 31 → Feb),
+ * we clamp to the last valid day of that month (Feb 28/29).
  */
 function addMonthsFromEom(eom: Date, offsetDays: number): Date {
   if (offsetDays > 0 && offsetDays % 30 === 0) {
     const months = offsetDays / 30;
     const targetYear = eom.getFullYear();
     const targetMonth = eom.getMonth() + months;
-    // Day 0 of (targetMonth + 1) = last day of targetMonth (true EOM)
-    return new Date(targetYear, targetMonth + 1, 0);
+    const baselineDay = eom.getDate();
+    // Last day of target month (clamp guard)
+    const lastDayOfTarget = new Date(targetYear, targetMonth + 1, 0).getDate();
+    const day = Math.min(baselineDay, lastDayOfTarget);
+    return new Date(targetYear, targetMonth, day);
   }
   return addDays(eom, offsetDays);
 }

@@ -288,17 +288,18 @@ function calculateDueDate(invoiceDate: string, eomBased: boolean, offsetDays: nu
   const d = new Date(invoiceDate + "T00:00:00");
   if (eomBased) {
     const eom = lastDayOfMonth(d);
-    // For multiples of 30 (monthly tranches), land on the TRUE last day of
-    // the target month — NOT eom.getDate() clamped. "End of month" means the
-    // actual end of THAT month (e.g. Apr 30 invoice + 30 days → May 31, not
-    // May 30). Previous logic clamped 30-day-month invoices to day 30
-    // throughout the schedule.
+    // For multiples of 30 (monthly tranches), keep the SAME day-of-month as
+    // the baseline EOM and advance by N calendar months. AP convention:
+    // Apr 30 baseline + 30/60/90 → May 30, June 30, July 30.
+    // Clamp to last day of target month if shorter (Jan 31 +30 → Feb 28/29).
     if (offsetDays > 0 && offsetDays % 30 === 0) {
       const months = offsetDays / 30;
       const targetYear = eom.getFullYear();
       const targetMonth = eom.getMonth() + months;
-      // Day 0 of (targetMonth + 1) = last day of targetMonth
-      return new Date(targetYear, targetMonth + 1, 0);
+      const baselineDay = eom.getDate();
+      const lastDayOfTarget = new Date(targetYear, targetMonth + 1, 0).getDate();
+      const day = Math.min(baselineDay, lastDayOfTarget);
+      return new Date(targetYear, targetMonth, day);
     }
     return addDays(eom, offsetDays);
   }
@@ -468,13 +469,16 @@ export function calculateInstallments(
     const baseAmount = parseFloat((parsedTotal / 3).toFixed(2));
     const lastAmount = parseFloat((parsedTotal - baseAmount * 2).toFixed(2));
     return offsets.map((offset, index) => {
-      // Always land on true end of target month for monthly tranches
+      // Same-day-of-month from EOM baseline for monthly tranches
       let dueDate: Date;
       if (offset % 30 === 0) {
         const months = offset / 30;
+        const targetYear = eom.getFullYear();
         const targetMonth = eom.getMonth() + months;
-        // Day 0 of (targetMonth + 1) = last day of targetMonth
-        dueDate = new Date(eom.getFullYear(), targetMonth + 1, 0);
+        const baselineDay = eom.getDate();
+        const lastDayOfTarget = new Date(targetYear, targetMonth + 1, 0).getDate();
+        const day = Math.min(baselineDay, lastDayOfTarget);
+        dueDate = new Date(targetYear, targetMonth, day);
       } else {
         dueDate = addDays(eom, offset);
       }
