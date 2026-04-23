@@ -318,8 +318,6 @@ export function parsedToInvoice(parsed: any, filename: string, pdfUrl?: string |
   // Normalize invoice_date — fix 2-digit year bugs (e.g. "2020-04-01" when invoice is from 2026)
   let invoiceDate = parsed.invoice_date || new Date().toISOString().split("T")[0];
   invoiceDate = normalizeInvoiceYear(invoiceDate);
-  // EU-vendor DD/MM safety net (Kering filenames carry deterministic DDMMYYYY)
-  invoiceDate = reconcileEuDate(vendor, invoiceDate, filename);
 
   return {
     vendor,
