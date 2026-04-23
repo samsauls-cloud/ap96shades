@@ -255,61 +255,6 @@ function normalizeInvoiceYear(dateStr: string): string {
   return dateStr;
 }
 
-/**
- * EU-vendor date safety net.
- *
- * Background: Kering (US LLC, billed in USD) and other European parents
- * print dates as DD/MM/YYYY even on US invoices. The AI extractor occasionally
- * mis-flips them to MM/DD/YYYY when day <= 12. This function:
- *
- *   1. If the filename carries a deterministic DDMMYYYY stamp (Kering pattern
- *      "..._DDMMYYYY.pdf"), uses that as ground truth.
- *   2. Otherwise, if the parsed date's day-of-month is <= 12 AND the filename
- *      suggests the swapped reading, prefers the filename reading.
- *
- * Only applied to known EU-format vendors. US vendors are untouched.
- */
-const EU_DATE_VENDORS = /kering|gucci|saint laurent|balenciaga|bottega|alexander mcqueen|marcolin|tom ford|guess|swarovski|montblanc|safilo|carrera|hugo boss|jimmy choo|fossil/i;
-
-function reconcileEuDate(vendor: string, parsedIso: string, filename: string): string {
-  if (!parsedIso || !EU_DATE_VENDORS.test(vendor || "")) return parsedIso;
-  const isoMatch = parsedIso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!isoMatch) return parsedIso;
-  const [, y, mm, dd] = isoMatch;
-  const monthNum = parseInt(mm, 10);
-  const dayNum = parseInt(dd, 10);
-
-  // Look for an 8-digit DDMMYYYY stamp in the filename (Kering convention)
-  const fnMatch = (filename || "").match(/(?<!\d)(\d{2})(\d{2})(\d{4})(?!\d)/);
-  if (fnMatch) {
-    const [, fnDd, fnMm, fnYyyy] = fnMatch;
-    const fnDay = parseInt(fnDd, 10);
-    const fnMonth = parseInt(fnMm, 10);
-    if (fnDay >= 1 && fnDay <= 31 && fnMonth >= 1 && fnMonth <= 12) {
-      const fnIso = `${fnYyyy}-${fnMm}-${fnDd}`;
-      // Filename is ground truth for Kering-style names — use it whenever it
-      // disagrees with the parsed body date.
-      if (fnIso !== parsedIso) {
-        // Sanity: filename year within 2 of current year
-        if (Math.abs(parseInt(fnYyyy, 10) - new Date().getFullYear()) <= 2) {
-          return fnIso;
-        }
-      }
-    }
-  }
-
-  // No filename stamp — flip if both day and month are <=12 (ambiguous) AND
-  // the swap produces a valid date. Conservative: only flip when day <= 12
-  // because day > 12 means the parse must already be DD/MM (un-swappable).
-  if (dayNum <= 12 && monthNum <= 12 && dayNum !== monthNum) {
-    // Without filename evidence we leave it alone — the prompt now tells the
-    // model to default to DD/MM for these vendors, so this branch is a
-    // belt-and-braces safety net only.
-  }
-  return parsedIso;
-}
-
-
 export function parsedToInvoice(parsed: any, filename: string, pdfUrl?: string | null): VendorInvoiceInsert {
   const vendor = normalizeVendor(parsed.vendor);
   const rawLineItems = parsed.line_items || [];
