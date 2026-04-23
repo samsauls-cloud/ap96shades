@@ -286,19 +286,19 @@ export function termsToLabel(terms: ExtractedTerms): string {
 // Never defaults to a wrong century (e.g. 2020 instead of 2026).
 function calculateDueDate(invoiceDate: string, eomBased: boolean, offsetDays: number): Date {
   const d = new Date(invoiceDate + "T00:00:00");
-  const invoiceYear = d.getFullYear();
   if (eomBased) {
     const eom = lastDayOfMonth(d);
-    // For multiples of 30, use month-based advancement (same day-of-month)
+    // For multiples of 30 (monthly tranches), land on the TRUE last day of
+    // the target month — NOT eom.getDate() clamped. "End of month" means the
+    // actual end of THAT month (e.g. Apr 30 invoice + 30 days → May 31, not
+    // May 30). Previous logic clamped 30-day-month invoices to day 30
+    // throughout the schedule.
     if (offsetDays > 0 && offsetDays % 30 === 0) {
       const months = offsetDays / 30;
-      const eomDay = eom.getDate();
-      const targetMonth = eom.getMonth() + months;
-      // Use eom year (derived from invoice date) — never a default/wrong year
       const targetYear = eom.getFullYear();
-      const lastDayOfTarget = new Date(targetYear, targetMonth + 1, 0).getDate();
-      const day = Math.min(eomDay, lastDayOfTarget);
-      return new Date(targetYear, targetMonth, day);
+      const targetMonth = eom.getMonth() + months;
+      // Day 0 of (targetMonth + 1) = last day of targetMonth
+      return new Date(targetYear, targetMonth + 1, 0);
     }
     return addDays(eom, offsetDays);
   }
@@ -468,14 +468,13 @@ export function calculateInstallments(
     const baseAmount = parseFloat((parsedTotal / 3).toFixed(2));
     const lastAmount = parseFloat((parsedTotal - baseAmount * 2).toFixed(2));
     return offsets.map((offset, index) => {
-      // Use month-based advancement (same day-of-month as EOM)
+      // Always land on true end of target month for monthly tranches
       let dueDate: Date;
       if (offset % 30 === 0) {
         const months = offset / 30;
-        const eomDay = eom.getDate();
         const targetMonth = eom.getMonth() + months;
-        const lastDayOfTarget = new Date(eom.getFullYear(), targetMonth + 1, 0).getDate();
-        dueDate = new Date(eom.getFullYear(), targetMonth, Math.min(eomDay, lastDayOfTarget));
+        // Day 0 of (targetMonth + 1) = last day of targetMonth
+        dueDate = new Date(eom.getFullYear(), targetMonth + 1, 0);
       } else {
         dueDate = addDays(eom, offset);
       }
@@ -541,13 +540,11 @@ export function calculateInstallments(
       const baseAmount = parseFloat((parsedTotal / 3).toFixed(2));
       const lastAmount = parseFloat((parsedTotal - baseAmount * 2).toFixed(2));
       return offsets.map((offset, index) => {
-        // Month-based advancement: EOM day-of-month stays aligned
+        // Always land on true end of target month for monthly tranches
         const months = offset / 30;
-        const eomDay = eom.getDate();
-        const targetYear = eom.getFullYear();
         const targetMonth = eom.getMonth() + months;
-        const lastDayOfTarget = new Date(targetYear, targetMonth + 1, 0).getDate();
-        const dueDate = new Date(targetYear, targetMonth, Math.min(eomDay, lastDayOfTarget));
+        // Day 0 of (targetMonth + 1) = last day of targetMonth
+        const dueDate = new Date(eom.getFullYear(), targetMonth + 1, 0);
         return {
           vendor: normalized,
           invoice_number: invoiceNumber,

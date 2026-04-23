@@ -93,19 +93,21 @@ function makeTranche(
 
 /**
  * Advance from an EOM date by N days, using month-based logic for multiples of 30.
- * EOM+30 = same day-of-month in the next month (e.g. 4/30 → 5/30, not 5/31).
- * If the target month has fewer days, clamp to that month's last day.
+ * For EOM-based monthly tranches (offsetDays is a multiple of 30), always land
+ * on the TRUE last day of the target month — NOT eom.getDate() clamped. This
+ * matches AP convention: "end of month" means the actual end of THAT month
+ * (e.g. May 31, June 30, July 31), regardless of what the source month's
+ * day-count happened to be. Previous logic clamped a 30-day source month
+ * (Apr/Jun/Sep/Nov) to day 30 in all subsequent months, producing May 30
+ * instead of May 31.
  */
 function addMonthsFromEom(eom: Date, offsetDays: number): Date {
   if (offsetDays > 0 && offsetDays % 30 === 0) {
     const months = offsetDays / 30;
-    const eomDay = eom.getDate();
     const targetYear = eom.getFullYear();
     const targetMonth = eom.getMonth() + months;
-    // Last day of target month
-    const lastDayOfTarget = new Date(targetYear, targetMonth + 1, 0).getDate();
-    const day = Math.min(eomDay, lastDayOfTarget);
-    return new Date(targetYear, targetMonth, day);
+    // Day 0 of (targetMonth + 1) = last day of targetMonth (true EOM)
+    return new Date(targetYear, targetMonth + 1, 0);
   }
   return addDays(eom, offsetDays);
 }
