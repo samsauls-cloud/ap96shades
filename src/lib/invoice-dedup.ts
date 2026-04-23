@@ -2,7 +2,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type { LineItem } from "@/lib/supabase-queries";
 
 // ── Vendor normalization — SINGLE SOURCE OF TRUTH ─────
-const KNOWN_VENDORS = ["Luxottica", "Kering", "Maui Jim", "Safilo", "Marcolin", "Marchon", "Smith Optics"] as const;
+const KNOWN_VENDORS = ["Luxottica", "Kering", "Maui Jim", "Safilo", "Marcolin", "Marchon", "Smith Optics", "Revo"] as const;
 export type KnownVendor = typeof KNOWN_VENDORS[number];
 
 const VENDOR_MAP: Record<string, string> = {
@@ -71,6 +71,15 @@ const VENDOR_MAP: Record<string, string> = {
   "smith sport optics inc.": "Smith Optics",
   "smith sport optics, inc.": "Smith Optics",
   "smith": "Smith Optics",
+  // Revo (B Robinson LLC distributes Revo)
+  "revo": "Revo",
+  "b robinson": "Revo",
+  "b. robinson": "Revo",
+  "b robinson llc": "Revo",
+  "b. robinson llc": "Revo",
+  "b robinson llc / revo": "Revo",
+  "b. robinson llc / revo": "Revo",
+  "b robinson / revo": "Revo",
   // Legacy extras
   "chanel": "Chanel",
   "costa del mar": "Costa",

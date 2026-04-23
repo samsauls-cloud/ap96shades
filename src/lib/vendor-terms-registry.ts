@@ -24,6 +24,13 @@ export interface VendorTermsRule {
   eom_baseline_offset?: number; // for eom_single: days added to EOM to get baseline (default 0)
   due_offset?: number;          // for eom_single: days from baseline to due date
   description: string;          // human readable label
+  /**
+   * When true, this vendor's terms are ENFORCED — the confirmation UI will
+   * block any terms that don't match the rule and surface a dialog asking
+   * the user to approve the correction. Use only for vendors whose terms
+   * truly never vary (e.g. Revo = always Net 90).
+   */
+  strict?: boolean;
 }
 
 export const VENDOR_TERMS_REGISTRY: VendorTermsRule[] = [
@@ -75,6 +82,16 @@ export const VENDOR_TERMS_REGISTRY: VendorTermsRule[] = [
     offsets: [],
     description: 'Read terms from invoice — no standing terms configured yet',
   },
+  {
+    // Revo / B Robinson: always Net 90 from invoice date. Terms never vary.
+    // The parser occasionally mis-reads "Net 90" as "Net 30" — strict:true
+    // triggers the vendor-rule dialog to enforce the correction.
+    vendor_match: ['revo', 'b robinson', 'b. robinson', 'b robinson llc'],
+    terms_type: 'net_single',
+    offsets: [90],
+    description: 'Net 90 — Single payment (standing rule, never varies)',
+    strict: true,
+  },
 ];
 
 /**
@@ -110,4 +127,14 @@ export function isLuxotticaVendor(vendor: string): boolean {
     r.vendor_match.includes('luxottica')
   );
   return luxRule?.vendor_match.some(m => v.includes(m)) ?? false;
+}
+
+/**
+ * Return the rule for a vendor ONLY if it's marked strict (terms never vary).
+ * Used by TermsConfirmationPanel to enforce locked vendor rules via a
+ * confirmation dialog. Returns null for non-strict vendors.
+ */
+export function getVendorLockedTerms(vendor: string): VendorTermsRule | null {
+  const rule = getVendorTermsRule(vendor);
+  return rule?.strict ? rule : null;
 }

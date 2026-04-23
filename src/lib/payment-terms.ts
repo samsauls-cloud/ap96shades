@@ -54,6 +54,7 @@ export const VENDOR_DEFAULTS: Record<string, VendorTermsDefault> = {
   Marcolin: { type: "eom_split", days: [50, 80, 110], installments: 3, eom_based: true, label: "EOM 50 / 80 / 110" },
   Safilo: { type: "eom_single", days: [60], installments: 1, eom_based: true, label: "EOM 60" },
   Marchon: { type: "net_single", days: [30], installments: 1, eom_based: false, label: "Net 30" },
+  Revo: { type: "net_single", days: [90], installments: 1, eom_based: false, label: "Net 90" },
 };
 
 /** Get vendor default terms as a suggestion hint (never auto-applied). */
