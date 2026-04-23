@@ -104,7 +104,7 @@ export const RETRY_WAITS_OTHER = [20_000, 45_000, 90_000];
 export const MAX_RETRIES_429 = 4;
 export const MAX_RETRIES_OTHER = 3;
 export const RETRY_COOLDOWN = 30_000;
-export const FETCH_TIMEOUT = 60_000;
+export const FETCH_TIMEOUT = 120_000;
 
 export type DocStatus = "processing" | "done" | "error" | "duplicate" | "retrying" | "staged" | "waiting-retry" | "extended" | "review" | "saving" | "discarded";
 
