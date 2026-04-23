@@ -77,11 +77,24 @@ KERING CREDIT EXTRACTION RULES:
 - Extract brand summary (BTV/GUC/SLP etc.) into vendor_brands array
 
 DATE FORMAT — READ THE INVOICE LITERALLY:
-Every invoice prints dates in one of two formats. You MUST identify which format the document uses by looking at the printed dates themselves, then convert to ISO "YYYY-MM-DD".
-- If you see a date with day > 12 (e.g. "15/03/2026" or "31.03.2026"), the format is unambiguously DD/MM/YYYY → that one example tells you how to read every other date on the same document.
-- If you see a date with month > 12 (e.g. "03/15/2026"), the format is unambiguously MM/DD/YYYY.
-- DO NOT assume a format based on vendor name, currency, or country. Read what the invoice actually shows.
-- DO NOT swap, "correct", or guess. If the date on the invoice is "02/04/2026" and you cannot determine the format from other dates on the same document, return it exactly as printed and set needs_review=true with a note explaining the ambiguity.
+Every invoice prints dates in one of two formats. You MUST identify which format the document uses by examining the document itself, then convert to ISO "YYYY-MM-DD". Apply these tests IN ORDER and stop at the first one that resolves the format:
+
+1) UNAMBIGUOUS DATE TEST (strongest signal):
+   - If ANY date on the document has day > 12 (e.g. "15/03/2026", "31.03.2026", "13/04/2026"), the format is unambiguously DD/MM/YYYY for the entire document.
+   - If ANY date on the document has month > 12 (e.g. "03/15/2026"), the format is unambiguously MM/DD/YYYY for the entire document.
+   - One unambiguous example dictates how to read every other date on the same document.
+
+2) NUMBER-FORMAT LOCALE TEST (only if step 1 is inconclusive):
+   - If monetary amounts on the document use a COMMA as the decimal separator (e.g. "200,00", "1.234,56"), the document is printed in European locale → dates are DD/MM/YYYY.
+   - If monetary amounts use a PERIOD as the decimal separator (e.g. "200.00", "1,234.56"), the document is printed in US locale → dates are MM/DD/YYYY.
+   - This is a literal property of the printed document, not a vendor assumption.
+
+3) ISO / WRITTEN-MONTH TEST: dates printed as "YYYY-MM-DD" or with a written month ("April 2, 2026", "2 Apr 2026") are unambiguous — use them directly and let them confirm the format of any other numeric dates on the same document.
+
+4) FALLBACK: if all three tests are inconclusive, return the date exactly as printed (do not swap or guess) and set needs_review=true with a note like "Date 02/04/2026 is ambiguous — no unambiguous date or locale signal on document".
+
+- DO NOT assume a format based on vendor name, customer country, or currency code alone. Use only signals printed on the document.
+- DO NOT swap, "correct", or guess once a format is determined — apply it consistently to invoice_date, due_date, delivery dates, and order dates.
 - ALWAYS output invoice_date and any due_date as ISO "YYYY-MM-DD".
 
 
