@@ -18,6 +18,46 @@ import { supabase } from "@/integrations/supabase/client";
 import { fetchAllRows } from "@/lib/supabase-fetch-all";
 import { resolvePaymentSchedule } from "@/lib/payment-terms-engine";
 
+// ── Guard predicates — exported for testability. The executeMigration path
+// re-checks these against fresh DB state; these helpers mirror that logic so
+// the impact-report UI and the tests see identical shapes. If you ever change
+// what counts as "blocked", change it here AND keep `executeMigration`'s own
+// re-check in sync. ────────────────────────────────────────────────────────
+
+type Guard1Row = {
+  terms?: string | null;
+  installment_label?: string | null;
+  amount_due?: number | string | null;
+};
+
+type Guard2Row = {
+  is_paid?: boolean;
+  payment_status?: string | null;
+  amount_paid?: number | string | null;
+};
+
+/**
+ * Guard 1 — blocks migration when any payment row looks like a credit.
+ * Credit rows (terms='credit_memo', installment_label='Credit', or
+ * negative amount_due) must never have their schedule rewritten.
+ */
+export function isBlockedByGuard1Credit(rows: readonly Guard1Row[]): boolean {
+  return rows.some(
+    (r) => r.terms === "credit_memo" || r.installment_label === "Credit" || Number(r.amount_due) < 0
+  );
+}
+
+/**
+ * Guard 2 — blocks migration when any payment row shows payment activity.
+ * If is_paid=true, payment_status='paid', or amount_paid>0 on ANY row,
+ * the entire invoice is protected (rewriting would corrupt payment history).
+ */
+export function isBlockedByGuard2Paid(rows: readonly Guard2Row[]): boolean {
+  return rows.some(
+    (r) => r.is_paid === true || r.payment_status === "paid" || Number(r.amount_paid ?? 0) > 0
+  );
+}
+
 export type MigrationPattern = "pattern_1_plain_addDays" | "pattern_2_eom_no_round";
 
 export interface MigrationCandidate {
@@ -152,12 +192,8 @@ export async function buildMauiEomMigrationReport(): Promise<MigrationImpactRepo
     const pattern: MigrationPattern = isPattern1 ? "pattern_1_plain_addDays" : "pattern_2_eom_no_round";
 
     // Guard checks (informational only — the migration will re-check)
-    const blocked_by_guard1_credit = rows.some(
-      (r) => r.terms === "credit_memo" || r.installment_label === "Credit" || Number(r.amount_due) < 0
-    );
-    const blocked_by_guard2_paid = rows.some(
-      (r) => r.is_paid === true || r.payment_status === "paid" || Number(r.amount_paid ?? 0) > 0
-    );
+    const blocked_by_guard1_credit = isBlockedByGuard1Credit(rows);
+    const blocked_by_guard2_paid = isBlockedByGuard2Paid(rows);
 
     const has_past_due = storedSorted.some((r) => new Date(r.due_date + "T00:00:00") < today);
     const has_large_shift = max_day_shift >= 7;
