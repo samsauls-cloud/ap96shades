@@ -399,9 +399,9 @@ describe("Safilo scheduler", () => {
 });
 
 describe("Marchon scheduler", () => {
-  it("Net 30 default via resolvePaymentSchedule: single payment invoice-date + 30", () => {
+  it("Net 30 via resolvePaymentSchedule: single payment invoice-date + 30", () => {
     const invDate = new Date("2026-04-01T00:00:00");
-    const sched = resolvePaymentSchedule("Marchon", "Procurement", invDate, 1000, null);
+    const sched = resolvePaymentSchedule("Marchon", "Procurement", invDate, 1000, "Net 30");
     expect(sched.tranches).toHaveLength(1);
     expect(ymd(sched.tranches[0].due_date)).toBe("2026-05-01");
     expect(sched.vendor_terms_type).toBe("net_single");
