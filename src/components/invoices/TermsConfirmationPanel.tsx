@@ -474,15 +474,46 @@ export function TermsConfirmationPanel({ invoice, onConfirmed }: Props) {
         </div>
       )}
 
-      <Button
-        onClick={handleConfirm}
-        disabled={confirming || days.length === 0}
-        className="w-full"
-        size="sm"
-      >
-        {confirming ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Check className="h-3 w-3 mr-1" />}
-        Confirm Terms & Generate Payments
-      </Button>
+      <div className="flex gap-2">
+        <Button
+          onClick={handleConfirm}
+          disabled={confirming || days.length === 0 || editing}
+          className="flex-1"
+          size="sm"
+        >
+          {confirming ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Check className="h-3 w-3 mr-1" />}
+          Confirm Terms & Generate Payments
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => setEditing((v) => !v)}
+          title="Manually enter dates / amounts / preset — replaces the auto-generated installments"
+        >
+          <Pencil className="h-3 w-3 mr-1" />
+          {editing ? "Cancel edit" : "Edit terms / dates"}
+        </Button>
+      </div>
+
+      {editing && (
+        <div className="mt-3">
+          <InvoiceReviewOverridePanel
+            initialVendor={invoice.vendor ?? ""}
+            initialPreset={
+              ((invoice as any).final_terms_preset ??
+                (invoice as any).extracted_terms_preset ??
+                invoice.payment_terms ??
+                "") as string
+            }
+            initialInstallments={currentInstallments}
+            invoiceTotal={Number(invoice.total ?? 0)}
+            anchorDate={invoice.invoice_date ?? new Date().toISOString().slice(0, 10)}
+            onCancel={() => setEditing(false)}
+            onSave={handleSaveOverrideExisting}
+          />
+        </div>
+      )}
     </div>
     </>
   );
