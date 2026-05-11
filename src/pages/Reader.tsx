@@ -682,6 +682,23 @@ export default function ReaderPage() {
         } catch { /* silent */ }
       }
 
+      // User terms approval / override audit trail (Pre-Save Review)
+      try {
+        if (override && !isCreditDoc) {
+          const { applyUserTermsOverride } = await import("@/lib/supabase-queries");
+          await applyUserTermsOverride({
+            docId, invoiceId: saved.id, confirmedTerms, override, docs,
+          });
+        } else {
+          const { recordTermsApprovedAsIs } = await import("@/lib/supabase-queries");
+          await recordTermsApprovedAsIs({
+            docId, invoiceId: saved.id, confirmedTerms, docs,
+          });
+        }
+      } catch (err) {
+        console.warn("Terms approval audit/override failed:", err);
+      }
+
       // Auto-check for pending matches
       try {
         const lineItems = doc.parsedData?.line_items || [];
