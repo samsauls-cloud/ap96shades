@@ -23,6 +23,16 @@ import { generatePaymentsForInvoice, fetchPaymentsForInvoice } from "@/lib/payme
 import { supabase } from "@/integrations/supabase/client";
 import { uploadPDFToStorage } from "@/lib/reader-engine";
 import { LinkRealInvoice } from "./LinkRealInvoice";
+import {
+  approveExistingInvoiceTerms,
+  applyUserTermsOverrideToExisting,
+} from "@/lib/supabase-queries";
+import {
+  InvoiceReviewOverridePanel,
+  type OverridePayload,
+  type OverrideInstallment,
+} from "./InvoiceReviewOverridePanel";
+import { Pencil, CheckCircle2 } from "lucide-react";
 
 interface Props {
   invoice: VendorInvoice | null;
