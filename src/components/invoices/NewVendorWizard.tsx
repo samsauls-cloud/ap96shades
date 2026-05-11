@@ -10,6 +10,9 @@ import { fileToBase64 } from "@/lib/reader-engine";
 import { isImageFile, imageToBase64 } from "@/lib/photo-capture-engine";
 import { supabase } from "@/integrations/supabase/client";
 import { parsedToInvoice, batchInsertInvoices, uploadPDFToStorage } from "@/lib/reader-engine";
+import { useQueryClient } from "@tanstack/react-query";
+import { generatePaymentsForInvoice } from "@/lib/payment-queries";
+import { recordTermsApprovedAsIs } from "@/lib/supabase-queries";
 
 // ── Enhanced system prompt for new vendor extraction ──
 const NEW_VENDOR_SYSTEM_PROMPT = `You are extracting EVERY possible field from a vendor invoice for an optical retail business. This is a NEW, UNKNOWN vendor — extract everything you can find.
@@ -188,6 +191,7 @@ interface NewVendorWizardProps {
 }
 
 export function NewVendorWizard({ apiKey, onComplete }: NewVendorWizardProps) {
+  const queryClient = useQueryClient();
   const [expanded, setExpanded] = useState(false);
   const [step, setStep] = useState<WizardStep>("upload");
   const [extracting, setExtracting] = useState(false);
@@ -508,7 +512,7 @@ export function NewVendorWizard({ apiKey, onComplete }: NewVendorWizardProps) {
 
       const flatParsed = {
         vendor: vendorName,
-        doc_type: data.doc_type?.value || "INVOICE",
+        doc_type: ((data.doc_type?.value ?? "INVOICE") as string).toUpperCase(),
         invoice_number: invoiceNumber,
         invoice_date: data.invoice_date?.value || new Date().toISOString().split("T")[0],
         po_number: data.po_number?.value || null,
@@ -534,11 +538,86 @@ export function NewVendorWizard({ apiKey, onComplete }: NewVendorWizardProps) {
           unit_price: parseFloat(li.unit_price?.value) || 0,
           line_total: parseFloat(li.line_total?.value) || 0,
         })),
-        payment_terms_extracted: null,
+        // Audit fields — populated so the post-save approval gate has something to show.
+        payment_terms_extracted: (data as any).payment_terms_extracted ?? null,
+        extracted_terms_preset:
+          (data as any).extracted_terms_preset?.value ??
+          (data as any).extracted_terms_preset ??
+          (data as any).terms_preset?.value ??
+          (data as any).terms_preset ??
+          null,
+        extracted_terms_source_text:
+          (data as any).payment_terms_text?.value ??
+          (data as any).payment_terms?.value ??
+          (data as any).extracted_terms_source_text?.value ??
+          (data as any).extracted_terms_source_text ??
+          null,
+        extracted_terms_confidence:
+          (data as any).extracted_terms_confidence?.value ??
+          (data as any).extracted_terms_confidence ??
+          null,
       };
 
       const invoiceInsert = parsedToInvoice(flatParsed, uploadedFile?.name || "new-vendor-import.pdf", pdfUrl);
-      await batchInsertInvoices([invoiceInsert]);
+      const insertedRows = await batchInsertInvoices([invoiceInsert]);
+      const insertedInvoice: any = insertedRows?.[0];
+
+      if (insertedInvoice?.id) {
+        // Schedule generation — match what Reader.tsx does after every other parsedToInvoice insert.
+        // This is the missing call that left Smith 7985854/1 with null due_date and zero payment rows.
+        try {
+          await generatePaymentsForInvoice(
+            insertedInvoice.id,
+            insertedInvoice.invoice_date,
+            Number(insertedInvoice.total ?? 0),
+            insertedInvoice.vendor,
+            insertedInvoice.invoice_number ?? "",
+            insertedInvoice.po_number ?? null,
+            insertedInvoice.payment_terms ?? null,
+          );
+        } catch (err) {
+          console.warn("NewVendorWizard: generatePaymentsForInvoice failed (non-fatal):", err);
+        }
+
+        // Audit-log so the new gate's badge + audit panel reflect this wizard save.
+        try {
+          await recordTermsApprovedAsIs({
+            docId: insertedInvoice.id,
+            invoiceId: insertedInvoice.id,
+            confirmedTerms: insertedInvoice.payment_terms ?? "",
+            docs: [
+              {
+                id: insertedInvoice.id,
+                vendor: insertedInvoice.vendor,
+                invoice_number: insertedInvoice.invoice_number,
+                parsedData: {
+                  invoice_number: insertedInvoice.invoice_number,
+                  vendor: insertedInvoice.vendor,
+                  terms_preset: insertedInvoice.extracted_terms_preset,
+                  terms_source_text: insertedInvoice.extracted_terms_source_text,
+                  payment_terms_extracted: insertedInvoice.payment_terms_extracted,
+                  installments: [],
+                },
+              } as any,
+            ],
+          });
+        } catch (err) {
+          console.warn("NewVendorWizard: recordTermsApprovedAsIs failed (non-fatal):", err);
+        }
+
+        // Refresh dependent views — match what InvoiceDrawer override does.
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ["vendor_invoices"] }),
+          queryClient.invalidateQueries({ queryKey: ["invoice_payments"] }),
+          queryClient.invalidateQueries({ queryKey: ["invoice_payments_detail"] }),
+          queryClient.invalidateQueries({ queryKey: ["invoice_stats"] }),
+          queryClient.invalidateQueries({ queryKey: ["ap_full_audit"] }),
+          queryClient.invalidateQueries({ queryKey: ["needs_review_invoices"] }),
+          queryClient.invalidateQueries({ queryKey: ["terms_approval_audit"] }),
+          queryClient.invalidateQueries({ queryKey: ["vendor_alias_map"] }),
+          queryClient.invalidateQueries({ queryKey: ["distinct_vendors"] }),
+        ]);
+      }
 
       setSavedVendorName(vendorName);
       setSavedInvoiceNumber(invoiceNumber);
