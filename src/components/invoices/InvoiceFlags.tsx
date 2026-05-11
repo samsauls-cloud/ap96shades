@@ -60,7 +60,15 @@ export function InvoiceFlags({ invoice: inv }: Props) {
   // NOTE: recon_status "discrepancy" flag removed — 93% of invoices have this
   // as legacy data from the old reconciliation engine, making it meaningless noise.
 
-  if (flags.length === 0) {
+  const tc = (inv as any).terms_confidence as string | undefined;
+  const approvalBadge =
+    tc === "user_overridden"
+      ? { label: "User Overridden", tooltip: "Payment terms / installments were manually entered by the user before saving.", className: "bg-orange-500/15 text-orange-600 border-orange-500/30", emoji: "✏️" }
+      : tc === "user_approved"
+      ? { label: "User Approved", tooltip: "User reviewed the AI-extracted terms and approved them as-is.", className: "bg-emerald-500/15 text-emerald-600 border-emerald-500/30", emoji: "✓" }
+      : null;
+
+  if (flags.length === 0 && !approvalBadge) {
     return (
       <span className="text-[10px] text-emerald-500 font-medium">✓ Clean</span>
     );
@@ -69,6 +77,21 @@ export function InvoiceFlags({ invoice: inv }: Props) {
   return (
     <TooltipProvider>
       <div className="flex flex-wrap gap-1">
+        {approvalBadge && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span>
+                <Badge variant="outline" className={`text-[10px] font-medium cursor-help gap-1 ${approvalBadge.className}`}>
+                  <span>{approvalBadge.emoji}</span>
+                  {approvalBadge.label}
+                </Badge>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="left" className="max-w-[280px] text-xs leading-relaxed">
+              {approvalBadge.tooltip}
+            </TooltipContent>
+          </Tooltip>
+        )}
         {flags.map((flag, i) => (
           <Tooltip key={i}>
             <TooltipTrigger asChild>
