@@ -288,7 +288,21 @@ export function InvoiceReviewCard({ doc, onApprove, onDiscard }: Props) {
           </div>
         )}
 
+        {/* OVERRIDE PANEL — your typed entries trump AI */}
+        {!isCredit && editing && (
+          <InvoiceReviewOverridePanel
+            initialVendor={vendor}
+            initialPreset={effectiveTerms || ""}
+            initialInstallments={aiInstallments}
+            invoiceTotal={total}
+            anchorDate={invoiceDate || new Date().toISOString().slice(0, 10)}
+            onCancel={() => setEditing(false)}
+            onSave={handleSaveOverride}
+          />
+        )}
+
         {/* ACTION BUTTONS */}
+        {!editing && (
         <div className="flex gap-2 pt-1">
           <Button
             className={`flex-1 gap-1.5 ${isCredit ? "bg-emerald-600 hover:bg-emerald-700" : ""}`}
@@ -298,9 +312,20 @@ export function InvoiceReviewCard({ doc, onApprove, onDiscard }: Props) {
             {saving ? (
               <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Saving…</>
             ) : (
-              <><CheckCircle2 className="h-3.5 w-3.5" /> {isCredit ? "Approve Credit" : "Approve & Save"}</>
+              <><CheckCircle2 className="h-3.5 w-3.5" /> {isCredit ? "Approve Credit" : "Approve as-is"}</>
             )}
           </Button>
+
+          {!isCredit && (
+            <Button
+              variant="outline"
+              className="gap-1.5"
+              disabled={saving}
+              onClick={() => setEditing(true)}
+            >
+              <Pencil className="h-3.5 w-3.5" /> Edit
+            </Button>
+          )}
 
           <AlertDialog>
             <AlertDialogTrigger asChild>
@@ -331,6 +356,7 @@ export function InvoiceReviewCard({ doc, onApprove, onDiscard }: Props) {
             </AlertDialogContent>
           </AlertDialog>
         </div>
+        )}
       </CardContent>
     </Card>
   );
