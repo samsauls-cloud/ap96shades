@@ -66,6 +66,43 @@ export function TermsConfirmationPanel({ invoice, onConfirmed }: Props) {
   const [netDays, setNetDays] = useState(extracted.net_days ?? 30);
   const [confirming, setConfirming] = useState(false);
 
+  // ── Drop 2: Edit-existing override flow ─────────────────────────────
+  const [editing, setEditing] = useState(false);
+  const { data: existingPayments = [] } = useQuery({
+    queryKey: ["invoice_payments_detail", invoice.id],
+    queryFn: () => fetchPaymentsForInvoice(invoice.id),
+  });
+  const currentInstallments: OverrideInstallment[] = useMemo(
+    () =>
+      (existingPayments ?? []).map((r: any, i: number) => ({
+        due_date: r.due_date ?? invoice.invoice_date ?? "",
+        amount_due: Number(r.amount_due ?? 0),
+        installment_label: r.installment_label ?? `Installment ${i + 1}`,
+      })),
+    [existingPayments, invoice.invoice_date],
+  );
+
+  const handleSaveOverrideExisting = async (payload: OverridePayload) => {
+    try {
+      await applyUserTermsOverrideToExisting({
+        invoiceId: invoice.id,
+        override: payload,
+      });
+      toast.success("Terms overridden — calendar updated");
+      queryClient.invalidateQueries({ queryKey: ["vendor_invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["invoice_payments"] });
+      queryClient.invalidateQueries({ queryKey: ["invoice_payments_detail", invoice.id] });
+      queryClient.invalidateQueries({ queryKey: ["invoice_stats"] });
+      queryClient.invalidateQueries({ queryKey: ["ap_full_audit"] });
+      queryClient.invalidateQueries({ queryKey: ["needs_review_invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["terms_approval_audit", invoice.id] });
+      setEditing(false);
+      onConfirmed();
+    } catch (e: any) {
+      toast.error(e?.message ?? "Override failed");
+    }
+  };
+
   // Parse days from input
   const days = useMemo(() => {
     if (termType === "cod") return [0];
