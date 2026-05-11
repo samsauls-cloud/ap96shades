@@ -731,7 +731,11 @@ export default function ReaderPage() {
 
       queryClient.invalidateQueries({ queryKey: ["vendor_invoices"] });
       queryClient.invalidateQueries({ queryKey: ["invoice_payments"] });
+      queryClient.invalidateQueries({ queryKey: ["invoice_payments_detail"] });
       queryClient.invalidateQueries({ queryKey: ["invoice_stats"] });
+      queryClient.invalidateQueries({ queryKey: ["ap_full_audit"] });
+      queryClient.invalidateQueries({ queryKey: ["needs_review_invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["terms_approval_audit"] });
       queryClient.invalidateQueries({ queryKey: ["distinct_vendors"] });
       toast.success(`${confirmedInvoice.vendor} — ${confirmedInvoice.invoice_number} saved${isCreditDoc ? " (credit memo)" : " and scheduled"}`);
     } catch (err: any) {
