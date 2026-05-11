@@ -27,6 +27,7 @@ interface Props {
 export function InvoiceReviewCard({ doc, onApprove, onDiscard }: Props) {
   const [terms, setTerms] = useState(doc.reviewTerms ?? "");
   const [saving, setSaving] = useState(false);
+  const [editing, setEditing] = useState(false);
 
   const vendor = doc.vendor || doc.parsedData?.vendor || "";
   const invoiceNumber = doc.invoice_number || doc.parsedData?.invoice_number || "";
