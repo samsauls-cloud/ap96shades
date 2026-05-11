@@ -486,6 +486,11 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
         {/* Match Report */}
         <MatchReportSection invoice={inv} />
 
+        {/* User-approval / override audit (badge + notes) */}
+        {!isProforma(inv) && !isCreditMemo(inv) && (
+          <TermsApprovalAudit invoiceId={inv.id} termsConfidence={(inv as any).terms_confidence} />
+        )}
+
         {/* Terms Confirmation Panel — show when needs_review (NOT for credit memos) */}
         {!isProforma(inv) && !isCreditMemo(inv) && (inv as any).terms_status === "needs_review" && (
           <TermsConfirmationPanel invoice={inv} onConfirmed={onUpdate} />
