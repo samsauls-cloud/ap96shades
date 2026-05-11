@@ -278,3 +278,131 @@ export function lineItemsToCSV(inv: VendorInvoice): string {
   );
   return [header, ...rows].join("\n");
 }
+
+// ── User terms approval / override (Pre-Save Review audit trail) ──
+import type { OverridePayload } from "@/components/invoices/InvoiceReviewOverridePanel";
+
+type ProcessedDocLike = {
+  id: string;
+  vendor?: string;
+  invoice_number?: string;
+  invoice_date?: string;
+  total?: number;
+  parsedData?: any;
+  invoiceData?: any;
+};
+
+/** Audit-only writer for the approve-as-is path. Does NOT change vendor_invoices. */
+export async function recordTermsApprovedAsIs(args: {
+  docId: string;
+  invoiceId: string | null;
+  confirmedTerms: string;
+  docs: ProcessedDocLike[];
+}): Promise<void> {
+  const { docId, invoiceId, confirmedTerms, docs } = args;
+  const doc = docs.find((d) => d.id === docId);
+  if (!doc) return;
+  const aiPreset = doc.parsedData?.terms_preset ?? doc.parsedData?.payment_terms_extracted?.type ?? null;
+  const aiSource = doc.parsedData?.terms_source_text ?? doc.parsedData?.payment_terms_extracted?.raw_text ?? confirmedTerms;
+  try {
+    await supabase.from("recalc_audit_log").insert({
+      invoice_id: invoiceId,
+      invoice_number: doc.invoice_number ?? doc.parsedData?.invoice_number ?? null,
+      vendor: doc.vendor ?? doc.parsedData?.vendor ?? null,
+      action: "user_terms_approval",
+      metadata: {
+        kind: "approved_as_is",
+        doc_id: docId,
+        ai_extracted_preset: aiPreset,
+        ai_extracted_source_text: aiSource,
+        final_preset: aiPreset,
+        confirmed_terms: confirmedTerms,
+      },
+    });
+  } catch (err) {
+    console.warn("recordTermsApprovedAsIs failed (non-fatal):", err);
+  }
+}
+
+/**
+ * Override writer — user's typed dates/amounts win.
+ * Replaces the auto-generated invoice_payments rows with the override installments,
+ * updates vendor_invoices.final_terms_preset + terms_status, writes audit log entry.
+ * Called AFTER the standard insertInvoice + generatePaymentsForInvoice path.
+ */
+export async function applyUserTermsOverride(args: {
+  docId: string;
+  invoiceId: string;
+  confirmedTerms: string;
+  override: OverridePayload;
+  docs: ProcessedDocLike[];
+}): Promise<void> {
+  const { docId, invoiceId, confirmedTerms, override, docs } = args;
+  const doc = docs.find((d) => d.id === docId);
+
+  // 1) Update vendor_invoices header
+  const headerDue = [...override.installments.map((r) => r.due_date)].sort()[0] ?? null;
+  const total = override.installments.reduce((s, r) => s + (Number.isFinite(r.amount_due) ? r.amount_due : 0), 0);
+  const { error: updErr } = await supabase
+    .from("vendor_invoices")
+    .update({
+      vendor: override.vendor || (doc?.vendor ?? undefined),
+      final_terms_preset: override.finalPreset,
+      terms_status: "user_overridden",
+      payment_terms: confirmedTerms,
+      due_date: headerDue,
+    })
+    .eq("id", invoiceId);
+  if (updErr) throw updErr;
+
+  // 2) Replace invoice_payments rows
+  const { error: delErr } = await supabase
+    .from("invoice_payments")
+    .delete()
+    .eq("invoice_id", invoiceId);
+  if (delErr) throw delErr;
+
+  const invoiceNumber = doc?.invoice_number ?? doc?.parsedData?.invoice_number ?? "";
+  const invoiceDate = doc?.invoice_date ?? doc?.invoiceData?.invoice_date ?? doc?.parsedData?.invoice_date ?? null;
+  const rows = override.installments.map((r) => ({
+    invoice_id: invoiceId,
+    vendor: override.vendor,
+    invoice_number: invoiceNumber,
+    invoice_amount: total,
+    invoice_date: invoiceDate,
+    amount_due: r.amount_due,
+    balance_remaining: r.amount_due,
+    amount_paid: 0,
+    is_paid: false,
+    payment_status: "unpaid",
+    terms: override.finalPreset,
+    installment_label: r.installment_label,
+    due_date: r.due_date,
+  }));
+  const { error: insErr } = await supabase.from("invoice_payments").insert(rows);
+  if (insErr) throw insErr;
+
+  // 3) Audit log entry
+  const aiPreset = doc?.parsedData?.terms_preset ?? doc?.parsedData?.payment_terms_extracted?.type ?? null;
+  const aiSource = doc?.parsedData?.terms_source_text ?? doc?.parsedData?.payment_terms_extracted?.raw_text ?? confirmedTerms;
+  try {
+    await supabase.from("recalc_audit_log").insert({
+      invoice_id: invoiceId,
+      invoice_number: invoiceNumber || null,
+      vendor: override.vendor,
+      action: "user_terms_approval",
+      metadata: {
+        kind: "user_overridden",
+        doc_id: docId,
+        ai_extracted_preset: aiPreset,
+        ai_extracted_source_text: aiSource,
+        final_preset: override.finalPreset,
+        ai_installments: doc?.parsedData?.installments ?? null,
+        final_installments: override.installments,
+        notes: override.notes ?? null,
+      },
+    });
+  } catch (err) {
+    console.warn("applyUserTermsOverride audit insert failed (non-fatal):", err);
+  }
+}
