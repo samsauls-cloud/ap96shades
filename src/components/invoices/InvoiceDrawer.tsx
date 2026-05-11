@@ -533,35 +533,78 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
         {/* Payment schedule — show for confirmed or when payments exist (NOT terms actions for credit memos) */}
         {!isProforma(inv) && ((inv as any).terms_status === "confirmed" || existingPayments.length > 0) && (
           <div className="mb-4">
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
               <h3 className="text-xs font-semibold text-muted-foreground">
                 {isCreditMemo(inv) ? "Credit Applied" : "Payment Schedule"}
               </h3>
-              {!isCreditMemo(inv) && existingPayments.length === 0 && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="text-xs h-7"
-                  disabled={generatingPayments}
-                  onClick={async () => {
-                    setGeneratingPayments(true);
-                    try {
-                      const count = await generatePaymentsForInvoice(
-                        inv.id, inv.invoice_date, inv.total, inv.vendor, inv.invoice_number, inv.po_number
-                      );
-                      toast.success(`Generated ${count} payment installments`);
-                      queryClient.invalidateQueries({ queryKey: ["invoice_payments_detail", inv.id] });
-                      queryClient.invalidateQueries({ queryKey: ["invoice_payments"] });
-                      queryClient.invalidateQueries({ queryKey: ["invoice_stats"] });
-                      queryClient.invalidateQueries({ queryKey: ["ap_full_audit"] });
-                    } catch { toast.error("Failed to generate payments"); }
-                    finally { setGeneratingPayments(false); }
-                  }}
-                >
-                  {generatingPayments ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <DollarSign className="h-3 w-3 mr-1" />}
-                  Generate Payments
-                </Button>
-              )}
+              <div className="flex gap-2">
+                {!isCreditMemo(inv) && existingPayments.length === 0 && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-xs h-7"
+                    disabled={generatingPayments}
+                    onClick={async () => {
+                      setGeneratingPayments(true);
+                      try {
+                        const count = await generatePaymentsForInvoice(
+                          inv.id, inv.invoice_date, inv.total, inv.vendor, inv.invoice_number, inv.po_number
+                        );
+                        toast.success(`Generated ${count} payment installments`);
+                        queryClient.invalidateQueries({ queryKey: ["invoice_payments_detail", inv.id] });
+                        queryClient.invalidateQueries({ queryKey: ["invoice_payments"] });
+                        queryClient.invalidateQueries({ queryKey: ["invoice_stats"] });
+                        queryClient.invalidateQueries({ queryKey: ["ap_full_audit"] });
+                      } catch { toast.error("Failed to generate payments"); }
+                      finally { setGeneratingPayments(false); }
+                    }}
+                  >
+                    {generatingPayments ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <DollarSign className="h-3 w-3 mr-1" />}
+                    Generate Payments
+                  </Button>
+                )}
+                {/* Drop 2 — Approve-as-is + Edit terms / dates for existing invoices */}
+                {!isCreditMemo(inv) && (inv as any).terms_confidence !== "user_approved" && (inv as any).terms_confidence !== "user_overridden" && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-xs h-7"
+                    disabled={approvingExisting || editingTerms}
+                    onClick={async () => {
+                      setApprovingExisting(true);
+                      try {
+                        await approveExistingInvoiceTerms({ invoiceId: inv.id });
+                        toast.success("Terms approved as-is");
+                        queryClient.invalidateQueries({ queryKey: ["vendor_invoices"] });
+                        queryClient.invalidateQueries({ queryKey: ["invoice_stats"] });
+                        queryClient.invalidateQueries({ queryKey: ["ap_full_audit"] });
+                        queryClient.invalidateQueries({ queryKey: ["terms_approval_audit", inv.id] });
+                        onUpdate();
+                      } catch (e: any) {
+                        toast.error(e?.message ?? "Approve failed");
+                      } finally {
+                        setApprovingExisting(false);
+                      }
+                    }}
+                    title="Confirm the parser's installments and stamp this invoice as user-approved"
+                  >
+                    {approvingExisting ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <CheckCircle2 className="h-3 w-3 mr-1" />}
+                    Approve as-is
+                  </Button>
+                )}
+                {!isCreditMemo(inv) && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-xs h-7"
+                    onClick={() => setEditingTerms((v) => !v)}
+                    title="Manually enter dates / amounts / preset — replaces existing unpaid installments"
+                  >
+                    <Pencil className="h-3 w-3 mr-1" />
+                    {editingTerms ? "Cancel edit" : "Edit terms / dates"}
+                  </Button>
+                )}
+              </div>
             </div>
             {existingPayments.length > 0 ? (
               <div className="space-y-1">
@@ -582,6 +625,49 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
               </div>
             ) : (
               <p className="text-[10px] text-muted-foreground">No payment schedule generated yet.</p>
+            )}
+
+            {/* Drop 2 — override panel for existing invoices */}
+            {editingTerms && !isCreditMemo(inv) && (
+              <div className="mt-3">
+                <InvoiceReviewOverridePanel
+                  initialVendor={inv.vendor ?? ""}
+                  initialPreset={
+                    ((inv as any).final_terms_preset ??
+                      (inv as any).extracted_terms_preset ??
+                      inv.payment_terms ??
+                      "") as string
+                  }
+                  initialInstallments={existingPayments.map((p: any, i: number) => ({
+                    due_date: p.due_date ?? inv.invoice_date ?? "",
+                    amount_due: Number(p.amount_due ?? 0),
+                    installment_label: p.installment_label ?? `Installment ${i + 1}`,
+                  }))}
+                  invoiceTotal={Number(inv.total ?? 0)}
+                  anchorDate={inv.invoice_date ?? new Date().toISOString().slice(0, 10)}
+                  onCancel={() => setEditingTerms(false)}
+                  onSave={async (payload: OverridePayload) => {
+                    try {
+                      await applyUserTermsOverrideToExisting({
+                        invoiceId: inv.id,
+                        override: payload,
+                      });
+                      toast.success("Terms overridden — calendar updated");
+                      queryClient.invalidateQueries({ queryKey: ["vendor_invoices"] });
+                      queryClient.invalidateQueries({ queryKey: ["invoice_payments"] });
+                      queryClient.invalidateQueries({ queryKey: ["invoice_payments_detail", inv.id] });
+                      queryClient.invalidateQueries({ queryKey: ["invoice_stats"] });
+                      queryClient.invalidateQueries({ queryKey: ["ap_full_audit"] });
+                      queryClient.invalidateQueries({ queryKey: ["needs_review_invoices"] });
+                      queryClient.invalidateQueries({ queryKey: ["terms_approval_audit", inv.id] });
+                      setEditingTerms(false);
+                      onUpdate();
+                    } catch (e: any) {
+                      toast.error(e?.message ?? "Override failed");
+                    }
+                  }}
+                />
+              </div>
             )}
           </div>
         )}
