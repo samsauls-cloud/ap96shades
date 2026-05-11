@@ -613,7 +613,11 @@ export default function ReaderPage() {
   };
 
   // ── Pre-save review: Approve & Save handler ──
-  const handleApproveDoc = useCallback(async (docId: string, confirmedTerms: string) => {
+  const handleApproveDoc = useCallback(async (
+    docId: string,
+    confirmedTerms: string,
+    override?: import("@/components/invoices/InvoiceReviewOverridePanel").OverridePayload,
+  ) => {
     const doc = docs.find(d => d.id === docId);
     if (!doc?.invoiceData) return;
 
