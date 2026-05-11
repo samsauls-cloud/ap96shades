@@ -4,10 +4,10 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { AlertCircle, Check, Loader2 } from "lucide-react";
+import { AlertCircle, Check, Loader2, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { generatePaymentsForInvoice } from "@/lib/payment-queries";
+import { generatePaymentsForInvoice, fetchPaymentsForInvoice } from "@/lib/payment-queries";
 import {
   type TermType,
   type ExtractedTerms,
@@ -20,8 +20,13 @@ import {
 import { getVendorLockedTerms, type VendorTermsRule } from "@/lib/vendor-terms-registry";
 import { normalizeVendor } from "@/lib/invoice-dedup";
 import { VendorRuleDialog } from "@/components/invoices/VendorRuleDialog";
-import { formatCurrency, formatDate, type VendorInvoice } from "@/lib/supabase-queries";
-import { useQueryClient } from "@tanstack/react-query";
+import { formatCurrency, formatDate, type VendorInvoice, applyUserTermsOverrideToExisting } from "@/lib/supabase-queries";
+import {
+  InvoiceReviewOverridePanel,
+  type OverridePayload,
+  type OverrideInstallment,
+} from "@/components/invoices/InvoiceReviewOverridePanel";
+import { useQueryClient, useQuery } from "@tanstack/react-query";
 
 interface Props {
   invoice: VendorInvoice;
@@ -60,6 +65,43 @@ export function TermsConfirmationPanel({ invoice, onConfirmed }: Props) {
   const [discountDays, setDiscountDays] = useState(extracted.discount_days ?? 10);
   const [netDays, setNetDays] = useState(extracted.net_days ?? 30);
   const [confirming, setConfirming] = useState(false);
+
+  // ── Drop 2: Edit-existing override flow ─────────────────────────────
+  const [editing, setEditing] = useState(false);
+  const { data: existingPayments = [] } = useQuery({
+    queryKey: ["invoice_payments_detail", invoice.id],
+    queryFn: () => fetchPaymentsForInvoice(invoice.id),
+  });
+  const currentInstallments: OverrideInstallment[] = useMemo(
+    () =>
+      (existingPayments ?? []).map((r: any, i: number) => ({
+        due_date: r.due_date ?? invoice.invoice_date ?? "",
+        amount_due: Number(r.amount_due ?? 0),
+        installment_label: r.installment_label ?? `Installment ${i + 1}`,
+      })),
+    [existingPayments, invoice.invoice_date],
+  );
+
+  const handleSaveOverrideExisting = async (payload: OverridePayload) => {
+    try {
+      await applyUserTermsOverrideToExisting({
+        invoiceId: invoice.id,
+        override: payload,
+      });
+      toast.success("Terms overridden — calendar updated");
+      queryClient.invalidateQueries({ queryKey: ["vendor_invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["invoice_payments"] });
+      queryClient.invalidateQueries({ queryKey: ["invoice_payments_detail", invoice.id] });
+      queryClient.invalidateQueries({ queryKey: ["invoice_stats"] });
+      queryClient.invalidateQueries({ queryKey: ["ap_full_audit"] });
+      queryClient.invalidateQueries({ queryKey: ["needs_review_invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["terms_approval_audit", invoice.id] });
+      setEditing(false);
+      onConfirmed();
+    } catch (e: any) {
+      toast.error(e?.message ?? "Override failed");
+    }
+  };
 
   // Parse days from input
   const days = useMemo(() => {
@@ -432,15 +474,46 @@ export function TermsConfirmationPanel({ invoice, onConfirmed }: Props) {
         </div>
       )}
 
-      <Button
-        onClick={handleConfirm}
-        disabled={confirming || days.length === 0}
-        className="w-full"
-        size="sm"
-      >
-        {confirming ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Check className="h-3 w-3 mr-1" />}
-        Confirm Terms & Generate Payments
-      </Button>
+      <div className="flex gap-2">
+        <Button
+          onClick={handleConfirm}
+          disabled={confirming || days.length === 0 || editing}
+          className="flex-1"
+          size="sm"
+        >
+          {confirming ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Check className="h-3 w-3 mr-1" />}
+          Confirm Terms & Generate Payments
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => setEditing((v) => !v)}
+          title="Manually enter dates / amounts / preset — replaces the auto-generated installments"
+        >
+          <Pencil className="h-3 w-3 mr-1" />
+          {editing ? "Cancel edit" : "Edit terms / dates"}
+        </Button>
+      </div>
+
+      {editing && (
+        <div className="mt-3">
+          <InvoiceReviewOverridePanel
+            initialVendor={invoice.vendor ?? ""}
+            initialPreset={
+              ((invoice as any).final_terms_preset ??
+                (invoice as any).extracted_terms_preset ??
+                invoice.payment_terms ??
+                "") as string
+            }
+            initialInstallments={currentInstallments}
+            invoiceTotal={Number(invoice.total ?? 0)}
+            anchorDate={invoice.invoice_date ?? new Date().toISOString().slice(0, 10)}
+            onCancel={() => setEditing(false)}
+            onSave={handleSaveOverrideExisting}
+          />
+        </div>
+      )}
     </div>
     </>
   );

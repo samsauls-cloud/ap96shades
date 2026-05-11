@@ -419,3 +419,229 @@ export async function applyUserTermsOverride(args: {
     console.warn("applyUserTermsOverride audit insert failed (non-fatal):", err);
   }
 }
+
+// ── Existing-invoice approval / override (Drop 2) ──
+//
+// Schema note: this project's `recalc_audit_log` uses columns `action` (text)
+// and `metadata` (jsonb), NOT `action_tag`/`details`. The drop spec used the
+// alt names — we map to the real schema while preserving the documented
+// `kind` taxonomy ("approved_existing_as_is" / "user_overridden_existing").
+
+/**
+ * Approve-existing: stamps `terms_confidence = "user_approved"` on an
+ * already-saved invoice and writes an audit-log entry. Use when the user
+ * opens an existing invoice and confirms the parser's original output.
+ */
+export async function approveExistingInvoiceTerms(args: {
+  invoiceId: string;
+}): Promise<void> {
+  const { invoiceId } = args;
+
+  // Snapshot current state for the audit row.
+  const { data: header } = await supabase
+    .from("vendor_invoices")
+    .select(
+      "id, vendor, invoice_number, extracted_terms_preset, extracted_terms_source_text, final_terms_preset, terms_confidence, due_date",
+    )
+    .eq("id", invoiceId)
+    .maybeSingle();
+
+  const { data: rows } = await supabase
+    .from("invoice_payments")
+    .select("due_date, amount_due, installment_label")
+    .eq("invoice_id", invoiceId)
+    .order("due_date", { ascending: true });
+
+  const { error: updErr } = await supabase
+    .from("vendor_invoices")
+    .update({ terms_confidence: "user_approved" })
+    .eq("id", invoiceId);
+  if (updErr) throw updErr;
+
+  try {
+    await supabase.from("recalc_audit_log").insert({
+      invoice_id: invoiceId,
+      invoice_number: (header as any)?.invoice_number ?? null,
+      vendor: (header as any)?.vendor ?? null,
+      action: "user_terms_approval",
+      metadata: {
+        kind: "approved_existing_as_is",
+        invoice_id: invoiceId,
+        vendor: (header as any)?.vendor ?? null,
+        ai_extracted_preset: (header as any)?.extracted_terms_preset ?? null,
+        ai_extracted_source_text: (header as any)?.extracted_terms_source_text ?? null,
+        final_preset:
+          (header as any)?.final_terms_preset ??
+          (header as any)?.extracted_terms_preset ??
+          null,
+        ai_installments: rows ?? [],
+        final_installments: rows ?? [],
+      },
+    });
+  } catch (err) {
+    console.warn("approveExistingInvoiceTerms audit insert failed (non-fatal):", err);
+  }
+}
+
+/**
+ * Override-existing: re-runs Guard 1 (credit memo) and Guard 2 (any payment
+ * recorded) against fresh DB state, then deletes existing `invoice_payments`
+ * for this invoice and replaces them with the user's typed installments.
+ * Updates header `due_date` / `final_terms_preset` /
+ * `terms_confidence = "user_overridden"` and writes an audit entry.
+ *
+ * THROWS if any Guard trips. Caller MUST surface the error via toast.
+ */
+export async function applyUserTermsOverrideToExisting(args: {
+  invoiceId: string;
+  override: import("@/components/invoices/InvoiceReviewOverridePanel").OverridePayload;
+  reason?: string;
+}): Promise<void> {
+  const { invoiceId, override, reason } = args;
+
+  // 1) Header (for audit + vendor) and CURRENT payment rows for guard checks.
+  const { data: header, error: headerErr } = await supabase
+    .from("vendor_invoices")
+    .select(
+      "id, vendor, invoice_number, doc_type, extracted_terms_preset, extracted_terms_source_text, final_terms_preset",
+    )
+    .eq("id", invoiceId)
+    .maybeSingle();
+  if (headerErr || !header) {
+    throw new Error(
+      `Cannot fetch invoice ${invoiceId}: ${headerErr?.message ?? "not found"}`,
+    );
+  }
+
+  const { data: existingRows, error: rowsErr } = await supabase
+    .from("invoice_payments")
+    .select(
+      "id, due_date, amount_due, amount_paid, is_paid, payment_status, installment_label, terms, dispute_reason, void_reason",
+    )
+    .eq("invoice_id", invoiceId);
+  if (rowsErr) throw rowsErr;
+  const rows = existingRows ?? [];
+
+  // 2) Guard 1 — credit-memo invoice OR credit-memo rows.
+  const docType = String((header as any).doc_type ?? "").toLowerCase();
+  if (docType.includes("credit") || docType === "credit_memo") {
+    throw new Error(
+      "Guard 1: this is a credit memo. Override is not allowed on credit memos.",
+    );
+  }
+  const guard1Trips = rows.some(
+    (r: any) =>
+      r.terms === "credit_memo" ||
+      r.installment_label === "Credit" ||
+      Number(r.amount_due ?? 0) < 0,
+  );
+  if (guard1Trips) {
+    throw new Error(
+      "Guard 1: this invoice has credit-memo rows. Resolve those before overriding terms.",
+    );
+  }
+
+  // 3) Guard 2 — any payment recorded.
+  const guard2Trips = rows.some(
+    (r: any) =>
+      r.is_paid === true ||
+      r.payment_status === "paid" ||
+      r.payment_status === "partial" ||
+      Number(r.amount_paid ?? 0) > 0,
+  );
+  if (guard2Trips) {
+    throw new Error(
+      "Guard 2: this invoice has paid installments. Reverse those before overriding terms.",
+    );
+  }
+
+  // 4) Delete existing rows (all unpaid, per Guard 2).
+  const idsToDelete = rows.map((r: any) => r.id).filter(Boolean);
+  if (idsToDelete.length > 0) {
+    const { error: delErr } = await supabase
+      .from("invoice_payments")
+      .delete()
+      .in("id", idsToDelete);
+    if (delErr) throw delErr;
+  }
+
+  // 5) Insert user's installments. Populate ALL not-null columns so the
+  //    insert satisfies the schema (vendor / invoice_number / invoice_amount
+  //    / invoice_date are NOT NULL on invoice_payments).
+  const invoiceNumber = (header as any).invoice_number ?? "";
+  const vendorName = override.vendor || (header as any).vendor || "";
+  const newTotal = override.installments.reduce(
+    (s, r) => s + (Number.isFinite(r.amount_due) ? r.amount_due : 0),
+    0,
+  );
+  // We need the invoice_date for invoice_payments NOT NULL — fetch it cheap.
+  const { data: dateRow } = await supabase
+    .from("vendor_invoices")
+    .select("invoice_date")
+    .eq("id", invoiceId)
+    .maybeSingle();
+  const invoiceDate = (dateRow as any)?.invoice_date ?? null;
+
+  const newRows = override.installments.map((r) => ({
+    invoice_id: invoiceId,
+    vendor: vendorName,
+    invoice_number: invoiceNumber,
+    invoice_amount: newTotal,
+    invoice_date: invoiceDate,
+    due_date: r.due_date,
+    amount_due: r.amount_due,
+    balance_remaining: r.amount_due,
+    amount_paid: 0,
+    is_paid: false,
+    payment_status: "unpaid",
+    terms: override.finalPreset,
+    installment_label: r.installment_label,
+  }));
+  const { error: insErr } = await supabase
+    .from("invoice_payments")
+    .insert(newRows);
+  if (insErr) throw insErr;
+
+  // 6) Update header.
+  const headerDue =
+    [...override.installments.map((r) => r.due_date)].sort()[0] ?? null;
+  const { error: updErr } = await supabase
+    .from("vendor_invoices")
+    .update({
+      vendor: vendorName,
+      due_date: headerDue,
+      final_terms_preset: override.finalPreset,
+      terms_status: "confirmed",
+      terms_confidence: "user_overridden",
+    })
+    .eq("id", invoiceId);
+  if (updErr) throw updErr;
+
+  // 7) Audit.
+  try {
+    await supabase.from("recalc_audit_log").insert({
+      invoice_id: invoiceId,
+      invoice_number: invoiceNumber || null,
+      vendor: vendorName || null,
+      action: "user_terms_approval",
+      metadata: {
+        kind: "user_overridden_existing",
+        invoice_id: invoiceId,
+        vendor: vendorName || null,
+        ai_extracted_preset: (header as any).extracted_terms_preset ?? null,
+        ai_extracted_source_text: (header as any).extracted_terms_source_text ?? null,
+        final_preset: override.finalPreset,
+        ai_installments: rows.map((r: any) => ({
+          due_date: r.due_date,
+          amount_due: r.amount_due,
+          installment_label: r.installment_label,
+        })),
+        final_installments: override.installments,
+        notes: override.notes ?? reason ?? null,
+      },
+    });
+  } catch (err) {
+    console.warn("applyUserTermsOverrideToExisting audit insert failed (non-fatal):", err);
+  }
+}
+
