@@ -348,7 +348,8 @@ export async function applyUserTermsOverride(args: {
     .update({
       vendor: override.vendor || (doc?.vendor ?? undefined),
       final_terms_preset: override.finalPreset,
-      terms_status: "user_overridden",
+      terms_status: "confirmed",
+      terms_confidence: "user_overridden",
       payment_terms: confirmedTerms,
       due_date: headerDue,
     })
