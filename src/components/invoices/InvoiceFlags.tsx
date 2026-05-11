@@ -5,6 +5,7 @@ import {
 import { FileX, Clock, DollarSign, AlertCircle } from "lucide-react";
 import type { VendorInvoice } from "@/lib/supabase-queries";
 import { isProforma } from "@/lib/supabase-queries";
+import { TermsApprovalBadge } from "@/components/invoices/Badges";
 
 interface Props {
   invoice: VendorInvoice;
