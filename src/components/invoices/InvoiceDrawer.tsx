@@ -16,6 +16,7 @@ import { MatchReportSection } from "./MatchReportSection";
 import { TagInput } from "./TagInput";
 import { SKUCheckTab } from "./SKUCheckTab";
 import { TermsConfirmationPanel } from "./TermsConfirmationPanel";
+import { TermsApprovalAudit } from "./TermsApprovalAudit";
 import type { VendorInvoice, InvoiceStatus } from "@/lib/supabase-queries";
 import { formatCurrency, formatDate, getLineItems, getTotalUnits, lineItemsToCSV, updateInvoiceStatus, updateInvoiceNotes, updateInvoiceTags, fetchDistinctTags, deleteInvoice, isProforma, isCreditMemo } from "@/lib/supabase-queries";
 import { generatePaymentsForInvoice, fetchPaymentsForInvoice } from "@/lib/payment-queries";
@@ -484,6 +485,11 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
 
         {/* Match Report */}
         <MatchReportSection invoice={inv} />
+
+        {/* User-approval / override audit (badge + notes) */}
+        {!isProforma(inv) && !isCreditMemo(inv) && (
+          <TermsApprovalAudit invoiceId={inv.id} termsConfidence={(inv as any).terms_confidence} />
+        )}
 
         {/* Terms Confirmation Panel — show when needs_review (NOT for credit memos) */}
         {!isProforma(inv) && !isCreditMemo(inv) && (inv as any).terms_status === "needs_review" && (

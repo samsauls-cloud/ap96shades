@@ -112,11 +112,28 @@ export function InvoiceReviewCard({ doc, onApprove, onDiscard }: Props) {
     <Card className={`bg-card border-2 ${isCredit ? "border-emerald-500/40" : "border-primary/30"}`}>
       <CardContent className="p-4 space-y-4">
         {/* Header */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <div className={`h-2 w-2 rounded-full ${isCredit ? "bg-emerald-500" : "bg-primary"} animate-pulse`} />
           <span className="text-sm font-semibold">
             {isCredit ? "Credit Memo — Review Before Saving" : "Review Before Saving"}
           </span>
+          {!isCredit && (
+            editing ? (
+              <span
+                className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-orange-500/15 text-orange-600 border border-orange-500/30"
+                title="Your manual entries will replace the AI-extracted terms and installments."
+              >
+                ✏️ Will save as: User Overridden
+              </span>
+            ) : (
+              <span
+                className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 border border-emerald-500/30"
+                title="The AI-extracted terms will be saved as-is and recorded in the audit log."
+              >
+                ✓ Will save as: User Approved
+              </span>
+            )
+          )}
           <span className="text-xs text-muted-foreground ml-auto truncate max-w-[180px]">{doc.filename}</span>
         </div>
 

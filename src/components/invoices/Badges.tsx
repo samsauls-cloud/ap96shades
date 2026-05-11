@@ -76,3 +76,36 @@ export function TermsStatusBadge({ termsStatus }: { termsStatus?: string }) {
   }
   return null;
 }
+
+/**
+ * Shows whether a user manually approved-as-is or overrode the AI-extracted terms.
+ * Reads `terms_confidence` from the invoice row:
+ *   - "user_overridden" → orange "✏️ User Overridden"
+ *   - "user_approved"   → green  "✓ User Approved"
+ * Returns null for AI-only rows (high/medium/low/auto/null).
+ */
+export function TermsApprovalBadge({ termsConfidence, className }: { termsConfidence?: string | null; className?: string }) {
+  if (termsConfidence === "user_overridden") {
+    return (
+      <Badge
+        variant="outline"
+        className={`text-[10px] font-medium bg-orange-500/15 text-orange-600 border-orange-500/30 gap-1 ${className ?? ""}`}
+        title="User manually edited the payment terms / installments before saving."
+      >
+        ✏️ User Overridden
+      </Badge>
+    );
+  }
+  if (termsConfidence === "user_approved") {
+    return (
+      <Badge
+        variant="outline"
+        className={`text-[10px] font-medium bg-emerald-500/15 text-emerald-600 border-emerald-500/30 gap-1 ${className ?? ""}`}
+        title="User reviewed the AI-extracted terms and approved them as-is."
+      >
+        ✓ User Approved
+      </Badge>
+    );
+  }
+  return null;
+}

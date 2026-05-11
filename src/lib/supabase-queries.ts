@@ -304,6 +304,18 @@ export async function recordTermsApprovedAsIs(args: {
   if (!doc) return;
   const aiPreset = doc.parsedData?.terms_preset ?? doc.parsedData?.payment_terms_extracted?.type ?? null;
   const aiSource = doc.parsedData?.terms_source_text ?? doc.parsedData?.payment_terms_extracted?.raw_text ?? confirmedTerms;
+  // Stamp the invoice row so the table/drawer can render the "User Approved" badge
+  // without an extra audit-log lookup.
+  if (invoiceId) {
+    try {
+      await supabase
+        .from("vendor_invoices")
+        .update({ terms_confidence: "user_approved" })
+        .eq("id", invoiceId);
+    } catch (err) {
+      console.warn("recordTermsApprovedAsIs: invoice stamp failed (non-fatal):", err);
+    }
+  }
   try {
     await supabase.from("recalc_audit_log").insert({
       invoice_id: invoiceId,
