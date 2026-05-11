@@ -341,6 +341,15 @@ export function TermsConfirmationPanel({ invoice, onConfirmed }: Props) {
       queryClient.invalidateQueries({ queryKey: ["ap_full_audit"] });
       queryClient.invalidateQueries({ queryKey: ["needs_review_invoices"] });
 
+      // Audit-log the approve-as-is so the badge + audit panel reflect it
+      try {
+        const { approveExistingInvoiceTerms } = await import("@/lib/supabase-queries");
+        await approveExistingInvoiceTerms({ invoiceId: invoice.id });
+        queryClient.invalidateQueries({ queryKey: ["terms_approval_audit", invoice.id] });
+      } catch (err) {
+        console.warn("approveExistingInvoiceTerms (post-confirm) failed:", err);
+      }
+
       toast.success(`✅ Terms confirmed — ${rows.length} payment installment${rows.length !== 1 ? "s" : ""} created for ${invoice.invoice_number}`);
       onConfirmed();
     } catch (e: any) {
