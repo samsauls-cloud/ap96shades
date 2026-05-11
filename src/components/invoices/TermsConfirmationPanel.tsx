@@ -4,10 +4,10 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { AlertCircle, Check, Loader2 } from "lucide-react";
+import { AlertCircle, Check, Loader2, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { generatePaymentsForInvoice } from "@/lib/payment-queries";
+import { generatePaymentsForInvoice, fetchPaymentsForInvoice } from "@/lib/payment-queries";
 import {
   type TermType,
   type ExtractedTerms,
@@ -20,8 +20,13 @@ import {
 import { getVendorLockedTerms, type VendorTermsRule } from "@/lib/vendor-terms-registry";
 import { normalizeVendor } from "@/lib/invoice-dedup";
 import { VendorRuleDialog } from "@/components/invoices/VendorRuleDialog";
-import { formatCurrency, formatDate, type VendorInvoice } from "@/lib/supabase-queries";
-import { useQueryClient } from "@tanstack/react-query";
+import { formatCurrency, formatDate, type VendorInvoice, applyUserTermsOverrideToExisting } from "@/lib/supabase-queries";
+import {
+  InvoiceReviewOverridePanel,
+  type OverridePayload,
+  type OverrideInstallment,
+} from "@/components/invoices/InvoiceReviewOverridePanel";
+import { useQueryClient, useQuery } from "@tanstack/react-query";
 
 interface Props {
   invoice: VendorInvoice;
