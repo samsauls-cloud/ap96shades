@@ -325,10 +325,13 @@ export async function recordTermsApprovedAsIs(args: {
       metadata: {
         kind: "approved_as_is",
         doc_id: docId,
+        vendor: doc.vendor ?? doc.parsedData?.vendor ?? null,
         ai_extracted_preset: aiPreset,
         ai_extracted_source_text: aiSource,
         final_preset: aiPreset,
         confirmed_terms: confirmedTerms,
+        ai_installments: doc.parsedData?.installments ?? [],
+        final_installments: doc.parsedData?.installments ?? [],
       },
     });
   } catch (err) {

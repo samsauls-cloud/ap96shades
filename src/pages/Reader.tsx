@@ -671,8 +671,9 @@ export default function ReaderPage() {
             due_date: confirmedInvoice.invoice_date,
           });
         } catch { /* silent */ }
-      } else if (!isProforma({ doc_type: confirmedInvoice.doc_type || "" })) {
-        // Auto-generate payment installments — skip for proformas
+      } else if (!isProforma({ doc_type: confirmedInvoice.doc_type || "" }) && !override) {
+        // Auto-generate payment installments — skip for proformas, and skip
+        // when the user supplied an override (applyUserTermsOverride writes its own rows).
         try {
           await generatePaymentsForInvoice(
             saved.id, confirmedInvoice.invoice_date, confirmedInvoice.total || 0,
@@ -731,7 +732,11 @@ export default function ReaderPage() {
 
       queryClient.invalidateQueries({ queryKey: ["vendor_invoices"] });
       queryClient.invalidateQueries({ queryKey: ["invoice_payments"] });
+      queryClient.invalidateQueries({ queryKey: ["invoice_payments_detail"] });
       queryClient.invalidateQueries({ queryKey: ["invoice_stats"] });
+      queryClient.invalidateQueries({ queryKey: ["ap_full_audit"] });
+      queryClient.invalidateQueries({ queryKey: ["needs_review_invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["terms_approval_audit"] });
       queryClient.invalidateQueries({ queryKey: ["distinct_vendors"] });
       toast.success(`${confirmedInvoice.vendor} — ${confirmedInvoice.invoice_number} saved${isCreditDoc ? " (credit memo)" : " and scheduled"}`);
     } catch (err: any) {
