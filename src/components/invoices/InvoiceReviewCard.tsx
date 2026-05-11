@@ -87,6 +87,27 @@ export function InvoiceReviewCard({ doc, onApprove, onDiscard }: Props) {
     }
   };
 
+  const aiInstallments: OverrideInstallment[] = useMemo(() => {
+    return previewInstallments.map((p, i) => ({
+      due_date: (() => {
+        const d = new Date(p.dueDate);
+        return isNaN(d.getTime()) ? (invoiceDate || "") : d.toISOString().slice(0, 10);
+      })(),
+      amount_due: p.amount,
+      installment_label: p.label || `Installment ${i + 1}`,
+    }));
+  }, [previewInstallments, invoiceDate]);
+
+  const handleSaveOverride = async (payload: OverridePayload) => {
+    setSaving(true);
+    try {
+      await onApprove(doc.id, isCredit ? "credit_memo" : effectiveTerms, payload);
+      setEditing(false);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <Card className={`bg-card border-2 ${isCredit ? "border-emerald-500/40" : "border-primary/30"}`}>
       <CardContent className="p-4 space-y-4">
