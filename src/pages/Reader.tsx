@@ -613,7 +613,11 @@ export default function ReaderPage() {
   };
 
   // ── Pre-save review: Approve & Save handler ──
-  const handleApproveDoc = useCallback(async (docId: string, confirmedTerms: string) => {
+  const handleApproveDoc = useCallback(async (
+    docId: string,
+    confirmedTerms: string,
+    override?: import("@/components/invoices/InvoiceReviewOverridePanel").OverridePayload,
+  ) => {
     const doc = docs.find(d => d.id === docId);
     if (!doc?.invoiceData) return;
 
@@ -676,6 +680,23 @@ export default function ReaderPage() {
             confirmedInvoice.po_number ?? null
           );
         } catch { /* silent */ }
+      }
+
+      // User terms approval / override audit trail (Pre-Save Review)
+      try {
+        if (override && !isCreditDoc) {
+          const { applyUserTermsOverride } = await import("@/lib/supabase-queries");
+          await applyUserTermsOverride({
+            docId, invoiceId: saved.id, confirmedTerms, override, docs,
+          });
+        } else {
+          const { recordTermsApprovedAsIs } = await import("@/lib/supabase-queries");
+          await recordTermsApprovedAsIs({
+            docId, invoiceId: saved.id, confirmedTerms, docs,
+          });
+        }
+      } catch (err) {
+        console.warn("Terms approval audit/override failed:", err);
       }
 
       // Auto-check for pending matches
