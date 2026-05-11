@@ -73,6 +73,7 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
       setPdfLoadError(false);
       setLocalPdfUrl((inv as any).pdf_url ?? null);
       setActiveTab("line-items");
+      setEditingTerms(false);
     }
   }, [inv]);
 
