@@ -312,17 +312,28 @@ export default function APDashboard() {
   };
 
   // ── Bulk mark paid ───────────────────────────────────
+  // FIX 2026-05-25: previously called updateInvoiceStatus(invoice_id, "paid"), which
+  // cascades through EVERY installment on the parent invoice. That caused selecting
+  // installment 1 of a 30/60/90 split to mark installments 2 and 3 paid as well.
+  // Bulk action now operates on the SELECTED INSTALLMENT ROW only.
   const handleMarkSelectedPaid = async () => {
     const ids = [...selectedIds];
     let success = 0;
+    const failures: string[] = [];
     for (const paymentId of ids) {
-      const p = activePayments.find(p => p.id === paymentId);
-      if (p?.invoice_id) {
-        await updateInvoiceStatus(p.invoice_id, "paid");
+      try {
+        await markInstallmentPaid(paymentId, true);
         success++;
+      } catch (e: any) {
+        console.error(`[handleMarkSelectedPaid] Failed for ${paymentId}:`, e);
+        failures.push(paymentId);
       }
     }
-    toast.success(`${success} invoices marked as paid`);
+    if (failures.length) {
+      toast.error(`${success} installments marked paid, ${failures.length} failed`);
+    } else {
+      toast.success(`${success} installment${success === 1 ? "" : "s"} marked as paid`);
+    }
     setSelectedIds(new Set());
     refreshAll();
   };
