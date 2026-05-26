@@ -210,6 +210,19 @@ export async function markPaymentPaid(paymentId: string): Promise<void> {
   const amountDue = Number(current.amount_due) || 0;
   const today = new Date().toISOString().split("T")[0];
 
+  // 2026-05-25: Mark Paid (modal button) writes a minimal payment_history entry
+  // so cascade recovery can distinguish intentional vs accidental marks.
+  const existingHistory = Array.isArray((current as any).payment_history) ? (current as any).payment_history : [];
+  const historyEntry: PaymentHistoryEntry = {
+    date: today,
+    amount: amountDue,
+    method: "Quick Mark Paid",
+    reference: "",
+    note: "Marked paid via Record Payment modal",
+    recorded_by: "Staff",
+    timestamp: new Date().toISOString(),
+  };
+
   const { error } = await supabase
     .from("invoice_payments")
     .update({
@@ -219,6 +232,7 @@ export async function markPaymentPaid(paymentId: string): Promise<void> {
       balance_remaining: 0,
       payment_status: "paid",
       last_payment_date: today,
+      payment_history: [...existingHistory, historyEntry],
     } as any)
     .eq("id", paymentId);
   if (error) throw error;
