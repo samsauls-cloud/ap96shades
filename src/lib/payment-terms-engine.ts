@@ -92,24 +92,25 @@ function makeTranche(
 // ─── helpers (month-based offsets) ──────────────────────────────────────────
 
 /**
- * Advance from an EOM baseline by N days, using same-day-of-month logic for
- * multiples of 30. AP convention for "EOM 30/60/90" is: take the baseline
- * (end of invoice month), then keep that SAME day-of-month for each tranche,
- * one calendar month apart per +30. So an Apr 30 baseline yields:
- *   +30 → May 30,  +60 → June 30,  +90 → July 30.
- * If the target month is shorter than the baseline day (e.g. Jan 31 → Feb),
- * we clamp to the last valid day of that month (Feb 28/29).
+ * Advance from an EOM baseline by N months (for multiples of 30 days), landing
+ * on the TRUE last day of the target month. AP convention for "EOM 30/60/90":
+ * an Apr 30 baseline yields  May 31,  Jun 30,  Jul 31  — i.e. always month-end.
+ *
+ * 2026-05-26 fix: previously this returned same-day-of-month dates (May 30,
+ * Jun 30, Jul 30), which disagreed with the write path in
+ * `payment-terms.ts` (`calculateInstallments`). The preview the user confirmed
+ * therefore differed from what got saved. Now both paths agree on true EOM.
+ *
+ * For non-30-multiple offsets we still just add days (used by single-payment
+ * EOM+30 / EOM+60).
  */
 function addMonthsFromEom(eom: Date, offsetDays: number): Date {
   if (offsetDays > 0 && offsetDays % 30 === 0) {
     const months = offsetDays / 30;
     const targetYear = eom.getFullYear();
     const targetMonth = eom.getMonth() + months;
-    const baselineDay = eom.getDate();
-    // Last day of target month (clamp guard)
-    const lastDayOfTarget = new Date(targetYear, targetMonth + 1, 0).getDate();
-    const day = Math.min(baselineDay, lastDayOfTarget);
-    return new Date(targetYear, targetMonth, day);
+    // Day 0 of (targetMonth + 1) = last day of targetMonth — true EOM.
+    return new Date(targetYear, targetMonth + 1, 0);
   }
   return addDays(eom, offsetDays);
 }
