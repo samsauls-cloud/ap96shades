@@ -184,17 +184,57 @@ export async function recordPayment(
 }
 
 export async function setPaymentDisputed(paymentId: string, reason: string): Promise<void> {
+  // 2026-05-26: append a history entry so dispute leaves a recoverable trail.
+  const { data: current } = await supabase
+    .from("invoice_payments")
+    .select("payment_history")
+    .eq("id", paymentId)
+    .maybeSingle();
+  const existingHistory = Array.isArray((current as any)?.payment_history) ? (current as any).payment_history : [];
+  const historyEntry: PaymentHistoryEntry = {
+    date: new Date().toISOString().split("T")[0],
+    amount: 0,
+    method: "Status Change",
+    reference: "",
+    note: `Marked disputed: ${reason}`,
+    recorded_by: "Staff",
+    timestamp: new Date().toISOString(),
+  };
   const { error } = await supabase
     .from("invoice_payments")
-    .update({ payment_status: "disputed", dispute_reason: reason } as any)
+    .update({
+      payment_status: "disputed",
+      dispute_reason: reason,
+      payment_history: [...existingHistory, historyEntry],
+    } as any)
     .eq("id", paymentId);
   if (error) throw error;
 }
 
 export async function setPaymentVoid(paymentId: string, reason: string): Promise<void> {
+  // 2026-05-26: append a history entry so void leaves a recoverable trail.
+  const { data: current } = await supabase
+    .from("invoice_payments")
+    .select("payment_history")
+    .eq("id", paymentId)
+    .maybeSingle();
+  const existingHistory = Array.isArray((current as any)?.payment_history) ? (current as any).payment_history : [];
+  const historyEntry: PaymentHistoryEntry = {
+    date: new Date().toISOString().split("T")[0],
+    amount: 0,
+    method: "Status Change",
+    reference: "",
+    note: `Voided: ${reason}`,
+    recorded_by: "Staff",
+    timestamp: new Date().toISOString(),
+  };
   const { error } = await supabase
     .from("invoice_payments")
-    .update({ payment_status: "void", void_reason: reason } as any)
+    .update({
+      payment_status: "void",
+      void_reason: reason,
+      payment_history: [...existingHistory, historyEntry],
+    } as any)
     .eq("id", paymentId);
   if (error) throw error;
 }
@@ -266,13 +306,24 @@ export async function syncInvoicePaymentStatus(invoiceId: string): Promise<void>
 /** Mark ALL installments for an invoice as paid in one shot */
 export async function markAllInstallmentsPaid(invoiceId: string): Promise<void> {
   const today = new Date().toISOString().split("T")[0];
+  // 2026-05-26: fetch payment_history too so we append, not overwrite.
   const { data: installments, error: fetchErr } = await supabase
     .from("invoice_payments")
-    .select("id, amount_due")
+    .select("id, amount_due, payment_history")
     .eq("invoice_id", invoiceId);
   if (fetchErr) throw fetchErr;
 
   for (const inst of installments ?? []) {
+    const existingHistory = Array.isArray((inst as any).payment_history) ? (inst as any).payment_history : [];
+    const historyEntry: PaymentHistoryEntry = {
+      date: today,
+      amount: Number(inst.amount_due) || 0,
+      method: "Mark All Paid",
+      reference: "",
+      note: "Marked paid via markAllInstallmentsPaid",
+      recorded_by: "Staff",
+      timestamp: new Date().toISOString(),
+    };
     const { error } = await supabase
       .from("invoice_payments")
       .update({
@@ -282,6 +333,7 @@ export async function markAllInstallmentsPaid(invoiceId: string): Promise<void> 
         balance_remaining: 0,
         payment_status: "paid",
         last_payment_date: today,
+        payment_history: [...existingHistory, historyEntry],
       } as any)
       .eq("id", inst.id);
     if (error) throw error;
@@ -291,6 +343,22 @@ export async function markAllInstallmentsPaid(invoiceId: string): Promise<void> 
 }
 
 export async function markPaymentUnpaid(paymentId: string): Promise<void> {
+  // 2026-05-26: append a history entry so the un-mark leaves a recoverable trail.
+  const { data: current } = await supabase
+    .from("invoice_payments")
+    .select("payment_history")
+    .eq("id", paymentId)
+    .maybeSingle();
+  const existingHistory = Array.isArray((current as any)?.payment_history) ? (current as any).payment_history : [];
+  const historyEntry: PaymentHistoryEntry = {
+    date: new Date().toISOString().split("T")[0],
+    amount: 0,
+    method: "Status Change",
+    reference: "",
+    note: "Marked unpaid",
+    recorded_by: "Staff",
+    timestamp: new Date().toISOString(),
+  };
   const { error } = await supabase
     .from("invoice_payments")
     .update({
@@ -299,6 +367,7 @@ export async function markPaymentUnpaid(paymentId: string): Promise<void> {
       amount_paid: 0,
       balance_remaining: null,
       payment_status: "unpaid",
+      payment_history: [...existingHistory, historyEntry],
     } as any)
     .eq("id", paymentId);
   if (error) throw error;
@@ -915,7 +984,24 @@ export async function fixStaleInstallments(invoiceId: string): Promise<number> {
 
   if (staleIds.length === 0) return 0;
 
+  // 2026-05-26: fetch existing payment_history per row so reset leaves a trail.
+  const today = new Date().toISOString().split("T")[0];
   for (let i = 0; i < staleIds.length; i++) {
+    const { data: existing } = await supabase
+      .from("invoice_payments")
+      .select("payment_history")
+      .eq("id", staleIds[i])
+      .maybeSingle();
+    const existingHistory = Array.isArray((existing as any)?.payment_history) ? (existing as any).payment_history : [];
+    const historyEntry: PaymentHistoryEntry = {
+      date: today,
+      amount: 0,
+      method: "Stale Reset",
+      reference: "",
+      note: "Reset by fixStaleInstallments (paid row after an unpaid row)",
+      recorded_by: "Staff",
+      timestamp: new Date().toISOString(),
+    };
     const { error } = await supabase
       .from("invoice_payments")
       .update({
@@ -925,6 +1011,7 @@ export async function fixStaleInstallments(invoiceId: string): Promise<number> {
         balance_remaining: staleAmounts[i],
         payment_status: "unpaid",
         last_payment_date: null,
+        payment_history: [...existingHistory, historyEntry],
       } as any)
       .eq("id", staleIds[i]);
     if (error) throw error;
