@@ -118,7 +118,7 @@ function addMonthsFromEom(eom: Date, offsetDays: number): Date {
 // ─── LUXOTTICA logic ────────────────────────────────────────────────────────
 // Luxottica EOM 30/60/90: three tranches at EOM+30, EOM+60, EOM+90.
 // EOM itself is NEVER a payment date — it is only the baseline anchor.
-// For an invoice dated 4/1: EOM = 4/30 → due dates = 5/30, 6/30, 7/30.
+// For an invoice dated 4/1: EOM = 4/30 → due dates = 5/31, 6/30, 7/31.
 
 export function buildLuxSplitSchedule(
   documentDate: Date,
