@@ -119,10 +119,22 @@ export async function updateInvoiceStatus(id: string, status: InvoiceStatus) {
     // Mark ALL payment rows as paid
     const { data: rows } = await supabase
       .from("invoice_payments")
-      .select("id, amount_due")
+      .select("id, amount_due, payment_history")
       .eq("invoice_id", id);
 
     for (const row of rows ?? []) {
+      // 2026-05-25: append a checkmark-trail history entry per row so cascade
+      // recovery can always distinguish intentional from accidental.
+      const existingHistory = Array.isArray((row as any).payment_history) ? (row as any).payment_history : [];
+      const historyEntry = {
+        date: today,
+        amount: Number(row.amount_due) || 0,
+        method: "Invoice Status Change",
+        reference: "",
+        note: "Marked paid via invoice drawer status dropdown",
+        recorded_by: "Staff",
+        timestamp: new Date().toISOString(),
+      };
       await supabase
         .from("invoice_payments")
         .update({
@@ -132,6 +144,7 @@ export async function updateInvoiceStatus(id: string, status: InvoiceStatus) {
           balance_remaining: 0,
           payment_status: "paid",
           last_payment_date: today,
+          payment_history: [...existingHistory, historyEntry],
         } as any)
         .eq("id", row.id);
     }
@@ -139,10 +152,20 @@ export async function updateInvoiceStatus(id: string, status: InvoiceStatus) {
     // Reset ALL payment rows back to unpaid
     const { data: rows } = await supabase
       .from("invoice_payments")
-      .select("id, amount_due")
+      .select("id, amount_due, payment_history")
       .eq("invoice_id", id);
 
     for (const row of rows ?? []) {
+      const existingHistory = Array.isArray((row as any).payment_history) ? (row as any).payment_history : [];
+      const historyEntry = {
+        date: today,
+        amount: 0,
+        method: "Invoice Status Change",
+        reference: "",
+        note: `Status changed to ${status} via invoice drawer dropdown`,
+        recorded_by: "Staff",
+        timestamp: new Date().toISOString(),
+      };
       await supabase
         .from("invoice_payments")
         .update({
@@ -152,6 +175,7 @@ export async function updateInvoiceStatus(id: string, status: InvoiceStatus) {
           balance_remaining: Number(row.amount_due) || 0,
           payment_status: status === "disputed" ? "disputed" : "unpaid",
           last_payment_date: null,
+          payment_history: [...existingHistory, historyEntry],
         } as any)
         .eq("id", row.id);
     }

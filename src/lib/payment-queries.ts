@@ -210,6 +210,19 @@ export async function markPaymentPaid(paymentId: string): Promise<void> {
   const amountDue = Number(current.amount_due) || 0;
   const today = new Date().toISOString().split("T")[0];
 
+  // 2026-05-25: Mark Paid (modal button) writes a minimal payment_history entry
+  // so cascade recovery can distinguish intentional vs accidental marks.
+  const existingHistory = Array.isArray((current as any).payment_history) ? (current as any).payment_history : [];
+  const historyEntry: PaymentHistoryEntry = {
+    date: today,
+    amount: amountDue,
+    method: "Quick Mark Paid",
+    reference: "",
+    note: "Marked paid via Record Payment modal",
+    recorded_by: "Staff",
+    timestamp: new Date().toISOString(),
+  };
+
   const { error } = await supabase
     .from("invoice_payments")
     .update({
@@ -219,6 +232,7 @@ export async function markPaymentPaid(paymentId: string): Promise<void> {
       balance_remaining: 0,
       payment_status: "paid",
       last_payment_date: today,
+      payment_history: [...existingHistory, historyEntry],
     } as any)
     .eq("id", paymentId);
   if (error) throw error;
@@ -302,26 +316,43 @@ export async function markInstallmentPaid(
 
   const { data: row } = await supabase
     .from("invoice_payments")
-    .select("invoice_id, amount_due")
+    .select("invoice_id, amount_due, payment_history")
     .eq("id", paymentRowId)
     .maybeSingle();
 
   if (!row) throw new Error("Payment row not found");
 
+  const amountDue = Number(row.amount_due) || 0;
+  // 2026-05-25: Every checkmark click writes a minimal payment_history entry so
+  // cascade-victim vs intentional rows stay distinguishable in future recoveries.
+  // UI behavior is unchanged — the checkmark remains the source of truth visually.
+  const existingHistory = Array.isArray((row as any).payment_history) ? (row as any).payment_history : [];
+  const historyEntry: PaymentHistoryEntry = {
+    date: today,
+    amount: isPaid ? amountDue : 0,
+    method: "Checkmark",
+    reference: "",
+    note: isPaid ? "Marked paid via dashboard checkmark" : "Unmarked paid via dashboard checkmark",
+    recorded_by: "Staff",
+    timestamp: new Date().toISOString(),
+  };
+
   const updatePayload = isPaid ? {
     is_paid: true,
     paid_date: today,
-    amount_paid: Number(row.amount_due) || 0,
+    amount_paid: amountDue,
     balance_remaining: 0,
     payment_status: "paid",
     last_payment_date: today,
+    payment_history: [...existingHistory, historyEntry],
   } : {
     is_paid: false,
     paid_date: null,
     amount_paid: 0,
-    balance_remaining: Number(row.amount_due) || 0,
+    balance_remaining: amountDue,
     payment_status: "unpaid",
     last_payment_date: null,
+    payment_history: [...existingHistory, historyEntry],
   };
 
   console.log(`[markInstallmentPaid] Updating row id=${paymentRowId} isPaid=${isPaid}`, updatePayload);
