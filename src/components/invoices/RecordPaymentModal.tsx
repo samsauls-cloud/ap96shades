@@ -224,6 +224,7 @@ export function RecordPaymentModal({ payment, open, onOpenChange, onComplete }: 
                   <SelectItem value="ACH">ACH</SelectItem>
                   <SelectItem value="Wire">Wire</SelectItem>
                   <SelectItem value="Credit Card">Credit Card</SelectItem>
+                  <SelectItem value="Vendor Credit">Vendor Credit</SelectItem>
                   <SelectItem value="Other">Other</SelectItem>
                 </SelectContent>
               </Select>
