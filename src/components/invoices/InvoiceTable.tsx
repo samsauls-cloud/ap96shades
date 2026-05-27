@@ -97,7 +97,12 @@ export function InvoiceTable({ invoices, filters, onSort, onRowClick, totalCount
                     )}
                   </div>
                 </TableCell>
-                <TableCell className="font-medium text-sm">{inv.vendor}</TableCell>
+                <TableCell className="font-medium text-sm">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span>{inv.vendor}</span>
+                    <VendorCreditBadge vendor={inv.vendor} balance={getCreditBalance(inv.vendor)} />
+                  </div>
+                </TableCell>
                 <TableCell className="font-mono text-xs">{inv.invoice_number}</TableCell>
                 <TableCell className="text-xs text-muted-foreground">{inv.po_number || "—"}</TableCell>
                 <TableCell className="text-xs text-muted-foreground">{inv.account_number || "—"}</TableCell>
