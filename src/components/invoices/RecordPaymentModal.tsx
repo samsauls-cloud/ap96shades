@@ -6,9 +6,11 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
-import { AlertCircle, CheckCircle2, DollarSign, Clock, Ban, AlertTriangle } from "lucide-react";
+import { AlertCircle, CheckCircle2, DollarSign, Clock, Ban, AlertTriangle, Wallet } from "lucide-react";
 import { formatCurrency } from "@/lib/supabase-queries";
 import { type InvoicePayment, type PaymentHistoryEntry, recordPayment, setPaymentDisputed, setPaymentVoid, markPaymentPaid } from "@/lib/payment-queries";
+import { fetchVendorCreditBalance, applyVendorCreditToInstallment } from "@/lib/vendor-credits";
+import { useEffect } from "react";
 import { toast } from "sonner";
 import { PaymentStatusBadge } from "./PaymentStatusBadge";
 
@@ -30,6 +32,13 @@ export function RecordPaymentModal({ payment, open, onOpenChange, onComplete }: 
   const [showDispute, setShowDispute] = useState(false);
   const [showVoid, setShowVoid] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [vendorCreditBalance, setVendorCreditBalance] = useState(0);
+
+  useEffect(() => {
+    if (open && payment?.vendor) {
+      fetchVendorCreditBalance(payment.vendor).then(setVendorCreditBalance);
+    }
+  }, [open, payment?.vendor]);
 
   if (!payment) return null;
 
@@ -70,6 +79,28 @@ export function RecordPaymentModal({ payment, open, onOpenChange, onComplete }: 
     try {
       await markPaymentPaid(payment.id);
       toast.success(`✓ ${payment.invoice_number} marked as paid (${formatCurrency(payment.amount_due)})`);
+      onComplete();
+      onOpenChange(false);
+    } catch (e: any) {
+      toast.error(`Failed: ${e.message}`);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleApplyVendorCredit = async () => {
+    if (!payment) return;
+    setSubmitting(true);
+    try {
+      await applyVendorCreditToInstallment({
+        paymentId: payment.id,
+        vendor: payment.vendor,
+        invoiceId: payment.invoice_id,
+        invoiceNumber: payment.invoice_number,
+        amount: balance,
+        occurredOn: new Date().toISOString().split("T")[0],
+      });
+      toast.success(`✓ Applied ${formatCurrency(balance)} vendor credit to ${payment.invoice_number}`);
       onComplete();
       onOpenChange(false);
     } catch (e: any) {
@@ -193,6 +224,7 @@ export function RecordPaymentModal({ payment, open, onOpenChange, onComplete }: 
                   <SelectItem value="ACH">ACH</SelectItem>
                   <SelectItem value="Wire">Wire</SelectItem>
                   <SelectItem value="Credit Card">Credit Card</SelectItem>
+                  <SelectItem value="Vendor Credit">Vendor Credit</SelectItem>
                   <SelectItem value="Other">Other</SelectItem>
                 </SelectContent>
               </Select>
@@ -221,6 +253,17 @@ export function RecordPaymentModal({ payment, open, onOpenChange, onComplete }: 
               {balance > 0 && (
                 <Button size="sm" className="text-xs h-8 bg-green-600 hover:bg-green-700 text-white" onClick={handleQuickMarkPaid} disabled={submitting}>
                   <CheckCircle2 className="h-3 w-3 mr-1" /> Mark Paid
+                </Button>
+              )}
+              {balance > 0 && vendorCreditBalance >= balance && (
+                <Button
+                  size="sm"
+                  className="text-xs h-8 bg-emerald-600 hover:bg-emerald-700 text-white"
+                  onClick={handleApplyVendorCredit}
+                  disabled={submitting}
+                  title={`Vendor has ${formatCurrency(vendorCreditBalance)} in on-account credit`}
+                >
+                  <Wallet className="h-3 w-3 mr-1" /> Apply Vendor Credit ({formatCurrency(balance)})
                 </Button>
               )}
               {balance > 0 && parsedAmount !== balance && (

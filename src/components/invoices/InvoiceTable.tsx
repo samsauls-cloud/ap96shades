@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { ChevronUp, ChevronDown, ChevronsUpDown, Camera } from "lucide-react";
 import { StatusBadge, DocTypeBadge } from "./Badges";
 import { InvoiceFlags } from "./InvoiceFlags";
+import { VendorCreditBadge, useVendorCreditBalanceMap } from "./VendorCreditDrawer";
 import type { VendorInvoice, InvoiceFilters } from "@/lib/supabase-queries";
 import { formatCurrency, formatDate, getTotalUnits, isCreditMemo } from "@/lib/supabase-queries";
 
@@ -46,6 +47,7 @@ export function InvoiceTable({ invoices, filters, onSort, onRowClick, totalCount
   const perPage = filters.perPage ?? 25;
   const page = filters.page ?? 1;
   const totalPages = Math.ceil(totalCount / perPage);
+  const getCreditBalance = useVendorCreditBalanceMap();
 
   if (invoices.length === 0) {
     return (
@@ -95,7 +97,12 @@ export function InvoiceTable({ invoices, filters, onSort, onRowClick, totalCount
                     )}
                   </div>
                 </TableCell>
-                <TableCell className="font-medium text-sm">{inv.vendor}</TableCell>
+                <TableCell className="font-medium text-sm">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span>{inv.vendor}</span>
+                    <VendorCreditBadge vendor={inv.vendor} balance={getCreditBalance(inv.vendor)} />
+                  </div>
+                </TableCell>
                 <TableCell className="font-mono text-xs">{inv.invoice_number}</TableCell>
                 <TableCell className="text-xs text-muted-foreground">{inv.po_number || "—"}</TableCell>
                 <TableCell className="text-xs text-muted-foreground">{inv.account_number || "—"}</TableCell>
@@ -138,6 +145,7 @@ export function InvoiceTable({ invoices, filters, onSort, onRowClick, totalCount
                 <div className="flex items-center gap-2 mb-0.5">
                   <DocTypeBadge docType={inv.doc_type} />
                   <span className="font-medium text-sm truncate">{inv.vendor}</span>
+                  <VendorCreditBadge vendor={inv.vendor} balance={getCreditBalance(inv.vendor)} />
                 </div>
                 <p className="font-mono text-xs text-muted-foreground truncate">{inv.invoice_number}</p>
               </div>
