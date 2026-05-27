@@ -88,6 +88,28 @@ export function RecordPaymentModal({ payment, open, onOpenChange, onComplete }: 
     }
   };
 
+  const handleApplyVendorCredit = async () => {
+    if (!payment) return;
+    setSubmitting(true);
+    try {
+      await applyVendorCreditToInstallment({
+        paymentId: payment.id,
+        vendor: payment.vendor,
+        invoiceId: payment.invoice_id,
+        invoiceNumber: payment.invoice_number,
+        amount: balance,
+        occurredOn: new Date().toISOString().split("T")[0],
+      });
+      toast.success(`✓ Applied ${formatCurrency(balance)} vendor credit to ${payment.invoice_number}`);
+      onComplete();
+      onOpenChange(false);
+    } catch (e: any) {
+      toast.error(`Failed: ${e.message}`);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const handleDispute = async () => {
     if (!disputeReason.trim()) return;
     setSubmitting(true);
