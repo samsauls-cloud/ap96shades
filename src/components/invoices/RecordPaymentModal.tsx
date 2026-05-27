@@ -255,6 +255,17 @@ export function RecordPaymentModal({ payment, open, onOpenChange, onComplete }: 
                   <CheckCircle2 className="h-3 w-3 mr-1" /> Mark Paid
                 </Button>
               )}
+              {balance > 0 && vendorCreditBalance >= balance && (
+                <Button
+                  size="sm"
+                  className="text-xs h-8 bg-emerald-600 hover:bg-emerald-700 text-white"
+                  onClick={handleApplyVendorCredit}
+                  disabled={submitting}
+                  title={`Vendor has ${formatCurrency(vendorCreditBalance)} in on-account credit`}
+                >
+                  <Wallet className="h-3 w-3 mr-1" /> Apply Vendor Credit ({formatCurrency(balance)})
+                </Button>
+              )}
               {balance > 0 && parsedAmount !== balance && (
                 <Button variant="outline" size="sm" className="text-xs h-8" onClick={() => setAmount(balance.toFixed(2))}>
                   <CheckCircle2 className="h-3 w-3 mr-1" /> Pay Full Balance
