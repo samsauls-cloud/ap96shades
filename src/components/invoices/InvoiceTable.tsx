@@ -47,6 +47,7 @@ export function InvoiceTable({ invoices, filters, onSort, onRowClick, totalCount
   const perPage = filters.perPage ?? 25;
   const page = filters.page ?? 1;
   const totalPages = Math.ceil(totalCount / perPage);
+  const getCreditBalance = useVendorCreditBalanceMap();
 
   if (invoices.length === 0) {
     return (
