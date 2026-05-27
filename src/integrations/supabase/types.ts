@@ -962,6 +962,48 @@ export type Database = {
         }
         Relationships: []
       }
+      vendor_credits: {
+        Row: {
+          amount: number
+          created_at: string
+          created_by: string | null
+          description: string
+          id: string
+          occurred_on: string
+          related_history_index: number | null
+          related_invoice_id: string | null
+          related_payment_id: string | null
+          source_type: string
+          vendor: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          created_by?: string | null
+          description: string
+          id?: string
+          occurred_on: string
+          related_history_index?: number | null
+          related_invoice_id?: string | null
+          related_payment_id?: string | null
+          source_type: string
+          vendor: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          created_by?: string | null
+          description?: string
+          id?: string
+          occurred_on?: string
+          related_history_index?: number | null
+          related_invoice_id?: string | null
+          related_payment_id?: string | null
+          source_type?: string
+          vendor?: string
+        }
+        Relationships: []
+      }
       vendor_definitions: {
         Row: {
           created_at: string
@@ -1362,7 +1404,16 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      vendor_credit_balances: {
+        Row: {
+          balance: number | null
+          last_activity_on: string | null
+          ledger_entries: number | null
+          vendor_key: string | null
+          vendor_name: string | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       get_invoice_stats: {
