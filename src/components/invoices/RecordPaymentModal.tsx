@@ -32,6 +32,13 @@ export function RecordPaymentModal({ payment, open, onOpenChange, onComplete }: 
   const [showDispute, setShowDispute] = useState(false);
   const [showVoid, setShowVoid] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [vendorCreditBalance, setVendorCreditBalance] = useState(0);
+
+  useEffect(() => {
+    if (open && payment?.vendor) {
+      fetchVendorCreditBalance(payment.vendor).then(setVendorCreditBalance);
+    }
+  }, [open, payment?.vendor]);
 
   if (!payment) return null;
 
