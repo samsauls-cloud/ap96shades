@@ -145,6 +145,7 @@ export function InvoiceTable({ invoices, filters, onSort, onRowClick, totalCount
                 <div className="flex items-center gap-2 mb-0.5">
                   <DocTypeBadge docType={inv.doc_type} />
                   <span className="font-medium text-sm truncate">{inv.vendor}</span>
+                  <VendorCreditBadge vendor={inv.vendor} balance={getCreditBalance(inv.vendor)} />
                 </div>
                 <p className="font-mono text-xs text-muted-foreground truncate">{inv.invoice_number}</p>
               </div>
