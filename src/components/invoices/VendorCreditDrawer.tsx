@@ -117,18 +117,25 @@ export function VendorCreditDrawer({ vendor, open, onOpenChange }: Props) {
   );
 }
 
-/** Inline pill that opens the ledger drawer when clicked. Hides when balance ≤ 0. */
-export function VendorCreditBadge({ vendor }: { vendor: string }) {
-  const [balance, setBalance] = useState<number | null>(null);
+/**
+ * Inline pill that opens the ledger drawer when clicked. Hides when balance ≤ 0.
+ * Pass `balance` from a parent bulk-fetch to avoid N queries in lists.
+ */
+export function VendorCreditBadge({ vendor, balance: providedBalance }: { vendor: string; balance?: number }) {
+  const [balance, setBalance] = useState<number | null>(providedBalance ?? null);
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
+    if (providedBalance !== undefined) {
+      setBalance(providedBalance);
+      return;
+    }
     let active = true;
     fetchVendorCreditBalance(vendor).then(b => {
       if (active) setBalance(b);
     });
     return () => { active = false; };
-  }, [vendor]);
+  }, [vendor, providedBalance]);
 
   if (balance === null || balance <= 0) return null;
 
@@ -146,4 +153,22 @@ export function VendorCreditBadge({ vendor }: { vendor: string }) {
       <VendorCreditDrawer vendor={vendor} open={open} onOpenChange={setOpen} />
     </>
   );
+}
+
+/** React-Query-free bulk balance lookup map for use in table headers/rows. */
+export function useVendorCreditBalanceMap() {
+  const [map, setMap] = useState<Record<string, number>>({});
+  useEffect(() => {
+    let active = true;
+    import("@/lib/vendor-credits").then(({ fetchAllVendorCreditBalances }) => {
+      fetchAllVendorCreditBalances().then(rows => {
+        if (!active) return;
+        const m: Record<string, number> = {};
+        for (const r of rows) m[r.vendor_key] = r.balance;
+        setMap(m);
+      });
+    });
+    return () => { active = false; };
+  }, []);
+  return (vendor: string) => map[vendor?.toLowerCase()] ?? 0;
 }
