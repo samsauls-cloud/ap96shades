@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { ChevronUp, ChevronDown, ChevronsUpDown, Camera } from "lucide-react";
 import { StatusBadge, DocTypeBadge } from "./Badges";
 import { InvoiceFlags } from "./InvoiceFlags";
+import { VendorCreditBadge, useVendorCreditBalanceMap } from "./VendorCreditDrawer";
 import type { VendorInvoice, InvoiceFilters } from "@/lib/supabase-queries";
 import { formatCurrency, formatDate, getTotalUnits, isCreditMemo } from "@/lib/supabase-queries";
 
