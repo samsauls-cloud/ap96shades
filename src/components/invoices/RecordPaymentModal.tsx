@@ -6,9 +6,11 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
-import { AlertCircle, CheckCircle2, DollarSign, Clock, Ban, AlertTriangle } from "lucide-react";
+import { AlertCircle, CheckCircle2, DollarSign, Clock, Ban, AlertTriangle, Wallet } from "lucide-react";
 import { formatCurrency } from "@/lib/supabase-queries";
 import { type InvoicePayment, type PaymentHistoryEntry, recordPayment, setPaymentDisputed, setPaymentVoid, markPaymentPaid } from "@/lib/payment-queries";
+import { fetchVendorCreditBalance, applyVendorCreditToInstallment } from "@/lib/vendor-credits";
+import { useEffect } from "react";
 import { toast } from "sonner";
 import { PaymentStatusBadge } from "./PaymentStatusBadge";
 
