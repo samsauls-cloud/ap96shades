@@ -404,6 +404,23 @@ export function resolvePaymentSchedule(
     return buildEomSplitSchedule(documentDate, totalAmount, [50, 80, 110], 'EOM 50/80/110 — 3 equal tranches');
   }
 
+  // ── KERING family: honor N-way split printed on the invoice ──
+  // Default registry rule is EOM 30/60/90 (3-way), but some invoices print
+  // 30/60/90/120 (4-way) or other counts. Parse offsets from the terms string
+  // and build N tranches instead of truncating to the registry default length.
+  // Mirrors the Luxottica '30/60/90' override pattern above.
+  const isKeringVendor = /kering|gucci|saint laurent|balenciaga|bottega veneta|alexander mcqueen|cartier/i.test(vendor ?? '');
+  if (isKeringVendor) {
+    // Match "30/60/90", "30/60/90/120", "30,60,90,120", etc.
+    const splitMatch = termsLower.match(/\b\d{2,3}(?:\s*[\/,]\s*\d{2,3}){1,}\b/);
+    if (splitMatch) {
+      const offsets = splitMatch[0].split(/[\/,]/).map(s => parseInt(s.trim(), 10)).filter(n => n >= 30);
+      if (offsets.length >= 2) {
+        return buildEomSplitSchedule(documentDate, totalAmount, offsets, `EOM ${offsets.join('/')} — ${offsets.length} equal tranches`);
+      }
+    }
+  }
+
   // ── All other vendors: use registry ──
   const rule = getVendorTermsRule(vendor);
 
