@@ -14,6 +14,8 @@ import { insertInvoice, formatCurrency, type VendorInvoiceInsert, getLineItems, 
 import { supabase } from "@/integrations/supabase/client";
 import { checkPendingMatches } from "@/lib/pending-match";
 import { generatePaymentsForInvoice } from "@/lib/payment-queries";
+import { runPreflightOrAbort } from "@/lib/invoice-preflight";
+import { calculateInstallments } from "@/lib/payment-terms";
 import {
   CONCURRENCY, RETRY_CONCURRENCY, STAGGER_DELAY, RETRY_STAGGER_DELAY,
   RETRY_WAITS_429, RETRY_WAITS_OTHER, MAX_RETRIES_429, MAX_RETRIES_OTHER,
