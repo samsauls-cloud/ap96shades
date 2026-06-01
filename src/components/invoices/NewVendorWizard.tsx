@@ -13,6 +13,8 @@ import { parsedToInvoice, batchInsertInvoices, uploadPDFToStorage } from "@/lib/
 import { useQueryClient } from "@tanstack/react-query";
 import { generatePaymentsForInvoice } from "@/lib/payment-queries";
 import { recordTermsApprovedAsIs } from "@/lib/supabase-queries";
+import { runPreflightOrAbort } from "@/lib/invoice-preflight";
+import { calculateInstallments } from "@/lib/payment-terms";
 
 // ── Enhanced system prompt for new vendor extraction ──
 const NEW_VENDOR_SYSTEM_PROMPT = `You are extracting EVERY possible field from a vendor invoice for an optical retail business. This is a NEW, UNKNOWN vendor — extract everything you can find.
@@ -559,6 +561,29 @@ export function NewVendorWizard({ apiKey, onComplete }: NewVendorWizardProps) {
       };
 
       const invoiceInsert = parsedToInvoice(flatParsed, uploadedFile?.name || "new-vendor-import.pdf", pdfUrl);
+
+      // ── Pre-save validation gate ──
+      const wizardSchedule = calculateInstallments(
+        invoiceInsert.invoice_date ?? "",
+        Number(invoiceInsert.total ?? 0),
+        invoiceInsert.vendor ?? "",
+        invoiceInsert.invoice_number ?? "",
+        invoiceInsert.po_number ?? null,
+        invoiceInsert.payment_terms ?? null,
+      ).map(i => ({ due_date: i.due_date, amount_due: i.amount_due }));
+      const preflightOk = await runPreflightOrAbort(
+        {
+          vendor: invoiceInsert.vendor ?? "",
+          invoice_number: invoiceInsert.invoice_number ?? "",
+          invoice_date: invoiceInsert.invoice_date ?? "",
+          total: Number(invoiceInsert.total ?? 0),
+          payment_terms: invoiceInsert.payment_terms ?? null,
+          doc_type: invoiceInsert.doc_type ?? null,
+        },
+        wizardSchedule,
+      );
+      if (!preflightOk) return;
+
       const insertedRows = await batchInsertInvoices([invoiceInsert]);
       const insertedInvoice: any = insertedRows?.[0];
 

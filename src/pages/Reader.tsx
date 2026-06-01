@@ -14,6 +14,8 @@ import { insertInvoice, formatCurrency, type VendorInvoiceInsert, getLineItems, 
 import { supabase } from "@/integrations/supabase/client";
 import { checkPendingMatches } from "@/lib/pending-match";
 import { generatePaymentsForInvoice } from "@/lib/payment-queries";
+import { runPreflightOrAbort } from "@/lib/invoice-preflight";
+import { calculateInstallments } from "@/lib/payment-terms";
 import {
   CONCURRENCY, RETRY_CONCURRENCY, STAGGER_DELAY, RETRY_STAGGER_DELAY,
   RETRY_WAITS_429, RETRY_WAITS_OTHER, MAX_RETRIES_429, MAX_RETRIES_OTHER,
@@ -647,6 +649,35 @@ export default function ReaderPage() {
         // Marcolin audit: persist final confirmed preset
         ...(finalTermsPreset ? { final_terms_preset: finalTermsPreset } : {}),
       };
+
+      // ── Pre-save validation gate ──
+      // Compute the prospective schedule so the preflight can verify count/sum/dates
+      // before we write anything. Credit memos/proformas skip schedule checks inside the validator.
+      const prospectiveSchedule = (!isCreditDoc && !isProforma({ doc_type: confirmedInvoice.doc_type || "" }))
+        ? calculateInstallments(
+            confirmedInvoice.invoice_date,
+            confirmedInvoice.total || 0,
+            confirmedInvoice.vendor,
+            confirmedInvoice.invoice_number,
+            confirmedInvoice.po_number ?? null,
+            confirmedInvoice.payment_terms ?? null,
+          ).map(i => ({ due_date: i.due_date, amount_due: i.amount_due }))
+        : [];
+      const ok = await runPreflightOrAbort(
+        {
+          vendor: confirmedInvoice.vendor,
+          invoice_number: confirmedInvoice.invoice_number,
+          invoice_date: confirmedInvoice.invoice_date,
+          total: confirmedInvoice.total || 0,
+          payment_terms: confirmedInvoice.payment_terms ?? null,
+          doc_type: confirmedInvoice.doc_type ?? null,
+        },
+        prospectiveSchedule,
+      );
+      if (!ok) {
+        updateDoc(docId, { status: "review" as any });
+        return;
+      }
 
       const saved = await insertInvoice(confirmedInvoice);
       updateDoc(docId, { status: "done", dbId: saved.id });
