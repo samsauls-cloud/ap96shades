@@ -316,6 +316,22 @@ export function TermsConfirmationPanel({ invoice, onConfirmed }: Props) {
     }
     setConfirming(true);
     try {
+      // ── Pre-save validation gate ──
+      const { runPreflightOrAbort } = await import("@/lib/invoice-preflight");
+      const preflightOk = await runPreflightOrAbort(
+        {
+          id: invoice.id,
+          vendor: invoice.vendor,
+          invoice_number: invoice.invoice_number,
+          invoice_date: invoice.invoice_date,
+          total: invoice.total,
+          payment_terms: termsToLabel(previewTerms),
+          doc_type: (invoice as any).doc_type ?? "INVOICE",
+        },
+        previewInstallments.map(i => ({ due_date: i.due_date, amount_due: i.amount_due })),
+      );
+      if (!preflightOk) { setConfirming(false); return; }
+
       // 1. Save terms to invoice
       const { error: updateErr } = await supabase
         .from("vendor_invoices")
