@@ -13,6 +13,8 @@ import { parsedToInvoice, batchInsertInvoices, uploadPDFToStorage } from "@/lib/
 import { useQueryClient } from "@tanstack/react-query";
 import { generatePaymentsForInvoice } from "@/lib/payment-queries";
 import { recordTermsApprovedAsIs } from "@/lib/supabase-queries";
+import { runPreflightOrAbort } from "@/lib/invoice-preflight";
+import { calculateInstallments } from "@/lib/payment-terms";
 
 // ── Enhanced system prompt for new vendor extraction ──
 const NEW_VENDOR_SYSTEM_PROMPT = `You are extracting EVERY possible field from a vendor invoice for an optical retail business. This is a NEW, UNKNOWN vendor — extract everything you can find.
