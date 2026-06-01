@@ -183,13 +183,17 @@ export async function checkInvoiceDuplicate(
   incomingItems: LineItem[],
   incomingTotal: number
 ): Promise<DedupAction> {
-  const normalizedVendor = normalizeVendor(vendor);
+  // Resolve through alias map (wizard-defined + static) so "Dita"/"DITA"/
+  // "DITA Eyewear" all collapse to one canonical vendor before the dup test.
+  const normalizedVendor = await normalizeVendorAsync(vendor);
 
+  // Case-insensitive vendor match — protects against legacy rows saved
+  // with different casing (the original DITA bug).
   const { data } = await supabase
     .from("vendor_invoices")
     .select("id, line_items, total, is_multi_shipment, shipment_count")
     .eq("invoice_number", invoiceNumber)
-    .eq("vendor", normalizedVendor)
+    .ilike("vendor", normalizedVendor)
     .limit(1);
 
   if (!data || data.length === 0) {

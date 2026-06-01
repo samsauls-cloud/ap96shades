@@ -675,11 +675,26 @@ export default function ReaderPage() {
         // Auto-generate payment installments — skip for proformas, and skip
         // when the user supplied an override (applyUserTermsOverride writes its own rows).
         try {
-          await generatePaymentsForInvoice(
+          const generated = await generatePaymentsForInvoice(
             saved.id, confirmedInvoice.invoice_date, confirmedInvoice.total || 0,
             confirmedInvoice.vendor, confirmedInvoice.invoice_number,
             confirmedInvoice.po_number ?? null
           );
+          // Guard 2: never let an invoice land in `terms_status='confirmed'`
+          // with zero installment rows (unknown vendor / no engine match).
+          // Flip back to needs_review so TermsConfirmationPanel prompts the
+          // user to apply terms explicitly — "ask on entry".
+          if (generated === 0) {
+            const { supabase } = await import("@/integrations/supabase/client");
+            await supabase
+              .from("vendor_invoices")
+              .update({ terms_status: "needs_review", terms_confidence: "low" } as any)
+              .eq("id", saved.id);
+            toast.warning(
+              `No payment schedule generated for ${confirmedInvoice.vendor} ${confirmedInvoice.invoice_number} — open the invoice and apply terms to schedule it.`,
+              { duration: 8000 },
+            );
+          }
         } catch { /* silent */ }
       }
 
