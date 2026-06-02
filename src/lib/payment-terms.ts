@@ -306,6 +306,20 @@ function calculateDueDate(invoiceDate: string, eomBased: boolean, offsetDays: nu
   return addDays(d, offsetDays);
 }
 
+/**
+ * EOM-based presets count from delivery_date when present; else invoice_date.
+ * Net-day (non-EOM) presets always count from invoice_date.
+ * Null/empty delivery_date ⇒ identical to prior behavior (no regression).
+ */
+export function eomAnchorDate(
+  invoiceDate: string,
+  deliveryDate: string | null | undefined,
+  isEomBased: boolean,
+): string {
+  if (isEomBased && deliveryDate) return deliveryDate;
+  return invoiceDate;
+}
+
 // ── Generate installments from structured terms ───────────
 export function calculateInstallmentsFromTerms(
   invoiceDate: string,
@@ -314,6 +328,7 @@ export function calculateInstallmentsFromTerms(
   invoiceNumber: string,
   poNumber: string | null,
   terms: ExtractedTerms,
+  deliveryDate?: string | null,
 ): PaymentInstallment[] {
   const normalized = normalizeVendor(vendor);
   const parsedTotal = typeof total === "number" ? total : parseFloat(String(total)) || 0;
@@ -325,10 +340,12 @@ export function calculateInstallmentsFromTerms(
   const baseAmount = parseFloat((parsedTotal / count).toFixed(2));
   const lastAmount = parseFloat((parsedTotal - baseAmount * (count - 1)).toFixed(2));
 
+  const anchor = eomAnchorDate(invoiceDate, deliveryDate, terms.eom_based);
+
   return terms.days.map((offset, index) => {
     const isLast = index === count - 1;
     const amount = isLast ? lastAmount : baseAmount;
-    const dueDate = calculateDueDate(invoiceDate, terms.eom_based, offset);
+    const dueDate = calculateDueDate(anchor, terms.eom_based, offset);
     return {
       vendor: normalized,
       invoice_number: invoiceNumber,
@@ -386,7 +403,11 @@ export function calculateInstallments(
   invoiceNumber: string,
   poNumber: string | null,
   paymentTermsText?: string | null,
+  deliveryDate?: string | null,
 ): PaymentInstallment[] {
+  // EOM-based branches anchor on delivery_date when present; net-day branches
+  // always use invoice_date. Null delivery_date ⇒ identical to prior behavior.
+  const eomAnchor = deliveryDate || invoiceDate;
   const normalized = normalizeVendor(vendor);
   const terms = parsePaymentTermsText(paymentTermsText);
   const termsLower = (paymentTermsText ?? '').toLowerCase().trim();
@@ -404,7 +425,7 @@ export function calculateInstallments(
   if (isNetEom) {
     const parsedTotal = typeof total === "number" ? total : parseFloat(String(total)) || 0;
     if (parsedTotal <= 0) return [];
-    const d = new Date(invoiceDate + "T00:00:00");
+    const d = new Date(eomAnchor + "T00:00:00");
     const dueDate = new Date(d.getFullYear(), d.getMonth() + 2, 0); // end of following month
     return [{
       vendor: normalized,
@@ -423,7 +444,7 @@ export function calculateInstallments(
   if (normalized === 'Marcolin' && (termsLower.includes('check 20') || termsLower.includes('20 days eom') || termsLower.includes('20 days eom'))) {
     const parsedTotal = typeof total === "number" ? total : parseFloat(String(total)) || 0;
     if (parsedTotal <= 0) return [];
-    const d = new Date(invoiceDate + "T00:00:00");
+    const d = new Date(eomAnchor + "T00:00:00");
     const eom = lastDayOfMonth(d);
     const due = addDays(eom, 20);
     return [{
@@ -443,7 +464,7 @@ export function calculateInstallments(
   if (normalized === 'Safilo' && termsLower.includes('60') && termsLower.includes('eom')) {
     const parsedTotal = typeof total === "number" ? total : parseFloat(String(total)) || 0;
     if (parsedTotal <= 0) return [];
-    const d = new Date(invoiceDate + "T00:00:00");
+    const d = new Date(eomAnchor + "T00:00:00");
     const eom = lastDayOfMonth(d);
     const due = addDays(eom, 60);
     return [{
@@ -464,7 +485,7 @@ export function calculateInstallments(
     const parsedTotal = typeof total === "number" ? total : parseFloat(String(total)) || 0;
     if (parsedTotal <= 0) return [];
     const offsets = [30, 60, 90];
-    const d = new Date(invoiceDate + "T00:00:00");
+    const d = new Date(eomAnchor + "T00:00:00");
     const eom = lastDayOfMonth(d);
     const baseAmount = parseFloat((parsedTotal / 3).toFixed(2));
     const lastAmount = parseFloat((parsedTotal - baseAmount * 2).toFixed(2));
@@ -505,7 +526,7 @@ export function calculateInstallments(
     if (offsets.length > 0) {
       const parsedTotal = typeof total === "number" ? total : parseFloat(String(total)) || 0;
       if (parsedTotal <= 0) return [];
-      const d = new Date(invoiceDate + "T00:00:00");
+      const d = new Date(eomAnchor + "T00:00:00");
       const eom = lastDayOfMonth(d);
       const count = offsets.length;
       const baseAmount = parseFloat((parsedTotal / count).toFixed(2));
@@ -539,7 +560,7 @@ export function calculateInstallments(
       const parsedTotal = typeof total === "number" ? total : parseFloat(String(total)) || 0;
       if (parsedTotal <= 0) return [];
       const offsets = [30, 60, 90];
-      const d = new Date(invoiceDate + "T00:00:00");
+      const d = new Date(eomAnchor + "T00:00:00");
       const eom = lastDayOfMonth(d);
       const baseAmount = parseFloat((parsedTotal / 3).toFixed(2));
       const lastAmount = parseFloat((parsedTotal - baseAmount * 2).toFixed(2));
@@ -565,7 +586,7 @@ export function calculateInstallments(
       // EOM+30 single payment: EOM → +30 (baseline) → +30 (due)
       const parsedTotal = typeof total === "number" ? total : parseFloat(String(total)) || 0;
       if (parsedTotal <= 0) return [];
-      const { due } = computeLuxEomSingleDueDate(invoiceDate);
+      const { due } = computeLuxEomSingleDueDate(eomAnchor);
       return [{
         vendor: normalized,
         invoice_number: invoiceNumber,
@@ -598,7 +619,7 @@ export function calculateInstallments(
       shipping_terms: null,
       extraction_notes: "Fallback to vendor default (legacy path)",
     };
-    return calculateInstallmentsFromTerms(invoiceDate, total, vendor, invoiceNumber, poNumber, fallbackTerms);
+    return calculateInstallmentsFromTerms(invoiceDate, total, vendor, invoiceNumber, poNumber, fallbackTerms, deliveryDate);
   }
-  return calculateInstallmentsFromTerms(invoiceDate, total, vendor, invoiceNumber, poNumber, terms);
+  return calculateInstallmentsFromTerms(invoiceDate, total, vendor, invoiceNumber, poNumber, terms, deliveryDate);
 }

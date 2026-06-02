@@ -1,0 +1,2 @@
+ALTER TABLE public.vendor_invoices ADD COLUMN IF NOT EXISTS delivery_date date;
+COMMENT ON COLUMN public.vendor_invoices.delivery_date IS 'Goods delivery/ship date; EOM schedules anchor on this when present, else invoice_date.';

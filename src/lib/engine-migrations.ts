@@ -235,6 +235,7 @@ export interface MigrationExecutionResult {
   migrated: number;
   skipped_credit: { invoice_number: string }[];
   skipped_paid: { invoice_number: string }[];
+  skipped_user_overridden: { invoice_number: string }[];
   errors: { invoice_number: string; error: string }[];
 }
 
@@ -242,12 +243,35 @@ export interface MigrationExecutionResult {
  * Execute a migration report. Triggered ONLY by explicit user "Approve Migration" click.
  * Per invoice: re-checks Guard 1 + Guard 2 against fresh DB state, then snapshot/delete/regenerate/insert,
  * and writes a recalc_audit_log entry tagged with the report's audit_action.
+ *
+ * Also skips invoices whose `terms_confidence='user_overridden'` — Josh's
+ * confirmed dates are authoritative and must never be silently overwritten
+ * by a bulk engine recompute. Counts are returned so the UI can show them.
  */
 export async function executeMigration(report: MigrationImpactReport): Promise<MigrationExecutionResult> {
-  const result: MigrationExecutionResult = { migrated: 0, skipped_credit: [], skipped_paid: [], errors: [] };
+  const result: MigrationExecutionResult = { migrated: 0, skipped_credit: [], skipped_paid: [], skipped_user_overridden: [], errors: [] };
 
   for (const c of report.candidates) {
     try {
+      // ── Skip user-overridden invoices (authoritative dates from Josh) ──
+      const { data: invRow } = await supabase
+        .from("vendor_invoices")
+        .select("terms_confidence")
+        .eq("id", c.invoice_id)
+        .maybeSingle();
+      if ((invRow as any)?.terms_confidence === "user_overridden") {
+        result.skipped_user_overridden.push({ invoice_number: c.invoice_number });
+        await supabase.from("recalc_audit_log" as any).insert({
+          invoice_id: c.invoice_id,
+          invoice_number: c.invoice_number,
+          vendor: c.vendor,
+          action: `${report.audit_action}_skipped_user_overridden`,
+          metadata: { reason: "terms_confidence=user_overridden — schedule is authoritative" } as any,
+          performed_by: "migration_ui_button",
+        });
+        continue;
+      }
+
       // ── Re-check guards against fresh DB state ──
       const { data: freshRows, error: rowErr } = await supabase
         .from("invoice_payments")

@@ -661,6 +661,7 @@ export default function ReaderPage() {
             confirmedInvoice.invoice_number,
             confirmedInvoice.po_number ?? null,
             confirmedInvoice.payment_terms ?? null,
+            (confirmedInvoice as any).delivery_date ?? null,
           ).map(i => ({ due_date: i.due_date, amount_due: i.amount_due }))
         : [];
       const ok = await runPreflightOrAbort(
@@ -709,7 +710,9 @@ export default function ReaderPage() {
           const generated = await generatePaymentsForInvoice(
             saved.id, confirmedInvoice.invoice_date, confirmedInvoice.total || 0,
             confirmedInvoice.vendor, confirmedInvoice.invoice_number,
-            confirmedInvoice.po_number ?? null
+            confirmedInvoice.po_number ?? null,
+            confirmedInvoice.payment_terms ?? null,
+            (confirmedInvoice as any).delivery_date ?? null,
           );
           // Guard 2: never let an invoice land in `terms_status='confirmed'`
           // with zero installment rows (unknown vendor / no engine match).

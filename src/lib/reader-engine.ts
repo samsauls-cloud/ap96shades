@@ -92,8 +92,11 @@ This business operates in the USA. Default date format is MM/DD/YYYY unless the 
 - Apply the chosen format consistently to invoice_date, due_date, delivery dates, and order dates.
 - ALWAYS output invoice_date and any due_date as ISO "YYYY-MM-DD".
 
+DELIVERY DATE EXTRACTION:
+Extract the DELIVERY / SHIP date of the goods, distinct from the order date and the invoice/document date. May be labeled "Delivery date", "Ship date", "Shipped", "Data consegna", or "Data DDT". If an order date and a separate later delivery/ship date both appear, return the delivery/ship date. If none, return null — never copy the invoice date here. Output as ISO "YYYY-MM-DD".
 
-Return ONLY valid JSON: { doc_type, vendor, vendor_brands[], invoice_number, invoice_date (YYYY-MM-DD), po_number, account_number, ship_to, carrier, payment_terms, payment_terms_extracted, shipping_terms, terms_preset (for Marcolin only: "check_20_eom"|"eom_50_80_110"|"uncertain"|null), terms_source_text (for Marcolin only: raw PDF snippet used for terms detection), subtotal, tax, freight, total, currency, needs_review, line_items[{upc, item_number, sku, description, brand, model, color_code, color_desc, size, temple, qty_ordered, qty_shipped, qty, unit_price, line_total}], notes }. CRITICAL: Return ONLY raw JSON. No markdown, no code fences, no backticks, no preamble, no explanation. Your response must start with { and end with }. Nothing before {. Nothing after }.`;
+
+Return ONLY valid JSON: { doc_type, vendor, vendor_brands[], invoice_number, invoice_date (YYYY-MM-DD), delivery_date (YYYY-MM-DD or null), po_number, account_number, ship_to, carrier, payment_terms, payment_terms_extracted, shipping_terms, terms_preset (for Marcolin only: "check_20_eom"|"eom_50_80_110"|"uncertain"|null), terms_source_text (for Marcolin only: raw PDF snippet used for terms detection), subtotal, tax, freight, total, currency, needs_review, line_items[{upc, item_number, sku, description, brand, model, color_code, color_desc, size, temple, qty_ordered, qty_shipped, qty, unit_price, line_total}], notes }. CRITICAL: Return ONLY raw JSON. No markdown, no code fences, no backticks, no preamble, no explanation. Your response must start with { and end with }. Nothing before {. Nothing after }.`;
 
 export const CONCURRENCY = 4;
 export const RETRY_CONCURRENCY = 3;
@@ -312,6 +315,13 @@ export function parsedToInvoice(parsed: any, filename: string, pdfUrl?: string |
   let invoiceDate = parsed.invoice_date || new Date().toISOString().split("T")[0];
   invoiceDate = normalizeInvoiceYear(invoiceDate);
 
+  // Delivery date — used to anchor EOM-based schedules when present.
+  // Never copy invoice_date here; reuse the same year normalizer.
+  let deliveryDate: string | null = null;
+  if (parsed.delivery_date && typeof parsed.delivery_date === "string") {
+    deliveryDate = normalizeInvoiceYear(parsed.delivery_date);
+  }
+
   return {
     vendor,
     doc_type: docType,
@@ -344,6 +354,7 @@ export function parsedToInvoice(parsed: any, filename: string, pdfUrl?: string |
       ...(extractedTermsSourceText ? { extracted_terms_source_text: extractedTermsSourceText } : {}),
       ...(isCreditMemo ? { status: "open" } : {}),
       ...(pdfUrl ? { pdf_url: pdfUrl } : {}),
+      ...(deliveryDate ? { delivery_date: deliveryDate } : {}),
     }) as any),
   };
 }
