@@ -16,6 +16,7 @@ import {
 import { InvoiceNav } from "@/components/invoices/InvoiceNav";
 import { supabase } from "@/integrations/supabase/client";
 import { applyVendorDiscount } from "@/lib/vendor-pricing-rules";
+import { normalizeDocType } from "@/lib/reader-engine";
 
 interface ParsedRow {
   order_qty: number;
