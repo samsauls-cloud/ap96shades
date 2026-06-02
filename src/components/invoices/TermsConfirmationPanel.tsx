@@ -142,6 +142,7 @@ export function TermsConfirmationPanel({ invoice, onConfirmed }: Props) {
       invoice.invoice_number,
       invoice.po_number,
       previewTerms,
+      (invoice as any).delivery_date ?? null,
     );
   }, [previewTerms, invoice]);
 
