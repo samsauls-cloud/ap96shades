@@ -1088,6 +1088,7 @@ export type Database = {
           created_at: string
           credit_due: number | null
           currency: string
+          delivery_date: string | null
           doc_type: string
           due_date: string | null
           entered_after_recon: boolean | null
@@ -1156,6 +1157,7 @@ export type Database = {
           created_at?: string
           credit_due?: number | null
           currency?: string
+          delivery_date?: string | null
           doc_type?: string
           due_date?: string | null
           entered_after_recon?: boolean | null
@@ -1224,6 +1226,7 @@ export type Database = {
           created_at?: string
           credit_due?: number | null
           currency?: string
+          delivery_date?: string | null
           doc_type?: string
           due_date?: string | null
           entered_after_recon?: boolean | null
