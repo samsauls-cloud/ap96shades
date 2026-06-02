@@ -354,6 +354,7 @@ export function parsedToInvoice(parsed: any, filename: string, pdfUrl?: string |
       ...(extractedTermsSourceText ? { extracted_terms_source_text: extractedTermsSourceText } : {}),
       ...(isCreditMemo ? { status: "open" } : {}),
       ...(pdfUrl ? { pdf_url: pdfUrl } : {}),
+      ...(deliveryDate ? { delivery_date: deliveryDate } : {}),
     }) as any),
   };
 }
