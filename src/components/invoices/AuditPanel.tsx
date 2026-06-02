@@ -598,6 +598,32 @@ export function AuditPanel({ audit, onRefresh, isLoading, totalInvoices, highlig
           </div>
         )}
 
+        {/* 6. EOM invoices missing delivery_date */}
+        {(audit.eomMissingDelivery?.length ?? 0) > 0 && (
+          <div id="audit-eomMissingDelivery" className={`rounded-lg p-3 transition-colors ${isHighlighted("eomMissingDelivery") ? "ring-2 ring-blue-500/50 bg-blue-500/5" : ""}`}>
+            <p className="text-xs font-semibold mb-2 flex items-center gap-1.5">
+              <AlertTriangle className="h-3.5 w-3.5 text-blue-500" />
+              EOM Invoices Missing Delivery Date ({audit.eomMissingDelivery.length})
+            </p>
+            <p className="text-[10px] text-muted-foreground mb-2">
+              These EOM-based invoices have no delivery/ship date captured, so EOM anchors fall back to the invoice date. Re-upload or edit to add a delivery date when applicable.
+            </p>
+            <div className="space-y-1.5">
+              {audit.eomMissingDelivery.map(inv => (
+                <div key={inv.id} className="flex items-center justify-between rounded border border-blue-500/20 bg-blue-500/5 p-2 text-xs">
+                  <div className="min-w-0">
+                    <p className="font-mono truncate">{inv.invoice_number}</p>
+                    <p className="text-[10px] text-muted-foreground">{inv.vendor} · invoice {inv.invoice_date}</p>
+                  </div>
+                  <span className="tabular-nums shrink-0">{formatCurrency(inv.total)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+
+
         {/* Pending Migration — Option B impact-report-then-approve flow */}
         <div className="pt-1">
           <PendingMigrationSection onCompleted={onRefresh} />
