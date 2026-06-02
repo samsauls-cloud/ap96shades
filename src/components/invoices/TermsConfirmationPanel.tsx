@@ -138,7 +138,7 @@ export function TermsConfirmationPanel({ invoice, onConfirmed }: Props) {
     extraction_notes: "Manually confirmed",
   }), [termType, days, installments, eomBased, discountPct, discountDays, netDays, invoice.payment_terms]);
 
-  // Preview installments
+  // Preview installments (re-runs when deliveryDate changes)
   const previewInstallments = useMemo(() => {
     if (days.length === 0) return [];
     return calculateInstallmentsFromTerms(
@@ -148,9 +148,9 @@ export function TermsConfirmationPanel({ invoice, onConfirmed }: Props) {
       invoice.invoice_number,
       invoice.po_number,
       previewTerms,
-      (invoice as any).delivery_date ?? null,
+      deliveryDate || null,
     );
-  }, [previewTerms, invoice]);
+  }, [previewTerms, invoice, deliveryDate]);
 
   // ── Vendor rule enforcement (Revo = Net 90, etc.) ────────────────────
   const lockedRule = useMemo(
