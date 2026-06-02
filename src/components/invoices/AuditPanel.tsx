@@ -15,16 +15,16 @@ import { ScheduleDivergencesSection } from "./ScheduleDivergencesSection";
 import { PendingMigrationSection } from "./PendingMigrationSection";
 
 type AuditStatus = "clean" | "warning" | "error";
-type IssueCategory = "missingPayments" | "mathDiscrepancies" | "unknownVendors" | "duplicateInvoices" | "staleInstallments";
+type IssueCategory = "missingPayments" | "mathDiscrepancies" | "unknownVendors" | "duplicateInvoices" | "staleInstallments" | "eomMissingDelivery";
 
 function getAuditStatus(audit: AuditResult): AuditStatus {
   if (audit.mathDiscrepancies.length > 0) return "error";
-  if (audit.missingPayments.length > 0 || audit.unknownVendors.length > 0 || audit.duplicateInvoices.length > 0 || audit.staleInstallments.length > 0) return "warning";
+  if (audit.missingPayments.length > 0 || audit.unknownVendors.length > 0 || audit.duplicateInvoices.length > 0 || audit.staleInstallments.length > 0 || (audit.eomMissingDelivery?.length ?? 0) > 0) return "warning";
   return "clean";
 }
 
 function getIssueCount(audit: AuditResult): number {
-  return audit.missingPayments.length + audit.mathDiscrepancies.length + audit.unknownVendors.length + audit.duplicateInvoices.length + audit.staleInstallments.length;
+  return audit.missingPayments.length + audit.mathDiscrepancies.length + audit.unknownVendors.length + audit.duplicateInvoices.length + audit.staleInstallments.length + (audit.eomMissingDelivery?.length ?? 0);
 }
 
 interface IssueDef {
@@ -47,6 +47,8 @@ function getIssueChips(audit: AuditResult): IssueDef[] {
     chips.push({ key: "duplicateInvoices", count: audit.duplicateInvoices.length, label: "Duplicates", color: "text-red-600 dark:text-red-400", bgColor: "bg-red-500/10 hover:bg-red-500/20 border-red-500/30" });
   if (audit.staleInstallments.length > 0)
     chips.push({ key: "staleInstallments", count: audit.staleInstallments.length, label: "Stale Installments", color: "text-purple-600 dark:text-purple-400", bgColor: "bg-purple-500/10 hover:bg-purple-500/20 border-purple-500/30" });
+  if ((audit.eomMissingDelivery?.length ?? 0) > 0)
+    chips.push({ key: "eomMissingDelivery", count: audit.eomMissingDelivery.length, label: "EOM Missing Delivery", color: "text-blue-600 dark:text-blue-400", bgColor: "bg-blue-500/10 hover:bg-blue-500/20 border-blue-500/30" });
   return chips;
 }
 
