@@ -16,6 +16,7 @@ import {
 import { InvoiceNav } from "@/components/invoices/InvoiceNav";
 import { supabase } from "@/integrations/supabase/client";
 import { applyVendorDiscount } from "@/lib/vendor-pricing-rules";
+import { normalizeDocType } from "@/lib/reader-engine";
 
 interface ParsedRow {
   order_qty: number;
@@ -199,7 +200,7 @@ export default function LightspeedImportPage() {
 
       const { error } = await supabase.from("vendor_invoices").insert({
         vendor,
-        doc_type: "PO",
+        doc_type: normalizeDocType("PO"),
         invoice_number: poNumber || `LS-${Date.now()}`,
         invoice_date: new Date().toISOString().split("T")[0],
         subtotal: discountResult.subtotal ?? subtotal,
