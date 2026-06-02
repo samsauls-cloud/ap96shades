@@ -15,16 +15,16 @@ import { ScheduleDivergencesSection } from "./ScheduleDivergencesSection";
 import { PendingMigrationSection } from "./PendingMigrationSection";
 
 type AuditStatus = "clean" | "warning" | "error";
-type IssueCategory = "missingPayments" | "mathDiscrepancies" | "unknownVendors" | "duplicateInvoices" | "staleInstallments";
+type IssueCategory = "missingPayments" | "mathDiscrepancies" | "unknownVendors" | "duplicateInvoices" | "staleInstallments" | "eomMissingDelivery";
 
 function getAuditStatus(audit: AuditResult): AuditStatus {
   if (audit.mathDiscrepancies.length > 0) return "error";
-  if (audit.missingPayments.length > 0 || audit.unknownVendors.length > 0 || audit.duplicateInvoices.length > 0 || audit.staleInstallments.length > 0) return "warning";
+  if (audit.missingPayments.length > 0 || audit.unknownVendors.length > 0 || audit.duplicateInvoices.length > 0 || audit.staleInstallments.length > 0 || (audit.eomMissingDelivery?.length ?? 0) > 0) return "warning";
   return "clean";
 }
 
 function getIssueCount(audit: AuditResult): number {
-  return audit.missingPayments.length + audit.mathDiscrepancies.length + audit.unknownVendors.length + audit.duplicateInvoices.length + audit.staleInstallments.length;
+  return audit.missingPayments.length + audit.mathDiscrepancies.length + audit.unknownVendors.length + audit.duplicateInvoices.length + audit.staleInstallments.length + (audit.eomMissingDelivery?.length ?? 0);
 }
 
 interface IssueDef {
@@ -47,6 +47,8 @@ function getIssueChips(audit: AuditResult): IssueDef[] {
     chips.push({ key: "duplicateInvoices", count: audit.duplicateInvoices.length, label: "Duplicates", color: "text-red-600 dark:text-red-400", bgColor: "bg-red-500/10 hover:bg-red-500/20 border-red-500/30" });
   if (audit.staleInstallments.length > 0)
     chips.push({ key: "staleInstallments", count: audit.staleInstallments.length, label: "Stale Installments", color: "text-purple-600 dark:text-purple-400", bgColor: "bg-purple-500/10 hover:bg-purple-500/20 border-purple-500/30" });
+  if ((audit.eomMissingDelivery?.length ?? 0) > 0)
+    chips.push({ key: "eomMissingDelivery", count: audit.eomMissingDelivery.length, label: "EOM Missing Delivery", color: "text-blue-600 dark:text-blue-400", bgColor: "bg-blue-500/10 hover:bg-blue-500/20 border-blue-500/30" });
   return chips;
 }
 
@@ -103,7 +105,7 @@ export function AuditBanner({ audit, totalInvoices, onScrollTo }: { audit: Audit
 export function AuditPanel({ audit, onRefresh, isLoading, totalInvoices, highlightSection }: Props & { highlightSection?: IssueCategory | null }) {
   const [generatingId, setGeneratingId] = useState<string | null>(null);
   const [recalcId, setRecalcId] = useState<string | null>(null);
-  const [confirmRecalc, setConfirmRecalc] = useState<{ id: string; invoiceNumber: string; vendor: string; total: number; invoiceDate: string; poNumber: string | null; paymentTerms: string | null } | null>(null);
+  const [confirmRecalc, setConfirmRecalc] = useState<{ id: string; invoiceNumber: string; vendor: string; total: number; invoiceDate: string; poNumber: string | null; paymentTerms: string | null; deliveryDate: string | null } | null>(null);
   const [guardResult, setGuardResult] = useState<RecalcGuardResult | null>(null);
   const [guardLoading, setGuardLoading] = useState(false);
   const [typedConfirm, setTypedConfirm] = useState("");
@@ -118,7 +120,7 @@ export function AuditPanel({ audit, onRefresh, isLoading, totalInvoices, highlig
   const handleGenerateSingle = async (inv: AuditResult["missingPayments"][0]) => {
     setGeneratingId(inv.id);
     try {
-      const count = await generatePaymentsForInvoice(inv.id, inv.invoice_date, inv.total, inv.vendor, inv.invoice_number, inv.po_number, inv.payment_terms);
+      const count = await generatePaymentsForInvoice(inv.id, inv.invoice_date, inv.total, inv.vendor, inv.invoice_number, inv.po_number, inv.payment_terms, inv.delivery_date);
       toast.success(`Generated ${count} payments for ${inv.invoice_number}`);
       onRefresh();
     } catch (e: any) {
@@ -134,13 +136,13 @@ export function AuditPanel({ audit, onRefresh, isLoading, totalInvoices, highlig
     setTypedConfirm("");
   };
 
-  const handleRequestRecalc = async (inv: { id: string; invoiceNumber: string; vendor: string; total: number; invoiceDate: string; poNumber: string | null; paymentTerms: string | null }) => {
+  const handleRequestRecalc = async (inv: { id: string; invoiceNumber: string; vendor: string; total: number; invoiceDate: string; poNumber: string | null; paymentTerms: string | null; deliveryDate: string | null }) => {
     setConfirmRecalc(inv);
     setGuardResult(null);
     setTypedConfirm("");
     setGuardLoading(true);
     try {
-      const result = await runRecalcGuards(inv.id, inv.invoiceDate, inv.total, inv.vendor, inv.invoiceNumber, inv.poNumber, inv.paymentTerms);
+      const result = await runRecalcGuards(inv.id, inv.invoiceDate, inv.total, inv.vendor, inv.invoiceNumber, inv.poNumber, inv.paymentTerms, inv.deliveryDate);
       setGuardResult(result);
     } catch (e: any) {
       toast.error(`Guard check failed: ${e.message}`);
@@ -158,7 +160,7 @@ export function AuditPanel({ audit, onRefresh, isLoading, totalInvoices, highlig
       const count = await recalculatePaymentsForInvoice(
         confirmRecalc.id, confirmRecalc.invoiceDate, confirmRecalc.total,
         confirmRecalc.vendor, confirmRecalc.invoiceNumber, confirmRecalc.poNumber,
-        confirmRecalc.paymentTerms, isManualOverride
+        confirmRecalc.paymentTerms, isManualOverride, confirmRecalc.deliveryDate,
       );
       toast.success(`Recalculated: ${count} new installments for ${confirmRecalc.invoiceNumber}`);
       dismissRecalc();
@@ -431,7 +433,7 @@ export function AuditPanel({ audit, onRefresh, isLoading, totalInvoices, highlig
                       <TableCell className="text-right">
                         <Button size="sm" variant="outline" className="text-[10px] h-6" onClick={() => handleRequestRecalc({
                           id: d.id, invoiceNumber: d.invoice_number, vendor: d.vendor,
-                          total: d.total, invoiceDate: d.invoice_date, poNumber: d.po_number, paymentTerms: d.payment_terms,
+                          total: d.total, invoiceDate: d.invoice_date, poNumber: d.po_number, paymentTerms: d.payment_terms, deliveryDate: d.delivery_date,
                         })}>
                           Fix
                         </Button>
@@ -595,6 +597,32 @@ export function AuditPanel({ audit, onRefresh, isLoading, totalInvoices, highlig
             </div>
           </div>
         )}
+
+        {/* 6. EOM invoices missing delivery_date */}
+        {(audit.eomMissingDelivery?.length ?? 0) > 0 && (
+          <div id="audit-eomMissingDelivery" className={`rounded-lg p-3 transition-colors ${isHighlighted("eomMissingDelivery") ? "ring-2 ring-blue-500/50 bg-blue-500/5" : ""}`}>
+            <p className="text-xs font-semibold mb-2 flex items-center gap-1.5">
+              <AlertTriangle className="h-3.5 w-3.5 text-blue-500" />
+              EOM Invoices Missing Delivery Date ({audit.eomMissingDelivery.length})
+            </p>
+            <p className="text-[10px] text-muted-foreground mb-2">
+              These EOM-based invoices have no delivery/ship date captured, so EOM anchors fall back to the invoice date. Re-upload or edit to add a delivery date when applicable.
+            </p>
+            <div className="space-y-1.5">
+              {audit.eomMissingDelivery.map(inv => (
+                <div key={inv.id} className="flex items-center justify-between rounded border border-blue-500/20 bg-blue-500/5 p-2 text-xs">
+                  <div className="min-w-0">
+                    <p className="font-mono truncate">{inv.invoice_number}</p>
+                    <p className="text-[10px] text-muted-foreground">{inv.vendor} · invoice {inv.invoice_date}</p>
+                  </div>
+                  <span className="tabular-nums shrink-0">{formatCurrency(inv.total)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+
 
         {/* Pending Migration — Option B impact-report-then-approve flow */}
         <div className="pt-1">

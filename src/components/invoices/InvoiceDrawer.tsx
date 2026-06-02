@@ -548,7 +548,8 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
                       setGeneratingPayments(true);
                       try {
                         const count = await generatePaymentsForInvoice(
-                          inv.id, inv.invoice_date, inv.total, inv.vendor, inv.invoice_number, inv.po_number
+                          inv.id, inv.invoice_date, inv.total, inv.vendor, inv.invoice_number, inv.po_number,
+                          (inv as any).payment_terms ?? null, (inv as any).delivery_date ?? null,
                         );
                         toast.success(`Generated ${count} payment installments`);
                         queryClient.invalidateQueries({ queryKey: ["invoice_payments_detail", inv.id] });

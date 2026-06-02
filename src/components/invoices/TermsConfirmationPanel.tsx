@@ -65,6 +65,12 @@ export function TermsConfirmationPanel({ invoice, onConfirmed }: Props) {
   const [discountDays, setDiscountDays] = useState(extracted.discount_days ?? 10);
   const [netDays, setNetDays] = useState(extracted.net_days ?? 30);
   const [confirming, setConfirming] = useState(false);
+  const [deliveryDate, setDeliveryDate] = useState<string>(
+    ((invoice as any).delivery_date as string | null) ?? "",
+  );
+  useEffect(() => {
+    setDeliveryDate(((invoice as any).delivery_date as string | null) ?? "");
+  }, [(invoice as any).delivery_date]);
 
   // ── Drop 2: Edit-existing override flow ─────────────────────────────
   const [editing, setEditing] = useState(false);
@@ -132,7 +138,7 @@ export function TermsConfirmationPanel({ invoice, onConfirmed }: Props) {
     extraction_notes: "Manually confirmed",
   }), [termType, days, installments, eomBased, discountPct, discountDays, netDays, invoice.payment_terms]);
 
-  // Preview installments
+  // Preview installments (re-runs when deliveryDate changes)
   const previewInstallments = useMemo(() => {
     if (days.length === 0) return [];
     return calculateInstallmentsFromTerms(
@@ -142,9 +148,9 @@ export function TermsConfirmationPanel({ invoice, onConfirmed }: Props) {
       invoice.invoice_number,
       invoice.po_number,
       previewTerms,
-      (invoice as any).delivery_date ?? null,
+      deliveryDate || null,
     );
-  }, [previewTerms, invoice]);
+  }, [previewTerms, invoice, deliveryDate]);
 
   // ── Vendor rule enforcement (Revo = Net 90, etc.) ────────────────────
   const lockedRule = useMemo(
@@ -229,7 +235,7 @@ export function TermsConfirmationPanel({ invoice, onConfirmed }: Props) {
       // ── Pre-save validation gate ──
       const lockedSchedulePreview = calculateInstallmentsFromTerms(
         invoice.invoice_date, invoice.total, invoice.vendor,
-        invoice.invoice_number, invoice.po_number, ruleTerms, (invoice as any).delivery_date ?? null,
+        invoice.invoice_number, invoice.po_number, ruleTerms, deliveryDate || null,
       ).map(i => ({ due_date: i.due_date, amount_due: i.amount_due }));
       const { runPreflightOrAbort } = await import("@/lib/invoice-preflight");
       const preflightOk = await runPreflightOrAbort(
@@ -246,7 +252,7 @@ export function TermsConfirmationPanel({ invoice, onConfirmed }: Props) {
       );
       if (!preflightOk) { setApplyingLock(false); return; }
 
-      // 1. Save to invoice
+      // 1. Save to invoice (persist edited delivery_date alongside the rule)
       const { error: updateErr } = await supabase
         .from("vendor_invoices")
         .update({
@@ -255,6 +261,7 @@ export function TermsConfirmationPanel({ invoice, onConfirmed }: Props) {
           payment_terms: termsToLabel(ruleTerms),
           payment_terms_extracted: ruleTerms as any,
           payment_terms_source: "vendor_rule",
+          delivery_date: deliveryDate || null,
         } as any)
         .eq("id", invoice.id);
       if (updateErr) throw updateErr;
@@ -265,7 +272,7 @@ export function TermsConfirmationPanel({ invoice, onConfirmed }: Props) {
       // 3. Generate new payments from the rule
       const ruleInstallmentsPreview = calculateInstallmentsFromTerms(
         invoice.invoice_date, invoice.total, invoice.vendor,
-        invoice.invoice_number, invoice.po_number, ruleTerms, (invoice as any).delivery_date ?? null,
+        invoice.invoice_number, invoice.po_number, ruleTerms, deliveryDate || null,
       );
       const rows = ruleInstallmentsPreview.map((inst) => ({
         invoice_id: invoice.id,
@@ -333,7 +340,7 @@ export function TermsConfirmationPanel({ invoice, onConfirmed }: Props) {
       );
       if (!preflightOk) { setConfirming(false); return; }
 
-      // 1. Save terms to invoice
+      // 1. Save terms to invoice (persist edited delivery_date)
       const { error: updateErr } = await supabase
         .from("vendor_invoices")
         .update({
@@ -342,6 +349,7 @@ export function TermsConfirmationPanel({ invoice, onConfirmed }: Props) {
           payment_terms: termsToLabel(previewTerms),
           payment_terms_extracted: previewTerms as any,
           payment_terms_source: "manual",
+          delivery_date: deliveryDate || null,
         } as any)
         .eq("id", invoice.id);
       if (updateErr) throw updateErr;
@@ -502,13 +510,22 @@ export function TermsConfirmationPanel({ invoice, onConfirmed }: Props) {
         </div>
       )}
 
-      {/* Anchor source label */}
+      {/* Delivery / ship date — editable; drives EOM anchor live */}
       {(termType === "eom_single" || termType === "eom_split") && (
-        <p className="text-xs text-muted-foreground italic">
-          {(invoice as any).delivery_date
-            ? `EOM dates calculated from delivery date ${(invoice as any).delivery_date}`
-            : `EOM dates calculated from invoice date ${invoice.invoice_date} (no delivery date captured)`}
-        </p>
+        <div className="space-y-1">
+          <Label className="text-xs">Delivery / ship date (optional — used as EOM anchor)</Label>
+          <Input
+            type="date"
+            value={deliveryDate}
+            onChange={e => setDeliveryDate(e.target.value)}
+            className="h-8 text-xs"
+          />
+          <p className="text-xs text-muted-foreground italic">
+            {deliveryDate
+              ? `EOM dates calculated from delivery date ${deliveryDate}`
+              : `EOM dates calculated from invoice date ${invoice.invoice_date} (no delivery date)`}
+          </p>
+        </div>
       )}
 
       {/* Preview */}
