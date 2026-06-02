@@ -306,6 +306,20 @@ function calculateDueDate(invoiceDate: string, eomBased: boolean, offsetDays: nu
   return addDays(d, offsetDays);
 }
 
+/**
+ * EOM-based presets count from delivery_date when present; else invoice_date.
+ * Net-day (non-EOM) presets always count from invoice_date.
+ * Null/empty delivery_date ⇒ identical to prior behavior (no regression).
+ */
+export function eomAnchorDate(
+  invoiceDate: string,
+  deliveryDate: string | null | undefined,
+  isEomBased: boolean,
+): string {
+  if (isEomBased && deliveryDate) return deliveryDate;
+  return invoiceDate;
+}
+
 // ── Generate installments from structured terms ───────────
 export function calculateInstallmentsFromTerms(
   invoiceDate: string,
@@ -314,6 +328,7 @@ export function calculateInstallmentsFromTerms(
   invoiceNumber: string,
   poNumber: string | null,
   terms: ExtractedTerms,
+  deliveryDate?: string | null,
 ): PaymentInstallment[] {
   const normalized = normalizeVendor(vendor);
   const parsedTotal = typeof total === "number" ? total : parseFloat(String(total)) || 0;
@@ -325,10 +340,12 @@ export function calculateInstallmentsFromTerms(
   const baseAmount = parseFloat((parsedTotal / count).toFixed(2));
   const lastAmount = parseFloat((parsedTotal - baseAmount * (count - 1)).toFixed(2));
 
+  const anchor = eomAnchorDate(invoiceDate, deliveryDate, terms.eom_based);
+
   return terms.days.map((offset, index) => {
     const isLast = index === count - 1;
     const amount = isLast ? lastAmount : baseAmount;
-    const dueDate = calculateDueDate(invoiceDate, terms.eom_based, offset);
+    const dueDate = calculateDueDate(anchor, terms.eom_based, offset);
     return {
       vendor: normalized,
       invoice_number: invoiceNumber,
