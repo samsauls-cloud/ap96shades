@@ -320,8 +320,12 @@ export function resolvePaymentSchedule(
   category: 'Procurement' | 'Special Order' | 'Credit',
   documentDate: Date,
   totalAmount: number,
-  paymentTerms?: string | null
+  paymentTerms?: string | null,
+  deliveryDate?: Date | null,
 ): PaymentSchedule {
+  // EOM-based presets count from delivery_date when present; else invoice_date.
+  // Net-day branches keep using documentDate. Null delivery_date ⇒ no regression.
+  const eomAnchor: Date = deliveryDate ?? documentDate;
 
   if (category === 'Credit' || totalAmount < 0) {
     return {
