@@ -315,6 +315,13 @@ export function parsedToInvoice(parsed: any, filename: string, pdfUrl?: string |
   let invoiceDate = parsed.invoice_date || new Date().toISOString().split("T")[0];
   invoiceDate = normalizeInvoiceYear(invoiceDate);
 
+  // Delivery date — used to anchor EOM-based schedules when present.
+  // Never copy invoice_date here; reuse the same year normalizer.
+  let deliveryDate: string | null = null;
+  if (parsed.delivery_date && typeof parsed.delivery_date === "string") {
+    deliveryDate = normalizeInvoiceYear(parsed.delivery_date);
+  }
+
   return {
     vendor,
     doc_type: docType,
