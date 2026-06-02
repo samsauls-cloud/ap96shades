@@ -340,7 +340,7 @@ export function TermsConfirmationPanel({ invoice, onConfirmed }: Props) {
       );
       if (!preflightOk) { setConfirming(false); return; }
 
-      // 1. Save terms to invoice
+      // 1. Save terms to invoice (persist edited delivery_date)
       const { error: updateErr } = await supabase
         .from("vendor_invoices")
         .update({
@@ -349,6 +349,7 @@ export function TermsConfirmationPanel({ invoice, onConfirmed }: Props) {
           payment_terms: termsToLabel(previewTerms),
           payment_terms_extracted: previewTerms as any,
           payment_terms_source: "manual",
+          delivery_date: deliveryDate || null,
         } as any)
         .eq("id", invoice.id);
       if (updateErr) throw updateErr;
