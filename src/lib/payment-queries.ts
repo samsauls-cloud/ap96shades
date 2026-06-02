@@ -558,6 +558,7 @@ export async function runRecalcGuards(
   invoiceNumber: string,
   poNumber: string | null,
   paymentTermsText?: string | null,
+  deliveryDate?: string | null,
 ): Promise<RecalcGuardResult> {
   const { data: rows, error } = await supabase
     .from("invoice_payments")
