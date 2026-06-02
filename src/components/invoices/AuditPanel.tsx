@@ -134,13 +134,13 @@ export function AuditPanel({ audit, onRefresh, isLoading, totalInvoices, highlig
     setTypedConfirm("");
   };
 
-  const handleRequestRecalc = async (inv: { id: string; invoiceNumber: string; vendor: string; total: number; invoiceDate: string; poNumber: string | null; paymentTerms: string | null }) => {
+  const handleRequestRecalc = async (inv: { id: string; invoiceNumber: string; vendor: string; total: number; invoiceDate: string; poNumber: string | null; paymentTerms: string | null; deliveryDate: string | null }) => {
     setConfirmRecalc(inv);
     setGuardResult(null);
     setTypedConfirm("");
     setGuardLoading(true);
     try {
-      const result = await runRecalcGuards(inv.id, inv.invoiceDate, inv.total, inv.vendor, inv.invoiceNumber, inv.poNumber, inv.paymentTerms);
+      const result = await runRecalcGuards(inv.id, inv.invoiceDate, inv.total, inv.vendor, inv.invoiceNumber, inv.poNumber, inv.paymentTerms, inv.deliveryDate);
       setGuardResult(result);
     } catch (e: any) {
       toast.error(`Guard check failed: ${e.message}`);
@@ -158,7 +158,7 @@ export function AuditPanel({ audit, onRefresh, isLoading, totalInvoices, highlig
       const count = await recalculatePaymentsForInvoice(
         confirmRecalc.id, confirmRecalc.invoiceDate, confirmRecalc.total,
         confirmRecalc.vendor, confirmRecalc.invoiceNumber, confirmRecalc.poNumber,
-        confirmRecalc.paymentTerms, isManualOverride
+        confirmRecalc.paymentTerms, isManualOverride, confirmRecalc.deliveryDate,
       );
       toast.success(`Recalculated: ${count} new installments for ${confirmRecalc.invoiceNumber}`);
       dismissRecalc();
