@@ -792,18 +792,19 @@ export interface StaleInstallment {
 }
 
 export interface AuditResult {
-  missingPayments: { id: string; invoice_number: string; vendor: string; total: number; invoice_date: string; po_number: string | null; payment_terms: string | null }[];
-  mathDiscrepancies: { id: string; invoice_number: string; vendor: string; total: number; installmentsSum: number; discrepancy: number; invoice_date: string; po_number: string | null; payment_terms: string | null }[];
+  missingPayments: { id: string; invoice_number: string; vendor: string; total: number; invoice_date: string; po_number: string | null; payment_terms: string | null; delivery_date: string | null }[];
+  mathDiscrepancies: { id: string; invoice_number: string; vendor: string; total: number; installmentsSum: number; discrepancy: number; invoice_date: string; po_number: string | null; payment_terms: string | null; delivery_date: string | null }[];
   unknownVendors: { id: string; invoice_number: string; vendor: string; total: number }[];
   duplicateInvoices: { invoice_number: string; vendor: string; count: number }[];
   staleInstallments: StaleInstallment[];
+  eomMissingDelivery: { id: string; invoice_number: string; vendor: string; invoice_date: string; total: number }[];
   lastAuditTime: string;
 }
 
 export async function runFullAudit(): Promise<AuditResult> {
   const { data: allInvoices } = await supabase
     .from("vendor_invoices")
-    .select("id, invoice_number, vendor, total, invoice_date, doc_type, po_number, payment_terms");
+    .select("id, invoice_number, vendor, total, invoice_date, doc_type, po_number, payment_terms, delivery_date, payment_terms_extracted");
   const { data: allPayments } = await supabase
     .from("invoice_payments")
     .select("invoice_id, amount_due");
@@ -826,6 +827,7 @@ export async function runFullAudit(): Promise<AuditResult> {
     invoice_date: inv.invoice_date,
     po_number: (inv as any).po_number ?? null,
     payment_terms: (inv as any).payment_terms ?? null,
+    delivery_date: (inv as any).delivery_date ?? null,
   }));
 
   // 2. Math discrepancies
@@ -852,6 +854,7 @@ export async function runFullAudit(): Promise<AuditResult> {
           invoice_date: inv.invoice_date,
           po_number: (inv as any).po_number ?? null,
           payment_terms: (inv as any).payment_terms ?? null,
+          delivery_date: (inv as any).delivery_date ?? null,
         });
       }
     }
@@ -884,12 +887,31 @@ export async function runFullAudit(): Promise<AuditResult> {
   // 5. Stale installments — paid rows after an unpaid row
   const staleInstallments = await detectStaleInstallments(payments, invoices);
 
+  // 6. EOM-based invoices missing delivery_date (anchor falls back to invoice_date silently)
+  const eomMissingDelivery = invoices
+    .filter(inv => {
+      const dt = (inv.doc_type || "").toLowerCase();
+      if (dt === "proforma" || dt === "pro-forma" || dt === "pro forma") return false;
+      if ((inv as any).delivery_date) return false;
+      const ext = (inv as any).payment_terms_extracted;
+      const isEom = !!(ext && typeof ext === "object" && (ext as any).eom_based === true);
+      return isEom;
+    })
+    .map(inv => ({
+      id: inv.id,
+      invoice_number: inv.invoice_number,
+      vendor: normalizeVendor(inv.vendor),
+      invoice_date: inv.invoice_date,
+      total: inv.total,
+    }));
+
   return {
     missingPayments,
     mathDiscrepancies,
     unknownVendors,
     duplicateInvoices,
     staleInstallments,
+    eomMissingDelivery,
     lastAuditTime: new Date().toISOString(),
   };
 }
