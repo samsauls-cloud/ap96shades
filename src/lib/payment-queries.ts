@@ -640,6 +640,7 @@ export async function recalculatePaymentsForInvoice(
   poNumber: string | null,
   paymentTermsText?: string | null,
   auditOverride: boolean = false,
+  deliveryDate?: string | null,
 ): Promise<number> {
   // Snapshot existing rows for audit log if overriding manual corrections
   let oldSnapshot: any[] = [];
@@ -661,7 +662,7 @@ export async function recalculatePaymentsForInvoice(
   const normalized = normalizeVendor(vendor);
   if (!hasTermsEngine(normalized)) return 0;
 
-  const installments = calculateInstallments(invoiceDate, total, normalized, invoiceNumber, poNumber, paymentTermsText);
+  const installments = calculateInstallments(invoiceDate, total, normalized, invoiceNumber, poNumber, paymentTermsText, deliveryDate);
   if (installments.length === 0) return 0;
 
   const rows = installments.map(inst => ({
