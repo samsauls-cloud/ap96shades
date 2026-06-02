@@ -510,13 +510,22 @@ export function TermsConfirmationPanel({ invoice, onConfirmed }: Props) {
         </div>
       )}
 
-      {/* Anchor source label */}
+      {/* Delivery / ship date — editable; drives EOM anchor live */}
       {(termType === "eom_single" || termType === "eom_split") && (
-        <p className="text-xs text-muted-foreground italic">
-          {(invoice as any).delivery_date
-            ? `EOM dates calculated from delivery date ${(invoice as any).delivery_date}`
-            : `EOM dates calculated from invoice date ${invoice.invoice_date} (no delivery date captured)`}
-        </p>
+        <div className="space-y-1">
+          <Label className="text-xs">Delivery / ship date (optional — used as EOM anchor)</Label>
+          <Input
+            type="date"
+            value={deliveryDate}
+            onChange={e => setDeliveryDate(e.target.value)}
+            className="h-8 text-xs"
+          />
+          <p className="text-xs text-muted-foreground italic">
+            {deliveryDate
+              ? `EOM dates calculated from delivery date ${deliveryDate}`
+              : `EOM dates calculated from invoice date ${invoice.invoice_date} (no delivery date)`}
+          </p>
+        </div>
       )}
 
       {/* Preview */}
