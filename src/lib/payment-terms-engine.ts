@@ -354,12 +354,12 @@ export function resolvePaymentSchedule(
   // ── LUXOTTICA special case: check if explicitly split ──
   if (isLuxotticaVendor(vendor)) {
     if (termsLower.includes('30/60/90') || termsLower.includes('split')) {
-      return buildEomSplitSchedule(documentDate, totalAmount, [30, 60, 90], 'EOM 30/60/90 — 3 equal tranches');
+      return buildEomSplitSchedule(eomAnchor, totalAmount, [30, 60, 90], 'EOM 30/60/90 — 3 equal tranches');
     }
     if (isNetEom) {
-      return buildNetEomSchedule(documentDate, totalAmount);
+      return buildNetEomSchedule(eomAnchor, totalAmount);
     }
-    return buildLuxEomSingleSchedule(documentDate, totalAmount);
+    return buildLuxEomSingleSchedule(eomAnchor, totalAmount);
   }
 
   // ── Maui Jim "Split Payment EOM" — EOM + offsets, rounded to month-end ──
@@ -371,7 +371,7 @@ export function resolvePaymentSchedule(
     const allNums = termsLower.match(/\d+/g)?.map(Number) ?? [];
     const offsets = allNums.filter(n => n >= 30); // filter out noise like "3" from "3 payments"
     if (offsets.length > 0) {
-      return buildMauiEomSplitSchedule(documentDate, totalAmount, offsets);
+      return buildMauiEomSplitSchedule(eomAnchor, totalAmount, offsets);
     }
   }
 
@@ -387,7 +387,7 @@ export function resolvePaymentSchedule(
 
     if (isCheck20) {
       // Single payment: EOM + 20 days
-      const eom = endOfMonth(documentDate);
+      const eom = endOfMonth(eomAnchor);
       const due = addDays(eom, 20);
       const tranches = [makeTranche(1, 'Full', due, 1.0)];
       return {
@@ -403,9 +403,9 @@ export function resolvePaymentSchedule(
 
     // Default Marcolin: EOM 50/80/110
     if (isNetEom) {
-      return buildNetEomSchedule(documentDate, totalAmount);
+      return buildNetEomSchedule(eomAnchor, totalAmount);
     }
-    return buildEomSplitSchedule(documentDate, totalAmount, [50, 80, 110], 'EOM 50/80/110 — 3 equal tranches');
+    return buildEomSplitSchedule(eomAnchor, totalAmount, [50, 80, 110], 'EOM 50/80/110 — 3 equal tranches');
   }
 
   // ── KERING family: honor N-way split printed on the invoice ──
@@ -420,7 +420,7 @@ export function resolvePaymentSchedule(
     if (splitMatch) {
       const offsets = splitMatch[0].split(/[\/,]/).map(s => parseInt(s.trim(), 10)).filter(n => n >= 30);
       if (offsets.length >= 2) {
-        return buildEomSplitSchedule(documentDate, totalAmount, offsets, `EOM ${offsets.join('/')} — ${offsets.length} equal tranches`);
+        return buildEomSplitSchedule(eomAnchor, totalAmount, offsets, `EOM ${offsets.join('/')} — ${offsets.length} equal tranches`);
       }
     }
   }
@@ -431,7 +431,7 @@ export function resolvePaymentSchedule(
   if (rule) {
     // Safilo "60 Days EOM" — EOM + 60 single payment
     if (rule.vendor_match?.includes?.('safilo') && termsLower.includes('60') && termsLower.includes('eom')) {
-      const eom = endOfMonth(documentDate);
+      const eom = endOfMonth(eomAnchor);
       const due = addDays(eom, 60);
       const tranches = [makeTranche(1, 'Full', due, 1.0)];
       return {
@@ -446,11 +446,11 @@ export function resolvePaymentSchedule(
     }
     // If terms explicitly say EOM (Net EOM), override the default split
     if (isNetEom) {
-      return buildNetEomSchedule(documentDate, totalAmount);
+      return buildNetEomSchedule(eomAnchor, totalAmount);
     }
     // Skip Marcolin from generic registry path (handled above)
     if (rule.terms_type === 'eom_split') {
-      return buildEomSplitSchedule(documentDate, totalAmount, rule.offsets, rule.description);
+      return buildEomSplitSchedule(eomAnchor, totalAmount, rule.offsets, rule.description);
     }
     if (rule.terms_type === 'days_split') {
       return buildDaysSplitSchedule(documentDate, totalAmount, rule.offsets, rule.description);
@@ -473,7 +473,7 @@ export function resolvePaymentSchedule(
 
   // ── Net EOM for unregistered vendors ──
   if (isNetEom) {
-    return buildNetEomSchedule(documentDate, totalAmount);
+    return buildNetEomSchedule(eomAnchor, totalAmount);
   }
 
   // ── Fallback: read from invoice payment_terms string ──
