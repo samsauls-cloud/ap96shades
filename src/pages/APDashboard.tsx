@@ -20,6 +20,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
+import { DataHealthTile } from "@/components/invoices/DataHealthTile";
 
 // ── Server date hook ──────────────────────────────────
 function useServerDate() {
@@ -360,6 +361,9 @@ export default function APDashboard() {
     <div className="min-h-screen bg-background">
       <InvoiceNav />
       <div className="max-w-[1600px] mx-auto px-4 sm:px-6 py-6 space-y-6">
+
+        <DataHealthTile />
+
 
         {/* ── Header ───────────────────────────────────── */}
         <div className="flex flex-col sm:flex-row sm:items-center gap-3">
