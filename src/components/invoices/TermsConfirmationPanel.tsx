@@ -502,6 +502,15 @@ export function TermsConfirmationPanel({ invoice, onConfirmed }: Props) {
         </div>
       )}
 
+      {/* Anchor source label */}
+      {(termType === "eom_single" || termType === "eom_split") && (
+        <p className="text-xs text-muted-foreground italic">
+          {(invoice as any).delivery_date
+            ? `EOM dates calculated from delivery date ${(invoice as any).delivery_date}`
+            : `EOM dates calculated from invoice date ${invoice.invoice_date} (no delivery date captured)`}
+        </p>
+      )}
+
       {/* Preview */}
       {previewInstallments.length > 0 && (
         <div className="space-y-1">
@@ -517,6 +526,11 @@ export function TermsConfirmationPanel({ invoice, onConfirmed }: Props) {
               </div>
             ))}
           </div>
+          <p className="text-xs font-semibold mt-2">
+            This invoice will be scheduled as:{" "}
+            {previewInstallments.map(i => i.due_date).join(" · ")}{" "}
+            ({previewInstallments.length} installment{previewInstallments.length === 1 ? "" : "s"})
+          </p>
         </div>
       )}
 
@@ -528,7 +542,7 @@ export function TermsConfirmationPanel({ invoice, onConfirmed }: Props) {
           size="sm"
         >
           {confirming ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Check className="h-3 w-3 mr-1" />}
-          Confirm Terms & Generate Payments
+          Confirm these dates & save
         </Button>
         <Button
           type="button"
