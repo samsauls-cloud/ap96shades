@@ -423,15 +423,42 @@ export async function fileToBase64(file: File): Promise<string> {
   return btoa(binary);
 }
 
+/**
+ * Final safeguard: normalize doc_type casing before any write to vendor_invoices.
+ * - 'invoice' / 'Invoice' → 'INVOICE'
+ * - 'po' / 'Po' → 'PO'
+ * - proforma variants → 'proforma' (lowercase canonical)
+ * - 'credit_memo' → 'credit_memo'
+ * - unknown/empty → 'INVOICE' (matches parser default)
+ * Anything else is left untouched so we don't silently rewrite future types.
+ */
+export function normalizeDocType(raw: unknown): string {
+  const s = typeof raw === "string" ? raw.trim() : "";
+  if (!s) return "INVOICE";
+  const lower = s.toLowerCase();
+  if (lower === "invoice") return "INVOICE";
+  if (lower === "po") return "PO";
+  if (lower === "credit_memo") return "credit_memo";
+  if (lower.includes("proforma") || lower.includes("pro forma") || lower.includes("pro-forma")) return "proforma";
+  return s;
+}
+
 export async function batchInsertInvoices(invoices: VendorInvoiceInsert[]) {
   if (invoices.length === 0) return [];
+  // Defensive normalization at the write boundary — guarantees canonical doc_type
+  // regardless of which upstream path (Reader, NewVendorWizard, etc.) built the row.
+  const normalized = invoices.map((inv) => ({
+    ...inv,
+    doc_type: normalizeDocType((inv as any).doc_type),
+  }));
   const { data, error } = await supabase
     .from("vendor_invoices")
-    .insert(invoices)
+    .insert(normalized)
     .select();
   if (error) throw error;
   return data;
 }
+
 
 export type FileDocPair = { file: File; docId: string };
 
