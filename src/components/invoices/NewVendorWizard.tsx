@@ -570,6 +570,7 @@ export function NewVendorWizard({ apiKey, onComplete }: NewVendorWizardProps) {
         invoiceInsert.invoice_number ?? "",
         invoiceInsert.po_number ?? null,
         invoiceInsert.payment_terms ?? null,
+        (invoiceInsert as any).delivery_date ?? null,
       ).map(i => ({ due_date: i.due_date, amount_due: i.amount_due }));
       const preflightOk = await runPreflightOrAbort(
         {
