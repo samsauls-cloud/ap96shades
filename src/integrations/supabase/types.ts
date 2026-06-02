@@ -56,6 +56,33 @@ export type Database = {
         }
         Relationships: []
       }
+      data_health_runs: {
+        Row: {
+          findings: Json
+          id: string
+          notes: string | null
+          ran_at: string
+          severity: string
+          summary: Json
+        }
+        Insert: {
+          findings?: Json
+          id?: string
+          notes?: string | null
+          ran_at?: string
+          severity?: string
+          summary?: Json
+        }
+        Update: {
+          findings?: Json
+          id?: string
+          notes?: string | null
+          ran_at?: string
+          severity?: string
+          summary?: Json
+        }
+        Relationships: []
+      }
       final_bill_ledger: {
         Row: {
           amount_paid_toward_final: number | null
