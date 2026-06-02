@@ -713,7 +713,7 @@ export async function recalculatePaymentsForInvoice(
 export async function generateAllMissingPayments(): Promise<{ generated: number; invoices: number }> {
   const { data: allInvoices, error: invErr } = await supabase
     .from("vendor_invoices")
-    .select("id, invoice_date, total, vendor, invoice_number, po_number, payment_terms, doc_type");
+    .select("id, invoice_date, total, vendor, invoice_number, po_number, payment_terms, doc_type, delivery_date");
   if (invErr) throw invErr;
 
   const { data: existingPayments, error: payErr } = await supabase
@@ -733,7 +733,8 @@ export async function generateAllMissingPayments(): Promise<{ generated: number;
   let totalGenerated = 0;
   for (const inv of missing) {
     const count = await generatePaymentsForInvoice(
-      inv.id, inv.invoice_date, inv.total, inv.vendor, inv.invoice_number, inv.po_number, inv.payment_terms
+      inv.id, inv.invoice_date, inv.total, inv.vendor, inv.invoice_number, inv.po_number, inv.payment_terms,
+      (inv as any).delivery_date ?? null,
     );
     totalGenerated += count;
   }
