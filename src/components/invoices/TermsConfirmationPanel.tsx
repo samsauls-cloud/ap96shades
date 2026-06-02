@@ -252,7 +252,7 @@ export function TermsConfirmationPanel({ invoice, onConfirmed }: Props) {
       );
       if (!preflightOk) { setApplyingLock(false); return; }
 
-      // 1. Save to invoice
+      // 1. Save to invoice (persist edited delivery_date alongside the rule)
       const { error: updateErr } = await supabase
         .from("vendor_invoices")
         .update({
@@ -261,6 +261,7 @@ export function TermsConfirmationPanel({ invoice, onConfirmed }: Props) {
           payment_terms: termsToLabel(ruleTerms),
           payment_terms_extracted: ruleTerms as any,
           payment_terms_source: "vendor_rule",
+          delivery_date: deliveryDate || null,
         } as any)
         .eq("id", invoice.id);
       if (updateErr) throw updateErr;
