@@ -272,7 +272,7 @@ export function TermsConfirmationPanel({ invoice, onConfirmed }: Props) {
       // 3. Generate new payments from the rule
       const ruleInstallmentsPreview = calculateInstallmentsFromTerms(
         invoice.invoice_date, invoice.total, invoice.vendor,
-        invoice.invoice_number, invoice.po_number, ruleTerms, (invoice as any).delivery_date ?? null,
+        invoice.invoice_number, invoice.po_number, ruleTerms, deliveryDate || null,
       );
       const rows = ruleInstallmentsPreview.map((inst) => ({
         invoice_id: invoice.id,
