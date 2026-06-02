@@ -403,7 +403,11 @@ export function calculateInstallments(
   invoiceNumber: string,
   poNumber: string | null,
   paymentTermsText?: string | null,
+  deliveryDate?: string | null,
 ): PaymentInstallment[] {
+  // EOM-based branches anchor on delivery_date when present; net-day branches
+  // always use invoice_date. Null delivery_date ⇒ identical to prior behavior.
+  const eomAnchor = deliveryDate || invoiceDate;
   const normalized = normalizeVendor(vendor);
   const terms = parsePaymentTermsText(paymentTermsText);
   const termsLower = (paymentTermsText ?? '').toLowerCase().trim();
