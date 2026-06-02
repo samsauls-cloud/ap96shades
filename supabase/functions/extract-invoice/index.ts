@@ -96,7 +96,10 @@ This business operates in the USA. Default date format is MM/DD/YYYY unless the 
 - Apply the chosen format consistently to invoice_date, due_date, delivery dates, and order dates.
 - ALWAYS output invoice_date and any due_date as ISO "YYYY-MM-DD".
 
-Return ONLY valid JSON: { doc_type, vendor, vendor_brands[], invoice_number, invoice_date (YYYY-MM-DD), po_number, account_number, ship_to, carrier, payment_terms, payment_terms_extracted, shipping_terms, terms_preset (for Marcolin only: "check_20_eom"|"eom_50_80_110"|"uncertain"|null), terms_source_text (for Marcolin only: raw PDF snippet used for terms detection), subtotal, tax, freight, total, currency, needs_review, line_items[{upc, item_number, sku, description, brand, model, color_code, color_desc, size, temple, qty_ordered, qty_shipped, qty, unit_price, line_total}], notes }. CRITICAL: Return ONLY raw JSON. No markdown, no code fences, no backticks, no preamble, no explanation. Your response must start with { and end with }. Nothing before {. Nothing after }.`;
+DELIVERY DATE EXTRACTION:
+Extract the DELIVERY / SHIP date of the goods, distinct from the order date and the invoice/document date. May be labeled "Delivery date", "Ship date", "Shipped", "Data consegna", or "Data DDT". If an order date and a separate later delivery/ship date both appear, return the delivery/ship date. If none, return null — never copy the invoice date here. Output as ISO "YYYY-MM-DD".
+
+Return ONLY valid JSON: { doc_type, vendor, vendor_brands[], invoice_number, invoice_date (YYYY-MM-DD), delivery_date (YYYY-MM-DD or null), po_number, account_number, ship_to, carrier, payment_terms, payment_terms_extracted, shipping_terms, terms_preset (for Marcolin only: "check_20_eom"|"eom_50_80_110"|"uncertain"|null), terms_source_text (for Marcolin only: raw PDF snippet used for terms detection), subtotal, tax, freight, total, currency, needs_review, line_items[{upc, item_number, sku, description, brand, model, color_code, color_desc, size, temple, qty_ordered, qty_shipped, qty, unit_price, line_total}], notes }. CRITICAL: Return ONLY raw JSON. No markdown, no code fences, no backticks, no preamble, no explanation. Your response must start with { and end with }. Nothing before {. Nothing after }.`;
 
 function extractJSON(raw: string): any {
   let cleaned = raw
