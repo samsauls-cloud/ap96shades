@@ -661,6 +661,7 @@ export default function ReaderPage() {
             confirmedInvoice.invoice_number,
             confirmedInvoice.po_number ?? null,
             confirmedInvoice.payment_terms ?? null,
+            (confirmedInvoice as any).delivery_date ?? null,
           ).map(i => ({ due_date: i.due_date, amount_due: i.amount_due }))
         : [];
       const ok = await runPreflightOrAbort(
