@@ -596,7 +596,7 @@ export async function runRecalcGuards(
   // ── Guard 3: Manual-correction detection ──
   const normalized = normalizeVendor(vendor);
   const proposedInstallments = hasTermsEngine(normalized)
-    ? calculateInstallments(invoiceDate, total, normalized, invoiceNumber, poNumber, paymentTermsText)
+    ? calculateInstallments(invoiceDate, total, normalized, invoiceNumber, poNumber, paymentTermsText, deliveryDate)
     : [];
 
   const existingSummary = existing.map(r => ({ due_date: r.due_date, amount_due: Number(r.amount_due) }));
