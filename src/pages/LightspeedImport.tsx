@@ -200,7 +200,7 @@ export default function LightspeedImportPage() {
 
       const { error } = await supabase.from("vendor_invoices").insert({
         vendor,
-        doc_type: "PO",
+        doc_type: normalizeDocType("PO"),
         invoice_number: poNumber || `LS-${Date.now()}`,
         invoice_date: new Date().toISOString().split("T")[0],
         subtotal: discountResult.subtotal ?? subtotal,
