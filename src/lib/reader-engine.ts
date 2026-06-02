@@ -272,9 +272,22 @@ export function parsedToInvoice(parsed: any, filename: string, pdfUrl?: string |
   // Determine terms_status from extraction confidence
   const extractedTerms = parsed.payment_terms_extracted;
   const confidence = extractedTerms?.confidence ?? "low";
-  const docType = parsed.doc_type || "INVOICE";
-  const isProformaDoc = docType.toLowerCase().includes("proforma") || docType.toLowerCase().includes("pro forma") || docType.toLowerCase().includes("pro-forma");
-  const isCreditMemo = docType.toLowerCase() === "credit_memo";
+  const rawDocType = parsed.doc_type || "INVOICE";
+  const rawDocTypeLower = rawDocType.toLowerCase();
+  const isProformaDoc = rawDocTypeLower.includes("proforma") || rawDocTypeLower.includes("pro forma") || rawDocTypeLower.includes("pro-forma");
+  const isCreditMemo = rawDocTypeLower === "credit_memo";
+  // Canonicalize doc_type casing so downstream filters (which match exact 'INVOICE'/'PO') work.
+  // Preserve special lowercase tokens: proforma variants and credit_memo.
+  let docType = rawDocType;
+  if (isProformaDoc) {
+    docType = "proforma";
+  } else if (isCreditMemo) {
+    docType = "credit_memo";
+  } else if (rawDocTypeLower === "invoice") {
+    docType = "INVOICE";
+  } else if (rawDocTypeLower === "po") {
+    docType = "PO";
+  }
 
   // Marcolin dual-terms audit fields
   const isMarcolinVendor = /marcolin|tom ford|guess|swarovski|montblanc/i.test(vendor);
