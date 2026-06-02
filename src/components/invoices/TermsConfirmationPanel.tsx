@@ -235,7 +235,7 @@ export function TermsConfirmationPanel({ invoice, onConfirmed }: Props) {
       // ── Pre-save validation gate ──
       const lockedSchedulePreview = calculateInstallmentsFromTerms(
         invoice.invoice_date, invoice.total, invoice.vendor,
-        invoice.invoice_number, invoice.po_number, ruleTerms, (invoice as any).delivery_date ?? null,
+        invoice.invoice_number, invoice.po_number, ruleTerms, deliveryDate || null,
       ).map(i => ({ due_date: i.due_date, amount_due: i.amount_due }));
       const { runPreflightOrAbort } = await import("@/lib/invoice-preflight");
       const preflightOk = await runPreflightOrAbort(
