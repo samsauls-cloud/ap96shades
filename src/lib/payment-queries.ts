@@ -469,6 +469,7 @@ export async function generatePaymentsForInvoice(
   invoiceNumber: string,
   poNumber: string | null,
   paymentTermsText?: string | null,
+  deliveryDate?: string | null,
 ): Promise<number> {
   // ── Duplicate prevention guard ──────────────────────
   const { data: existing } = await supabase
@@ -492,7 +493,7 @@ export async function generatePaymentsForInvoice(
 
   if (!hasTermsEngine(normalized)) return 0;
 
-  const installments = calculateInstallments(invoiceDate, total, normalized, invoiceNumber, poNumber, paymentTermsText);
+  const installments = calculateInstallments(invoiceDate, total, normalized, invoiceNumber, poNumber, paymentTermsText, deliveryDate);
   if (installments.length === 0) return 0;
 
   // ── Math verification before insert ─────────────────
