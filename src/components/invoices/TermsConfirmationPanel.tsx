@@ -65,6 +65,12 @@ export function TermsConfirmationPanel({ invoice, onConfirmed }: Props) {
   const [discountDays, setDiscountDays] = useState(extracted.discount_days ?? 10);
   const [netDays, setNetDays] = useState(extracted.net_days ?? 30);
   const [confirming, setConfirming] = useState(false);
+  const [deliveryDate, setDeliveryDate] = useState<string>(
+    ((invoice as any).delivery_date as string | null) ?? "",
+  );
+  useEffect(() => {
+    setDeliveryDate(((invoice as any).delivery_date as string | null) ?? "");
+  }, [(invoice as any).delivery_date]);
 
   // ── Drop 2: Edit-existing override flow ─────────────────────────────
   const [editing, setEditing] = useState(false);
