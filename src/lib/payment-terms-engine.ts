@@ -489,30 +489,32 @@ export async function resolvePaymentScheduleAsync(
   category: 'Procurement' | 'Special Order' | 'Credit',
   documentDate: Date,
   totalAmount: number,
-  paymentTerms?: string | null
+  paymentTerms?: string | null,
+  deliveryDate?: Date | null,
 ): Promise<PaymentSchedule> {
+  const eomAnchor: Date = deliveryDate ?? documentDate;
 
   // Credits never have a payment schedule
   if (category === 'Credit' || totalAmount < 0) {
-    return resolvePaymentSchedule(vendor, category, documentDate, totalAmount, paymentTerms);
+    return resolvePaymentSchedule(vendor, category, documentDate, totalAmount, paymentTerms, deliveryDate);
   }
 
   // Known static vendors (Luxottica, Kering, etc.) — use sync path
   if (isLuxotticaVendor(vendor) || getVendorTermsRule(vendor)) {
-    return resolvePaymentSchedule(vendor, category, documentDate, totalAmount, paymentTerms);
+    return resolvePaymentSchedule(vendor, category, documentDate, totalAmount, paymentTerms, deliveryDate);
   }
 
   // Try dynamic DB-defined vendor terms
   const dynamicRule = await getVendorTermsRuleAsync(vendor);
   if (dynamicRule) {
     if (dynamicRule.terms_type === 'eom_split') {
-      return buildEomSplitSchedule(documentDate, totalAmount, dynamicRule.offsets, dynamicRule.description);
+      return buildEomSplitSchedule(eomAnchor, totalAmount, dynamicRule.offsets, dynamicRule.description);
     }
     if (dynamicRule.terms_type === 'days_split') {
       return buildDaysSplitSchedule(documentDate, totalAmount, dynamicRule.offsets, dynamicRule.description);
     }
     if (dynamicRule.terms_type === 'eom_single') {
-      const eom = endOfMonth(documentDate);
+      const eom = endOfMonth(eomAnchor);
       const baselineOffset = dynamicRule.eom_baseline_offset ?? 0;
       const dueOffset = dynamicRule.due_offset ?? dynamicRule.offsets[0] ?? 30;
       const baseline = addDays(eom, baselineOffset);
@@ -543,7 +545,7 @@ export async function resolvePaymentScheduleAsync(
       };
     }
     if (dynamicRule.terms_type === 'net_eom') {
-      return buildNetEomSchedule(documentDate, totalAmount);
+      return buildNetEomSchedule(eomAnchor, totalAmount);
     }
   }
 
