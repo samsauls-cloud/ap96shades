@@ -63,6 +63,8 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
   const [approvingExisting, setApprovingExisting] = useState(false);
   const [mismatchDismissed, setMismatchDismissed] = useState(false);
   const [applyCreditOpen, setApplyCreditOpen] = useState(false);
+  const [overrideTarget, setOverrideTarget] = useState<InvoicePayment | null>(null);
+
   const inv = invoice;
 
   const { data: allTags = [] } = useQuery({
