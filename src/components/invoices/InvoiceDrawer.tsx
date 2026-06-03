@@ -54,6 +54,7 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
   const [localPdfUrl, setLocalPdfUrl] = useState<string | null>(null);
   const [editingTerms, setEditingTerms] = useState(false);
   const [approvingExisting, setApprovingExisting] = useState(false);
+  const [mismatchDismissed, setMismatchDismissed] = useState(false);
   const inv = invoice;
 
   const { data: allTags = [] } = useQuery({
