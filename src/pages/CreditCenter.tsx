@@ -94,6 +94,7 @@ export default function CreditCenter() {
   const [drawerVendor, setDrawerVendor] = useState<string | null>(null);
   const [applyTarget, setApplyTarget] = useState<{ vendor: string } | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [pending, setPending] = useState<PendingLedgerAction | null>(null);
 
   // Keep URL ?vendor= in sync with filter for shareable links.
   useEffect(() => {
