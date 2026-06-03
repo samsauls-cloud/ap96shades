@@ -239,7 +239,7 @@ export function InvoiceReviewCard({ doc, onApprove, onDiscard }: Props) {
             <Input
               value={terms}
               onChange={e => setTerms(e.target.value)}
-              placeholder="e.g. EOM +30 Days, Net 30, 30/60/90"
+              placeholder="e.g. Net 30 · EOM +30 · 30/60/90 · 30/60/90/120 · any custom split"
               className="text-sm"
             />
             {termsConfidence === "low" && (
