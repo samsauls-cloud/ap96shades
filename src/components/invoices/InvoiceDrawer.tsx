@@ -645,20 +645,12 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
                   </Button>
                 )}
                 {!isCreditMemo(inv) && (
-                  <Button
+                  <OverrideScheduleButton
                     size="sm"
-                    variant={scheduleMismatch && !mismatchDismissed ? "default" : "outline"}
-                    className={
-                      scheduleMismatch && !mismatchDismissed
-                        ? "text-xs h-7 bg-amber-500 hover:bg-amber-500/90 text-white animate-pulse"
-                        : "text-xs h-7"
-                    }
                     onClick={() => setEditingTerms((v) => !v)}
-                    title="Manually enter dates / amounts / preset — replaces existing unpaid installments"
-                  >
-                    <Pencil className="h-3 w-3 mr-1" />
-                    {editingTerms ? "Cancel edit" : "Edit terms / dates"}
-                  </Button>
+                    active={editingTerms}
+                    mismatch={!!(scheduleMismatch && !mismatchDismissed)}
+                  />
                 )}
               </div>
             </div>
