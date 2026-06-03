@@ -21,6 +21,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
 import { DataHealthTile } from "@/components/invoices/DataHealthTile";
+import { AddVendorCreditDialog } from "@/components/invoices/AddVendorCreditDialog";
 
 // ── Server date hook ──────────────────────────────────
 function useServerDate() {
