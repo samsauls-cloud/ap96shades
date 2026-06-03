@@ -288,18 +288,27 @@ export async function markPaymentPaid(paymentId: string): Promise<void> {
   }
 }
 
-/** Sync vendor_invoices.status based on all installment statuses */
+/** Sync vendor_invoices.status based on aggregate paid vs due across installments.
+ *  Rule: total_paid==0 → unpaid; total_paid>=total_due → paid; otherwise → partial.
+ *  Disputed on any row wins; void rows are excluded from the denominator. */
 export async function syncInvoicePaymentStatus(invoiceId: string): Promise<void> {
   const { data: allInstallments, error: fetchErr } = await supabase
     .from("invoice_payments")
-    .select("payment_status, balance_remaining")
+    .select("payment_status, amount_due, amount_paid")
     .eq("invoice_id", invoiceId);
   if (fetchErr) throw fetchErr;
   if (!allInstallments || allInstallments.length === 0) return;
 
-  const allPaid = allInstallments.every(p => p.payment_status === "paid" || p.payment_status === "overpaid");
-  const anyPartial = allInstallments.some(p => p.payment_status === "partial");
-  const newStatus = allPaid ? "paid" : anyPartial ? "partial" : "unpaid";
+  const anyDisputed = allInstallments.some(p => p.payment_status === "disputed");
+  const live = allInstallments.filter(p => p.payment_status !== "void");
+  const totalDue = live.reduce((s, p) => s + (Number(p.amount_due) || 0), 0);
+  const totalPaid = live.reduce((s, p) => s + (Number(p.amount_paid) || 0), 0);
+
+  let newStatus: string;
+  if (anyDisputed) newStatus = "disputed";
+  else if (totalPaid <= 0.005) newStatus = "unpaid";
+  else if (totalPaid + 0.005 >= totalDue) newStatus = "paid";
+  else newStatus = "partial";
 
   const { error } = await supabase
     .from("vendor_invoices")
