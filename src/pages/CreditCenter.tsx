@@ -478,13 +478,13 @@ export default function CreditCenter() {
                           <div className="inline-flex gap-1">
                             {canReverse && (
                               <Button variant="ghost" size="icon" className="h-6 w-6" title="Reverse"
-                                onClick={() => handleReverse(e.id)} disabled={busyId === e.id}>
+                                onClick={() => setPending({ kind: "reverse", id: e.id, amount: Number(e.amount), invoiceNumber: (e as any).invoice_number ?? null, vendor: e.vendor })} disabled={busyId === e.id}>
                                 {busyId === e.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Undo2 className="h-3 w-3" />}
                               </Button>
                             )}
                             {canVoid && (
                               <Button variant="ghost" size="icon" className="h-6 w-6 hover:text-destructive" title="Void (insert reversal)"
-                                onClick={() => handleVoid(e.id)} disabled={busyId === e.id}>
+                                onClick={() => setPending({ kind: "void", id: e.id, amount: Number(e.amount), description: e.description ?? null, reference: (e as any).reference ?? null, vendor: e.vendor })} disabled={busyId === e.id}>
                                 {busyId === e.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Ban className="h-3 w-3" />}
                               </Button>
                             )}
