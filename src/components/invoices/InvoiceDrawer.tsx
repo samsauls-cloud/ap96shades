@@ -34,7 +34,9 @@ import {
 } from "./InvoiceReviewOverridePanel";
 import { OverrideScheduleButton } from "./OverrideScheduleButton";
 import { resolvePaymentSchedule } from "@/lib/payment-terms-engine";
-import { CheckCircle2, AlertTriangle, X as XIcon } from "lucide-react";
+import { CheckCircle2, AlertTriangle, X as XIcon, Wallet } from "lucide-react";
+import { ApplyVendorCreditDialog } from "./ApplyVendorCreditDialog";
+import { fetchVendorCreditBalance } from "@/lib/vendor-credits";
 
 interface Props {
   invoice: VendorInvoice | null;
@@ -56,6 +58,7 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
   const [editingTerms, setEditingTerms] = useState(false);
   const [approvingExisting, setApprovingExisting] = useState(false);
   const [mismatchDismissed, setMismatchDismissed] = useState(false);
+  const [applyCreditOpen, setApplyCreditOpen] = useState(false);
   const inv = invoice;
 
   const { data: allTags = [] } = useQuery({
@@ -68,6 +71,16 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
     queryFn: () => fetchPaymentsForInvoice(inv!.id),
     enabled: !!inv,
   });
+
+  const { data: vendorCreditBalance = 0 } = useQuery({
+    queryKey: ["vendor_credit_balances", (inv?.vendor ?? "").toLowerCase()],
+    queryFn: () => fetchVendorCreditBalance(inv!.vendor),
+    enabled: !!inv?.vendor,
+  });
+
+  const invoiceOwed = existingPayments
+    .filter(p => !p.is_paid && p.payment_status !== "void")
+    .reduce((s, p) => s + Number(p.balance_remaining ?? 0), 0);
 
   useEffect(() => {
     if (inv) {
@@ -653,8 +666,30 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
                     mismatch={!!(scheduleMismatch && !mismatchDismissed)}
                   />
                 )}
+                {!isCreditMemo(inv) && vendorCreditBalance > 0 && invoiceOwed > 0 && (
+                  <Button
+                    size="sm"
+                    className="text-xs h-7 bg-emerald-600 hover:bg-emerald-700 text-white"
+                    onClick={() => setApplyCreditOpen(true)}
+                    title={`Vendor has ${formatCurrency(vendorCreditBalance)} in on-account credit`}
+                  >
+                    <Wallet className="h-3 w-3 mr-1" />
+                    Apply Credit ({formatCurrency(Math.min(vendorCreditBalance, invoiceOwed))})
+                  </Button>
+                )}
               </div>
             </div>
+
+            {inv && (
+              <ApplyVendorCreditDialog
+                invoiceId={inv.id}
+                invoiceNumber={inv.invoice_number}
+                vendor={inv.vendor}
+                amountOwed={invoiceOwed}
+                open={applyCreditOpen}
+                onOpenChange={setApplyCreditOpen}
+              />
+            )}
 
             {/* Auto-detect mismatch banner — dismissible per-invoice for the session */}
             {scheduleMismatch && !mismatchDismissed && (

@@ -3,12 +3,13 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { Wallet, Trash2, Loader2 } from "lucide-react";
+import { Wallet, Trash2, Loader2, Undo2 } from "lucide-react";
 import {
   fetchVendorCreditBalance,
   fetchVendorCreditLedger,
   fetchAllVendorCreditBalances,
   deleteVendorCredit,
+  reverseVendorCreditApplication,
 } from "@/lib/vendor-credits";
 import { formatCurrency } from "@/lib/supabase-queries";
 import { useNavigate } from "react-router-dom";
@@ -73,6 +74,26 @@ export function VendorCreditDrawer({ vendor, open, onOpenChange }: Props) {
     }
   }
 
+  async function handleReverse(id: string) {
+    if (!confirm("Reverse this applied credit?\n\nThe vendor's balance will be restored and the invoice will owe this amount again.")) return;
+    setDeletingId(id);
+    try {
+      await reverseVendorCreditApplication(id);
+      toast.success("Credit application reversed");
+      queryClient.invalidateQueries({ queryKey: ["vendor_credit_balances"] });
+      queryClient.invalidateQueries({ queryKey: ["vendor_credit_ledger"] });
+      queryClient.invalidateQueries({ queryKey: ["vendor_invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["invoice_payments"] });
+      queryClient.invalidateQueries({ queryKey: ["invoice_payments_detail"] });
+      queryClient.invalidateQueries({ queryKey: ["invoice_stats"] });
+      queryClient.invalidateQueries({ queryKey: ["ap_full_audit"] });
+    } catch (e: any) {
+      toast.error(`Reverse failed: ${e?.message ?? "unknown error"}`, { duration: 8000 });
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="w-full sm:max-w-xl overflow-y-auto">
@@ -107,7 +128,10 @@ export function VendorCreditDrawer({ vendor, open, onOpenChange }: Props) {
               {withRunning.map(e => {
                 const isPositive = e.amount > 0;
                 const clickable = !!e.related_invoice_id;
-                const isSystem = e.source_type === "invoice_application" || !!e.related_payment_id;
+                const isApplication = e.source_type === "invoice_application";
+                const isReversal = e.source_type === "reversal";
+                const canDelete = !isApplication && !isReversal && !e.related_payment_id;
+                const canReverse = isApplication;
                 return (
                   <div
                     key={e.id}
@@ -143,7 +167,21 @@ export function VendorCreditDrawer({ vendor, open, onOpenChange }: Props) {
                           bal {formatCurrency(e.runningBalance)}
                         </p>
                       </div>
-                      {!isSystem && (
+                      {canReverse && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 shrink-0 text-muted-foreground hover:text-amber-500"
+                          onClick={() => handleReverse(e.id)}
+                          disabled={deletingId === e.id}
+                          title="Reverse / unapply this credit"
+                        >
+                          {deletingId === e.id
+                            ? <Loader2 className="h-3 w-3 animate-spin" />
+                            : <Undo2 className="h-3 w-3" />}
+                        </Button>
+                      )}
+                      {canDelete && (
                         <Button
                           variant="ghost"
                           size="icon"
