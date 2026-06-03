@@ -561,15 +561,20 @@ export function calculateInstallments(
     const isSplit = termsLower.includes('30/60/90') || termsLower.includes('split');
 
     if (isSplit) {
-      // EOM 30/60/90 — three tranches at EOM+30, EOM+60, EOM+90
+      // EOM N-way split — honor the FULL printed list (30/60/90, 30/60/90/120, etc.)
       // EOM itself is NEVER a payment date.
       const parsedTotal = typeof total === "number" ? total : parseFloat(String(total)) || 0;
       if (parsedTotal <= 0) return [];
-      const offsets = [30, 60, 90];
+      const splitMatch = termsLower.match(/\b\d{2,3}(?:\s*[\/,]\s*\d{2,3}){1,}\b/);
+      const parsedOffsets = splitMatch
+        ? splitMatch[0].split(/[\/,]/).map(s => parseInt(s.trim(), 10)).filter(n => n >= 15 && n <= 365)
+        : [];
+      const offsets = parsedOffsets.length >= 2 ? parsedOffsets : [30, 60, 90];
+      const count = offsets.length;
       const d = new Date(eomAnchor + "T00:00:00");
       const eom = lastDayOfMonth(d);
-      const baseAmount = parseFloat((parsedTotal / 3).toFixed(2));
-      const lastAmount = parseFloat((parsedTotal - baseAmount * 2).toFixed(2));
+      const baseAmount = parseFloat((parsedTotal / count).toFixed(2));
+      const lastAmount = parseFloat((parsedTotal - baseAmount * (count - 1)).toFixed(2));
       return offsets.map((offset, index) => {
         // Always land on true end of target month for monthly tranches
         const months = offset / 30;
@@ -582,10 +587,10 @@ export function calculateInstallments(
           po_number: poNumber,
           invoice_amount: parsedTotal,
           invoice_date: invoiceDate,
-          terms: "EOM 30/60/90",
-          installment_label: `${index + 1} of 3`,
+          terms: `EOM ${offsets.join('/')}`,
+          installment_label: `${index + 1} of ${count}`,
           due_date: format(dueDate, "yyyy-MM-dd"),
-          amount_due: index === 2 ? lastAmount : baseAmount,
+          amount_due: index === count - 1 ? lastAmount : baseAmount,
         };
       });
     } else {
