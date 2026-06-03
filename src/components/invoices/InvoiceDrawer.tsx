@@ -34,7 +34,7 @@ import {
 } from "./InvoiceReviewOverridePanel";
 import { OverrideScheduleButton } from "./OverrideScheduleButton";
 import { resolvePaymentSchedule } from "@/lib/payment-terms-engine";
-import { Pencil, CheckCircle2, AlertTriangle, X as XIcon } from "lucide-react";
+import { CheckCircle2, AlertTriangle, X as XIcon } from "lucide-react";
 
 interface Props {
   invoice: VendorInvoice | null;
