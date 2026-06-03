@@ -113,9 +113,14 @@ export async function fetchPayments(): Promise<InvoicePayment[]> {
   return normalized.map(p => {
     if (!p.invoice_id) return p;
     const siblings = byInvoice.get(p.invoice_id) ?? [p];
-    const allPaid = siblings.every(s => s.is_paid || s.payment_status === "paid");
-    const somePaid = siblings.some(s => s.is_paid || s.payment_status === "paid");
-    const invoiceStatus = allPaid ? "paid" : somePaid ? "partial" : p.payment_status;
+    const live = siblings.filter(s => s.payment_status !== "void");
+    const totalDue = live.reduce((s, x) => s + (Number(x.amount_due) || 0), 0);
+    const totalPaid = live.reduce((s, x) => s + (Number(x.amount_paid) || 0), 0);
+    const invoiceStatus =
+      siblings.some(s => s.payment_status === "disputed") ? "disputed"
+      : totalPaid <= 0.005 ? "unpaid"
+      : totalPaid + 0.005 >= totalDue ? "paid"
+      : "partial";
     return { ...p, invoice_payment_status: invoiceStatus, sibling_count: siblings.length };
   });
 }
