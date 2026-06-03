@@ -247,15 +247,16 @@ export function buildGeneralSchedule(
 ): PaymentSchedule {
   const terms = (paymentTerms ?? '').toLowerCase().trim();
 
-  if (/30\/60\/90/.test(terms) || /split/.test(terms)) {
-    const t1 = addDays(invoiceDate, 30);
-    const t2 = addDays(invoiceDate, 60);
-    const t3 = addDays(invoiceDate, 90);
-    const tranches = [
-      makeTranche(1, '1/3', t1, 1/3),
-      makeTranche(2, '2/3', t2, 1/3),
-      makeTranche(3, '3/3', t3, 1/3),
-    ];
+  const splitMatch = terms.match(/\b\d{2,3}(?:\s*[\/,]\s*\d{2,3}){1,}\b/);
+  if (splitMatch || /split/.test(terms)) {
+    const parsedOffsets = splitMatch
+      ? splitMatch[0].split(/[\/,]/).map(s => parseInt(s.trim(), 10)).filter(n => n >= 15 && n <= 365)
+      : [];
+    const offsets = parsedOffsets.length >= 2 ? parsedOffsets : [30, 60, 90];
+    const count = offsets.length;
+    const tranches = offsets.map((o, i) =>
+      makeTranche(i + 1, `${i + 1}/${count}`, addDays(invoiceDate, o), 1 / count),
+    );
     return {
       vendor_terms_type: 'split_thirds',
       baseline_date: invoiceDate,
@@ -263,7 +264,7 @@ export function buildGeneralSchedule(
       next_due: tranches.find(t => !t.is_overdue) ?? null,
       total_amount: totalAmount,
       is_fully_overdue: tranches.every(t => t.is_overdue),
-      human_label: '30/60/90 — 3 equal tranches',
+      human_label: `${offsets.join('/')} — ${count} equal tranches`,
     };
   }
 
