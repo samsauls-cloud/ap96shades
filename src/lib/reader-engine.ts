@@ -232,7 +232,7 @@ export async function callAnthropicAPI(
  * If a date parses to a year far from the current year (e.g. 2020 when we're in 2026),
  * attempt to correct it using the current decade.
  */
-function normalizeInvoiceYear(dateStr: string): string {
+export function normalizeInvoiceYear(dateStr: string): string {
   if (!dateStr) return dateStr;
   const match = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) return dateStr;

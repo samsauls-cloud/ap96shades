@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { FileText, ScanLine, BarChart3, LogOut, Menu, X, FileSearch, Wallet } from "lucide-react";
+import { FileText, ScanLine, BarChart3, LogOut, Menu, X, FileSearch, Wallet, CalendarClock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useQuery } from "@tanstack/react-query";
 import { fetchAllVendorCreditBalances } from "@/lib/vendor-credits";
@@ -41,6 +41,7 @@ export function InvoiceNav() {
       badgeContent: totalCredit > 0 ? formatShort(totalCredit) : "",
       badgeTone: "bg-emerald-500 text-white",
     },
+    { to: "/invoices/delivery-backfill", label: "Delivery Backfill", icon: CalendarClock },
     { to: "/invoices/dashboard", label: "Dashboard", icon: BarChart3, primary: true },
   ];
 
