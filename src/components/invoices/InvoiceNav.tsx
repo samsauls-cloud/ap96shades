@@ -41,6 +41,7 @@ export function InvoiceNav() {
       badgeContent: totalCredit > 0 ? formatShort(totalCredit) : "",
       badgeTone: "bg-emerald-500 text-white",
     },
+    { to: "/invoices/delivery-backfill", label: "Delivery Backfill", icon: CalendarClock },
     { to: "/invoices/dashboard", label: "Dashboard", icon: BarChart3, primary: true },
   ];
 
