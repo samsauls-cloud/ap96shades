@@ -30,6 +30,7 @@ import { fetchVendorAliasMap, resolveVendorKey } from "@/lib/vendor-alias-resolv
 import { formatCurrency } from "@/lib/supabase-queries";
 import { AddVendorCreditDialog } from "@/components/invoices/AddVendorCreditDialog";
 import { ApplyVendorCreditDialog } from "@/components/invoices/ApplyVendorCreditDialog";
+import { SmartApplyCreditDialog } from "@/components/invoices/SmartApplyCreditDialog";
 import { VendorCreditDrawer } from "@/components/invoices/VendorCreditDrawer";
 import { toast } from "sonner";
 
@@ -323,7 +324,7 @@ export default function CreditCenter() {
                               Filter
                             </Button>
                             <Button size="sm" className="h-7 text-[11px] bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => setApplyTarget({ vendor: b.vendor_name })}>
-                              Apply to invoice
+                              Apply credit…
                             </Button>
                           </div>
                         </td>
@@ -486,10 +487,10 @@ export default function CreditCenter() {
         />
       )}
       {applyTarget && (
-        <ApplyVendorCreditFromCenter
+        <SmartApplyCreditDialog
           vendor={applyTarget.vendor}
           open={!!applyTarget}
-          onClose={() => setApplyTarget(null)}
+          onOpenChange={(o) => !o && setApplyTarget(null)}
         />
       )}
     </div>
