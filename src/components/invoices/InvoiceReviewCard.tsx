@@ -335,12 +335,13 @@ export function InvoiceReviewCard({ doc, onApprove, onDiscard }: Props) {
 
           {!isCredit && (
             <Button
-              variant="outline"
-              className="gap-1.5"
+              variant="default"
+              className="gap-1.5 bg-orange-500 hover:bg-orange-600 text-white shadow-md shadow-orange-500/30 ring-2 ring-orange-400/40 animate-pulse"
               disabled={saving}
               onClick={() => setEditing(true)}
+              title="Manually set installments, dates, and amounts. Your entries trump the AI-extracted terms."
             >
-              <Pencil className="h-3.5 w-3.5" /> Edit
+              <Pencil className="h-3.5 w-3.5" /> Override Schedule
             </Button>
           )}
 
