@@ -16,6 +16,7 @@ import LightspeedImportPage from "./pages/LightspeedImport.tsx";
 import AuditPage from "./pages/Audit.tsx";
 import LedgerCheckPage from "./pages/LedgerCheck.tsx";
 import CreditCenterPage from "./pages/CreditCenter.tsx";
+import DeliveryBackfillPage from "./pages/DeliveryBackfill.tsx";
 import NotFound from "./pages/NotFound.tsx";
 
 const queryClient = new QueryClient();
