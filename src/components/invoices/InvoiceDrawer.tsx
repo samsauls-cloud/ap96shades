@@ -36,7 +36,11 @@ import { OverrideScheduleButton } from "./OverrideScheduleButton";
 import { resolvePaymentSchedule } from "@/lib/payment-terms-engine";
 import { CheckCircle2, AlertTriangle, X as XIcon, Wallet } from "lucide-react";
 import { ApplyVendorCreditDialog } from "./ApplyVendorCreditDialog";
+import { ManualStatusOverrideDialog } from "./ManualStatusOverrideDialog";
+import type { InvoicePayment } from "@/lib/payment-queries";
+import { Pencil } from "lucide-react";
 import { fetchVendorCreditBalance } from "@/lib/vendor-credits";
+
 
 interface Props {
   invoice: VendorInvoice | null;
