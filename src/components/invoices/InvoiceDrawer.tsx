@@ -76,8 +76,51 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
       setLocalPdfUrl((inv as any).pdf_url ?? null);
       setActiveTab("line-items");
       setEditingTerms(false);
+      // Per-invoice "I've seen this warning, don't auto-open again" memory.
+      const dismissedKey = `term-mismatch-dismissed:${inv.id}`;
+      setMismatchDismissed(sessionStorage.getItem(dismissedKey) === "1");
     }
   }, [inv]);
+
+  // ── Schedule-vs-terms mismatch detector ──────────────────────────────
+  // If the saved installment count doesn't match what the current payment_terms
+  // text would compute, auto-open the override panel and surface a banner.
+  const scheduleMismatch = (() => {
+    if (!inv || isCreditMemo(inv) || existingPayments.length === 0) return null;
+    try {
+      const schedule = resolvePaymentSchedule(
+        inv.vendor,
+        "Procurement",
+        new Date(inv.invoice_date),
+        Number(inv.total ?? 0),
+        inv.payment_terms,
+        (inv as any).delivery_date ? new Date((inv as any).delivery_date) : null,
+      );
+      const expected = schedule.tranches.length;
+      const actual = existingPayments.length;
+      if (expected > 0 && expected !== actual) {
+        return { expected, actual };
+      }
+    } catch {
+      // ignore — engine failure shouldn't block the drawer
+    }
+    return null;
+  })();
+
+  useEffect(() => {
+    if (scheduleMismatch && !mismatchDismissed && !editingTerms) {
+      setEditingTerms(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scheduleMismatch?.expected, scheduleMismatch?.actual, mismatchDismissed]);
+
+  function dismissMismatch() {
+    if (!inv) return;
+    sessionStorage.setItem(`term-mismatch-dismissed:${inv.id}`, "1");
+    setMismatchDismissed(true);
+    setEditingTerms(false);
+  }
+
 
   // Auto-heal: sync invoice_payments when status is out of sync
   useEffect(() => {
