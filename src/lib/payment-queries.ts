@@ -448,25 +448,9 @@ export async function markInstallmentPaid(
 
   console.log(`[markInstallmentPaid] ✓ Row ${paymentRowId} updated successfully`);
 
-  // Sync parent invoice status
+  // Sync parent invoice status (aggregate paid vs due — handles partial correctly)
   if (row.invoice_id) {
-    const { data: siblings } = await supabase
-      .from("invoice_payments")
-      .select("id, is_paid, due_date")
-      .eq("invoice_id", row.invoice_id)
-      .order("due_date", { ascending: true });
-
-    console.log(`[markInstallmentPaid] Siblings for invoice ${row.invoice_id}:`, (siblings ?? []).map(s => ({ id: s.id, is_paid: s.is_paid, due_date: (s as any).due_date })));
-
-    const allPaid = (siblings ?? []).every(s => s.is_paid);
-    const anyPaid = (siblings ?? []).some(s => s.is_paid);
-
-    await supabase
-      .from("vendor_invoices")
-      .update({
-        status: allPaid ? "paid" : anyPaid ? "partial" : "unpaid"
-      } as any)
-      .eq("id", row.invoice_id);
+    await syncInvoicePaymentStatus(row.invoice_id);
   }
 }
 
