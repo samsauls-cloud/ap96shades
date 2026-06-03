@@ -1089,3 +1089,117 @@ export function computeInvoiceRollup(payments: InvoicePayment[]): InvoicePayment
 
   return { total_installments, installments_paid, installments_partial, installments_unpaid, total_amount_due, total_amount_paid, total_balance_remaining, invoice_payment_status };
 }
+
+// ============================================================================
+// Manual status override — append-only history; flips live status fields and
+// stamps row as manually overridden so future recalcs preserve it.
+// ============================================================================
+
+export type ManualOverrideMode = "paid" | "unpaid" | "partial";
+
+export interface ManualStatusOverrideInput {
+  paymentId: string;
+  mode: ManualOverrideMode;
+  /** Required when mode === "partial"; ignored otherwise. */
+  partialAmount?: number;
+  /** Defaults to today when mode === "paid"; ignored for unpaid. */
+  paidDate?: string;
+  note?: string;
+  performedBy?: string;
+}
+
+export async function manualOverrideInstallmentStatus(
+  input: ManualStatusOverrideInput
+): Promise<void> {
+  const { paymentId, mode, partialAmount, paidDate, note, performedBy = "Staff" } = input;
+
+  const { data: current, error: readErr } = await supabase
+    .from("invoice_payments")
+    .select("invoice_id, invoice_number, amount_due, amount_paid, payment_status, paid_date, payment_history, is_paid")
+    .eq("id", paymentId)
+    .maybeSingle();
+  if (readErr) throw readErr;
+  if (!current) throw new Error("Installment not found");
+
+  const amountDue = Number(current.amount_due) || 0;
+  const today = new Date().toISOString().split("T")[0];
+  const existingHistory = Array.isArray((current as any).payment_history)
+    ? (current as any).payment_history
+    : [];
+
+  let newPaid = 0;
+  let newStatus: PaymentStatus = "unpaid";
+  let newPaidDate: string | null = null;
+  let newIsPaid = false;
+
+  if (mode === "paid") {
+    newPaid = amountDue;
+    newStatus = "paid";
+    newPaidDate = paidDate || today;
+    newIsPaid = true;
+  } else if (mode === "unpaid") {
+    newPaid = 0;
+    newStatus = "unpaid";
+    newPaidDate = null;
+    newIsPaid = false;
+  } else {
+    // partial
+    const amt = Number(partialAmount);
+    if (!Number.isFinite(amt) || amt < 0 || amt > amountDue) {
+      throw new Error(`Partial amount must be between 0 and ${amountDue.toFixed(2)}`);
+    }
+    newPaid = amt;
+    newStatus = derivePaymentStatus(amountDue, amt);
+    newIsPaid = newStatus === "paid" || newStatus === "overpaid";
+    newPaidDate = newIsPaid ? (paidDate || today) : null;
+  }
+
+  const beforeStatus = current.payment_status || derivePaymentStatus(amountDue, Number(current.amount_paid) || 0);
+  const noteText = note?.trim() ? ` — ${note.trim()}` : "";
+  const historyEntry: PaymentHistoryEntry = {
+    date: newPaidDate || today,
+    amount: newPaid - (Number(current.amount_paid) || 0),
+    method: "Manual Override",
+    reference: `${beforeStatus} → ${newStatus}`,
+    note: `Manually marked ${newStatus} (was ${beforeStatus})${noteText}`,
+    recorded_by: performedBy,
+    timestamp: new Date().toISOString(),
+  };
+
+  // Atomic-ish: do the live-field update + history append in a single UPDATE.
+  // protect_payment_history_on_update only blocks shrinks; appends are fine.
+  const { error: updErr } = await supabase
+    .from("invoice_payments")
+    .update({
+      amount_paid: newPaid,
+      balance_remaining: amountDue - newPaid,
+      payment_status: newStatus,
+      is_paid: newIsPaid,
+      paid_date: newPaidDate,
+      payment_history: [...existingHistory, historyEntry],
+      manual_status_override: true,
+      manual_status_set_by: performedBy,
+      manual_status_set_at: new Date().toISOString(),
+      manual_status_note: note?.trim() || null,
+      last_payment_date: newPaidDate,
+    } as any)
+    .eq("id", paymentId);
+  if (updErr) throw updErr;
+
+  if (current.invoice_id) {
+    try { await syncInvoicePaymentStatus(current.invoice_id); } catch { /* non-fatal */ }
+  }
+}
+
+export async function clearManualStatusOverride(paymentId: string): Promise<void> {
+  const { error } = await supabase
+    .from("invoice_payments")
+    .update({
+      manual_status_override: false,
+      manual_status_set_by: null,
+      manual_status_set_at: null,
+      manual_status_note: null,
+    } as any)
+    .eq("id", paymentId);
+  if (error) throw error;
+}
