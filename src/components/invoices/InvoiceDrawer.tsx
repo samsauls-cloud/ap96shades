@@ -641,8 +641,12 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
                 {!isCreditMemo(inv) && (
                   <Button
                     size="sm"
-                    variant="outline"
-                    className="text-xs h-7"
+                    variant={scheduleMismatch && !mismatchDismissed ? "default" : "outline"}
+                    className={
+                      scheduleMismatch && !mismatchDismissed
+                        ? "text-xs h-7 bg-amber-500 hover:bg-amber-500/90 text-white animate-pulse"
+                        : "text-xs h-7"
+                    }
                     onClick={() => setEditingTerms((v) => !v)}
                     title="Manually enter dates / amounts / preset — replaces existing unpaid installments"
                   >
@@ -652,6 +656,33 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
                 )}
               </div>
             </div>
+
+            {/* Auto-detect mismatch banner — dismissible per-invoice for the session */}
+            {scheduleMismatch && !mismatchDismissed && (
+              <div className="flex items-start gap-2 p-3 rounded-md border-2 border-amber-500/50 bg-amber-500/10">
+                <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
+                <div className="flex-1 text-xs">
+                  <p className="font-semibold text-amber-700">
+                    Schedule mismatch — terms expect {scheduleMismatch.expected} installment
+                    {scheduleMismatch.expected === 1 ? "" : "s"}, but {scheduleMismatch.actual}{" "}
+                    {scheduleMismatch.actual === 1 ? "is" : "are"} saved.
+                  </p>
+                  <p className="text-muted-foreground mt-0.5">
+                    The override panel below is open so you can fix it. Add rows, change dates / amounts, then Save.
+                  </p>
+                </div>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-6 w-6 shrink-0"
+                  onClick={dismissMismatch}
+                  title="Minimize — don't auto-open this for this invoice again this session"
+                >
+                  <XIcon className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            )}
+
             {existingPayments.length > 0 ? (
               <div className="space-y-1">
                 {existingPayments.map(p => {
