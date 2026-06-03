@@ -354,7 +354,13 @@ export function resolvePaymentSchedule(
   // ── LUXOTTICA special case: check if explicitly split ──
   if (isLuxotticaVendor(vendor)) {
     if (termsLower.includes('30/60/90') || termsLower.includes('split')) {
-      return buildEomSplitSchedule(eomAnchor, totalAmount, [30, 60, 90], 'EOM 30/60/90 — 3 equal tranches');
+      // Honor the FULL printed N-way list (e.g. 30/60/90/120) — never truncate to 3.
+      const splitMatch = termsLower.match(/\b\d{2,3}(?:\s*[\/,]\s*\d{2,3}){1,}\b/);
+      const parsedOffsets = splitMatch
+        ? splitMatch[0].split(/[\/,]/).map(s => parseInt(s.trim(), 10)).filter(n => n >= 15 && n <= 365)
+        : [];
+      const offsets = parsedOffsets.length >= 2 ? parsedOffsets : [30, 60, 90];
+      return buildEomSplitSchedule(eomAnchor, totalAmount, offsets, `EOM ${offsets.join('/')} — ${offsets.length} equal tranches`);
     }
     if (isNetEom) {
       return buildNetEomSchedule(eomAnchor, totalAmount);
