@@ -74,6 +74,26 @@ export function VendorCreditDrawer({ vendor, open, onOpenChange }: Props) {
     }
   }
 
+  async function handleReverse(id: string) {
+    if (!confirm("Reverse this applied credit?\n\nThe vendor's balance will be restored and the invoice will owe this amount again.")) return;
+    setDeletingId(id);
+    try {
+      await reverseVendorCreditApplication(id);
+      toast.success("Credit application reversed");
+      queryClient.invalidateQueries({ queryKey: ["vendor_credit_balances"] });
+      queryClient.invalidateQueries({ queryKey: ["vendor_credit_ledger"] });
+      queryClient.invalidateQueries({ queryKey: ["vendor_invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["invoice_payments"] });
+      queryClient.invalidateQueries({ queryKey: ["invoice_payments_detail"] });
+      queryClient.invalidateQueries({ queryKey: ["invoice_stats"] });
+      queryClient.invalidateQueries({ queryKey: ["ap_full_audit"] });
+    } catch (e: any) {
+      toast.error(`Reverse failed: ${e?.message ?? "unknown error"}`, { duration: 8000 });
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="w-full sm:max-w-xl overflow-y-auto">
