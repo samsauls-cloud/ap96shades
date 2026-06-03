@@ -525,41 +525,41 @@ export function SmartApplyCreditDialog({ vendor, open, onOpenChange }: Props) {
               <Loader2 className="h-3 w-3 animate-spin" /> Applying {progress.done} / {progress.total}…
             </div>
           )}
+        </div>
 
-          {/* Footer buttons */}
-          <div className="flex gap-2 justify-end">
-            <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
-              Cancel
+        {/* Pinned footer */}
+        <div className="shrink-0 border-t px-6 py-3 flex gap-2 justify-end bg-background">
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
+            Cancel
+          </Button>
+          {step === "review" ? (
+            <Button
+              onClick={() => setStep("confirm")}
+              disabled={!valid}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+            >
+              Review &amp; confirm →
             </Button>
-            {step === "review" ? (
+          ) : (
+            <>
+              <Button variant="outline" onClick={() => setStep("review")} disabled={submitting}>
+                Back
+              </Button>
               <Button
-                onClick={() => setStep("confirm")}
-                disabled={!valid}
+                onClick={handleConfirm}
+                disabled={!valid || submitting}
                 className="bg-emerald-600 hover:bg-emerald-700 text-white"
               >
-                Review &amp; confirm →
+                {submitting ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Wallet className="h-4 w-4 mr-2" />
+                )}
+                Confirm — apply {formatCurrency(totalApplied)} to {allocations.length} invoice
+                {allocations.length === 1 ? "" : "s"}
               </Button>
-            ) : (
-              <>
-                <Button variant="outline" onClick={() => setStep("review")} disabled={submitting}>
-                  Back
-                </Button>
-                <Button
-                  onClick={handleConfirm}
-                  disabled={!valid || submitting}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white"
-                >
-                  {submitting ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  ) : (
-                    <Wallet className="h-4 w-4 mr-2" />
-                  )}
-                  Confirm — apply {formatCurrency(totalApplied)} to {allocations.length} invoice
-                  {allocations.length === 1 ? "" : "s"}
-                </Button>
-              </>
-            )}
-          </div>
+            </>
+          )}
         </div>
       </DialogContent>
     </Dialog>
