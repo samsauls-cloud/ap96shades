@@ -210,7 +210,7 @@ export function VendorCreditDrawer({ vendor, open, onOpenChange }: Props) {
                           variant="ghost"
                           size="icon"
                           className="h-6 w-6 shrink-0 text-muted-foreground hover:text-amber-500"
-                          onClick={() => handleReverse(e.id)}
+                          onClick={() => setPending({ kind: "reverse", id: e.id, amount: Number(e.amount), invoiceNumber: (e as any).related_invoice_id ? ((e as any).invoice_number ?? null) : null })}
                           disabled={busyId === e.id}
                           title="Reverse / unapply this credit"
                         >
