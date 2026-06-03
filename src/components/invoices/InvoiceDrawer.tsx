@@ -697,6 +697,14 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
               />
             )}
 
+            <ManualStatusOverrideDialog
+              payment={overrideTarget}
+              open={!!overrideTarget}
+              onOpenChange={(o) => { if (!o) setOverrideTarget(null); }}
+              onComplete={onUpdate}
+            />
+
+
             {/* Auto-detect mismatch banner — dismissible per-invoice for the session */}
             {scheduleMismatch && !mismatchDismissed && (
               <div className="flex items-start gap-2 p-3 rounded-md border-2 border-amber-500/50 bg-amber-500/10">
