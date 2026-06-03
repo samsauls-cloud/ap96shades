@@ -25,6 +25,7 @@ export function VendorCreditDrawer({ vendor, open, onOpenChange }: Props) {
   const [loading, setLoading] = useState(false);
   const [balance, setBalance] = useState(0);
   const [entries, setEntries] = useState<VendorCredit[]>([]);
+  const [refreshKey, setRefreshKey] = useState(0);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -36,7 +37,7 @@ export function VendorCreditDrawer({ vendor, open, onOpenChange }: Props) {
         setEntries(ledger);
       })
       .finally(() => setLoading(false));
-  }, [open, vendor]);
+  }, [open, vendor, refreshKey]);
 
   // Build running balance oldest → newest, then reverse for display.
   const oldestFirst = [...entries].reverse();
