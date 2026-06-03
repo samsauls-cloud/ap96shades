@@ -727,15 +727,30 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
               <div className="space-y-1">
                 {existingPayments.map(p => {
                   const isCreditPayment = p.installment_label === "Credit" || (p.terms as string) === "credit_memo";
+                  const isManual = (p as any).manual_status_override === true;
                   return (
-                    <div key={p.id} className={`flex items-center justify-between text-[10px] p-2 rounded border border-border ${p.is_paid ? "opacity-50" : ""}`}>
-                      <span>{p.installment_label} — Due {formatDate(p.due_date)}</span>
+                    <div key={p.id} className={`flex items-center justify-between gap-2 text-[10px] p-2 rounded border ${isManual ? "border-amber-500/60 bg-amber-500/5" : "border-border"} ${p.is_paid ? "opacity-60" : ""}`}>
+                      <span className="flex-1 min-w-0 truncate">{p.installment_label} — Due {formatDate(p.due_date)}</span>
                       <span className={`font-medium tabular-nums ${isCreditPayment ? "text-emerald-600" : ""}`}>
                         {isCreditPayment ? `–${formatCurrency(Math.abs(Number(p.amount_due)))}` : formatCurrency(Number(p.amount_due))}
                       </span>
-                      <span className={isCreditPayment ? "text-emerald-600" : p.is_paid ? "text-green-500" : "text-muted-foreground"}>
-                        {isCreditPayment ? "Credit Applied" : p.is_paid ? "✓ Paid" : "Unpaid"}
+                      <span className={`flex items-center gap-1 ${isCreditPayment ? "text-emerald-600" : p.payment_status === "paid" ? "text-green-500" : p.payment_status === "partial" ? "text-blue-500" : "text-muted-foreground"}`}>
+                        {isCreditPayment ? "Credit Applied" : p.payment_status === "paid" ? "✓ Paid" : p.payment_status === "partial" ? `Partial (${formatCurrency(Number(p.amount_paid))})` : "Unpaid"}
+                        {isManual && (
+                          <Badge variant="outline" className="h-4 px-1 text-[8px] border-amber-500 text-amber-600" title={(p as any).manual_status_note ?? "Manually overridden"}>
+                            Manual
+                          </Badge>
+                        )}
                       </span>
+                      {!isCreditPayment && (
+                        <Button
+                          variant="ghost" size="icon" className="h-5 w-5 shrink-0"
+                          title="Override status"
+                          onClick={() => setOverrideTarget(p)}
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </Button>
+                      )}
                     </div>
                   );
                 })}
@@ -743,6 +758,7 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
             ) : (
               <p className="text-[10px] text-muted-foreground">No payment schedule generated yet.</p>
             )}
+
 
             {/* Drop 2 — override panel for existing invoices */}
             {editingTerms && !isCreditMemo(inv) && (
