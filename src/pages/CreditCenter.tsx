@@ -32,7 +32,21 @@ import { AddVendorCreditDialog } from "@/components/invoices/AddVendorCreditDial
 import { ApplyVendorCreditDialog } from "@/components/invoices/ApplyVendorCreditDialog";
 import { SmartApplyCreditDialog } from "@/components/invoices/SmartApplyCreditDialog";
 import { VendorCreditDrawer } from "@/components/invoices/VendorCreditDrawer";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
+
+type PendingLedgerAction =
+  | { kind: "void"; id: string; amount: number; description: string | null; reference: string | null; vendor: string }
+  | { kind: "reverse"; id: string; amount: number; invoiceNumber: string | null; vendor: string };
 
 const SOURCE_LABEL: Record<string, string> = {
   remittance_overpay: "Overpayment",
@@ -80,6 +94,7 @@ export default function CreditCenter() {
   const [drawerVendor, setDrawerVendor] = useState<string | null>(null);
   const [applyTarget, setApplyTarget] = useState<{ vendor: string } | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [pending, setPending] = useState<PendingLedgerAction | null>(null);
 
   // Keep URL ?vendor= in sync with filter for shareable links.
   useEffect(() => {
@@ -198,8 +213,13 @@ export default function CreditCenter() {
     qc.invalidateQueries({ queryKey: ["vendor_invoices"] });
   }
 
-  async function handleVoid(id: string) {
-    if (!confirm("Void this credit entry?\n\nA reversal row will be inserted that offsets it; the original stays for audit.")) return;
+  function vendorBalanceFor(vendor: string): number {
+    if (!aliasMap) return 0;
+    const key = resolveVendorKey(vendor, aliasMap);
+    return balances.find(b => b.vendor_key === key)?.balance ?? 0;
+  }
+
+  async function performVoid(id: string) {
     setBusyId(id);
     try {
       const { newBalance } = await voidVendorCredit(id);
@@ -209,10 +229,10 @@ export default function CreditCenter() {
       toast.error(`Void failed: ${e?.message ?? "unknown error"}`, { duration: 8000 });
     } finally {
       setBusyId(null);
+      setPending(null);
     }
   }
-  async function handleReverse(id: string) {
-    if (!confirm("Reverse this applied credit?\n\nThe vendor's balance will be restored and the invoice will owe this amount again.")) return;
+  async function performReverse(id: string) {
     setBusyId(id);
     try {
       await reverseVendorCreditApplication(id);
@@ -226,6 +246,7 @@ export default function CreditCenter() {
       toast.error(`Reverse failed: ${e?.message ?? "unknown error"}`, { duration: 8000 });
     } finally {
       setBusyId(null);
+      setPending(null);
     }
   }
 
@@ -457,13 +478,13 @@ export default function CreditCenter() {
                           <div className="inline-flex gap-1">
                             {canReverse && (
                               <Button variant="ghost" size="icon" className="h-6 w-6" title="Reverse"
-                                onClick={() => handleReverse(e.id)} disabled={busyId === e.id}>
+                                onClick={() => setPending({ kind: "reverse", id: e.id, amount: Number(e.amount), invoiceNumber: (e as any).invoice_number ?? null, vendor: e.vendor })} disabled={busyId === e.id}>
                                 {busyId === e.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Undo2 className="h-3 w-3" />}
                               </Button>
                             )}
                             {canVoid && (
                               <Button variant="ghost" size="icon" className="h-6 w-6 hover:text-destructive" title="Void (insert reversal)"
-                                onClick={() => handleVoid(e.id)} disabled={busyId === e.id}>
+                                onClick={() => setPending({ kind: "void", id: e.id, amount: Number(e.amount), description: e.description ?? null, reference: (e as any).reference ?? null, vendor: e.vendor })} disabled={busyId === e.id}>
                                 {busyId === e.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Ban className="h-3 w-3" />}
                               </Button>
                             )}
@@ -493,6 +514,88 @@ export default function CreditCenter() {
           onOpenChange={(o) => !o && setApplyTarget(null)}
         />
       )}
+
+      <AlertDialog open={!!pending} onOpenChange={(v) => { if (!v && !busyId) setPending(null); }}>
+        <AlertDialogContent>
+          {pending?.kind === "reverse" && (() => {
+            const restore = Math.abs(pending.amount);
+            const before = vendorBalanceFor(pending.vendor);
+            const after = before + restore;
+            return (
+              <>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Reverse credit application</AlertDialogTitle>
+                  <AlertDialogDescription asChild>
+                    <div className="space-y-2 text-sm">
+                      <p>
+                        This un-applies the credit. The vendor's balance is restored and the invoice will owe this
+                        amount again.
+                      </p>
+                      <div className="rounded border bg-muted/30 p-2 space-y-1 font-mono text-xs">
+                        <div className="flex justify-between"><span className="text-muted-foreground">Vendor</span><span>{pending.vendor}</span></div>
+                        {pending.invoiceNumber && (
+                          <div className="flex justify-between"><span className="text-muted-foreground">Invoice</span><span>{pending.invoiceNumber}</span></div>
+                        )}
+                        <div className="flex justify-between"><span className="text-muted-foreground">Amount restored</span><span className="text-emerald-500">+{formatCurrency(restore)}</span></div>
+                        <div className="flex justify-between"><span className="text-muted-foreground">Vendor balance</span><span>{formatCurrency(before)} → <span className="text-emerald-500">{formatCurrency(after)}</span></span></div>
+                      </div>
+                    </div>
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel disabled={!!busyId}>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={(ev) => { ev.preventDefault(); performReverse(pending.id); }}
+                    disabled={!!busyId}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  >
+                    {busyId === pending.id ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : null}
+                    Reverse credit
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </>
+            );
+          })()}
+          {pending?.kind === "void" && (() => {
+            const before = vendorBalanceFor(pending.vendor);
+            const after = before - pending.amount;
+            return (
+              <>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Void this credit entry?</AlertDialogTitle>
+                  <AlertDialogDescription asChild>
+                    <div className="space-y-2 text-sm">
+                      <p>
+                        A reversal row will be added that offsets this entry. The original stays in the ledger for
+                        audit.
+                      </p>
+                      <div className="rounded border bg-muted/30 p-2 space-y-1 font-mono text-xs">
+                        <div className="flex justify-between"><span className="text-muted-foreground">Vendor</span><span>{pending.vendor}</span></div>
+                        {pending.reference && (
+                          <div className="flex justify-between"><span className="text-muted-foreground">Reference</span><span>{pending.reference}</span></div>
+                        )}
+                        <div className="flex justify-between"><span className="text-muted-foreground">Entry amount</span><span className={pending.amount >= 0 ? "text-emerald-500" : "text-orange-400"}>{pending.amount >= 0 ? "+" : ""}{formatCurrency(pending.amount)}</span></div>
+                        <div className="flex justify-between"><span className="text-muted-foreground">Vendor balance</span><span>{formatCurrency(before)} → <span className={after < 0 ? "text-destructive" : ""}>{formatCurrency(after)}</span></span></div>
+                      </div>
+                    </div>
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel disabled={!!busyId}>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={(ev) => { ev.preventDefault(); performVoid(pending.id); }}
+                    disabled={!!busyId}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  >
+                    {busyId === pending.id ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : null}
+                    Void entry
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </>
+            );
+          })()}
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
