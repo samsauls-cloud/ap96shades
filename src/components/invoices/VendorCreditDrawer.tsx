@@ -128,7 +128,10 @@ export function VendorCreditDrawer({ vendor, open, onOpenChange }: Props) {
               {withRunning.map(e => {
                 const isPositive = e.amount > 0;
                 const clickable = !!e.related_invoice_id;
-                const isSystem = e.source_type === "invoice_application" || !!e.related_payment_id;
+                const isApplication = e.source_type === "invoice_application";
+                const isReversal = e.source_type === "reversal";
+                const canDelete = !isApplication && !isReversal && !e.related_payment_id;
+                const canReverse = isApplication;
                 return (
                   <div
                     key={e.id}
@@ -164,7 +167,21 @@ export function VendorCreditDrawer({ vendor, open, onOpenChange }: Props) {
                           bal {formatCurrency(e.runningBalance)}
                         </p>
                       </div>
-                      {!isSystem && (
+                      {canReverse && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 shrink-0 text-muted-foreground hover:text-amber-500"
+                          onClick={() => handleReverse(e.id)}
+                          disabled={deletingId === e.id}
+                          title="Reverse / unapply this credit"
+                        >
+                          {deletingId === e.id
+                            ? <Loader2 className="h-3 w-3 animate-spin" />
+                            : <Undo2 className="h-3 w-3" />}
+                        </Button>
+                      )}
+                      {canDelete && (
                         <Button
                           variant="ghost"
                           size="icon"
