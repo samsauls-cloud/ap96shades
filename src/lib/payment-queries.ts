@@ -701,8 +701,11 @@ export async function recalculatePaymentsForInvoice(
     }));
 
 
-  const { error } = await supabase.from("invoice_payments").insert(rows);
-  if (error) throw error;
+  if (rows.length > 0) {
+    const { error } = await supabase.from("invoice_payments").insert(rows);
+    if (error) throw error;
+  }
+
 
   // Sync earliest due_date back to vendor_invoices
   if (rows.length > 0) {
