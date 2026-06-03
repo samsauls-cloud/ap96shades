@@ -213,8 +213,13 @@ export default function CreditCenter() {
     qc.invalidateQueries({ queryKey: ["vendor_invoices"] });
   }
 
-  async function handleVoid(id: string) {
-    if (!confirm("Void this credit entry?\n\nA reversal row will be inserted that offsets it; the original stays for audit.")) return;
+  function vendorBalanceFor(vendor: string): number {
+    if (!aliasMap) return 0;
+    const key = resolveVendorKey(vendor, aliasMap);
+    return balances.find(b => b.vendor_key === key)?.balance ?? 0;
+  }
+
+  async function performVoid(id: string) {
     setBusyId(id);
     try {
       const { newBalance } = await voidVendorCredit(id);
@@ -224,10 +229,10 @@ export default function CreditCenter() {
       toast.error(`Void failed: ${e?.message ?? "unknown error"}`, { duration: 8000 });
     } finally {
       setBusyId(null);
+      setPending(null);
     }
   }
-  async function handleReverse(id: string) {
-    if (!confirm("Reverse this applied credit?\n\nThe vendor's balance will be restored and the invoice will owe this amount again.")) return;
+  async function performReverse(id: string) {
     setBusyId(id);
     try {
       await reverseVendorCreditApplication(id);
@@ -241,6 +246,7 @@ export default function CreditCenter() {
       toast.error(`Reverse failed: ${e?.message ?? "unknown error"}`, { duration: 8000 });
     } finally {
       setBusyId(null);
+      setPending(null);
     }
   }
 
