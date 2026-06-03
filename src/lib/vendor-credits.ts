@@ -28,11 +28,13 @@ export interface VendorCredit {
   id: string;
   vendor: string;
   amount: number;
-  description: string;
+  description: string | null;
+  reference: string | null;
   source_type: VendorCreditSource;
   related_invoice_id: string | null;
   related_payment_id: string | null;
   related_history_index: number | null;
+  reversed_credit_id: string | null;
   occurred_on: string;
   created_at: string;
   created_by: string | null;
@@ -50,10 +52,14 @@ export interface VendorCreditBalance {
 
 export async function fetchVendorCreditBalance(vendor: string): Promise<number> {
   if (!vendor) return 0;
+  // Resolve via alias map so "Smith Optics" → same key as "Smith Sport Optics".
+  const { fetchVendorAliasMap, resolveVendorKey } = await import("./vendor-alias-resolver");
+  const aliasMap = await fetchVendorAliasMap();
+  const key = resolveVendorKey(vendor, aliasMap);
   const { data, error } = await supabase
     .from("vendor_credit_balances" as any)
     .select("balance")
-    .eq("vendor_key", vendor.toLowerCase())
+    .eq("vendor_key", key)
     .maybeSingle();
   if (error) {
     console.warn("[vendor-credits] balance fetch failed", error);
@@ -82,14 +88,30 @@ export async function fetchAllVendorCreditBalances(): Promise<VendorCreditBalanc
 
 export async function fetchVendorCreditLedger(vendor: string): Promise<VendorCredit[]> {
   if (!vendor) return [];
+  // Pull every row whose vendor string canonicalizes to the same key.
+  const { fetchVendorAliasMap, resolveVendorKey } = await import("./vendor-alias-resolver");
+  const aliasMap = await fetchVendorAliasMap();
+  const targetKey = resolveVendorKey(vendor, aliasMap);
   const { data, error } = await supabase
     .from("vendor_credits" as any)
     .select("*")
-    .ilike("vendor", vendor)
     .order("occurred_on", { ascending: false })
     .order("created_at", { ascending: false });
   if (error) {
     console.warn("[vendor-credits] ledger fetch failed", error);
+    return [];
+  }
+  return ((data as any[]) ?? []).filter(r => resolveVendorKey(r.vendor, aliasMap) === targetKey);
+}
+
+export async function fetchAllVendorCreditLedger(): Promise<VendorCredit[]> {
+  const { data, error } = await supabase
+    .from("vendor_credits" as any)
+    .select("*")
+    .order("occurred_on", { ascending: false })
+    .order("created_at", { ascending: false });
+  if (error) {
+    console.warn("[vendor-credits] full ledger fetch failed", error);
     return [];
   }
   return (data as any[]) ?? [];
@@ -206,36 +228,97 @@ export async function applyVendorCreditToInstallment(args: {
 
 /**
  * Manually add (or adjust) a vendor credit. Positive = add, negative = consume.
- * The negative-balance trigger guards us if `amount < 0` would push below zero.
+ * Description is REQUIRED — blank descriptions are how the Smith $10,788.90
+ * row landed without context. The negative-balance trigger guards us if
+ * `amount < 0` would push the running balance below zero.
+ *
+ * Returns the new running balance for this vendor so callers can surface it.
  */
 export async function addVendorCreditAdjustment(args: {
   vendor: string;
   amount: number;
-  description?: string;
+  description: string;
+  reference?: string | null;
   sourceType?: VendorCreditSource;
   occurredOn?: string;
   relatedInvoiceId?: string | null;
-}): Promise<void> {
+}): Promise<{ newBalance: number }> {
   const { vendor, amount } = args;
-  if (!vendor || amount === 0) throw new Error("vendor and non-zero amount required");
+  if (!vendor) throw new Error("vendor required");
+  if (amount === 0) throw new Error("amount must be non-zero");
+  const description = (args.description ?? "").trim();
+  if (!description) throw new Error("description is required — describe what this credit is from");
+
   const occurredOn = args.occurredOn ?? new Date().toISOString().split("T")[0];
 
   const { error } = await supabase.from("vendor_credits" as any).insert({
     vendor,
     amount,
-    description: args.description?.trim() || null,
+    description,
+    reference: args.reference?.trim() || null,
     source_type: args.sourceType ?? "manual_adjustment",
     related_invoice_id: args.relatedInvoiceId ?? null,
     occurred_on: occurredOn,
     created_by: "Staff",
   });
   if (error) throw error;
+
+  const newBalance = await fetchVendorCreditBalance(vendor);
+  return { newBalance };
 }
 
 /**
- * Delete a manual vendor credit entry. The balance-guard trigger will reject
- * if removal would drive the running balance below zero. Entries tied to
- * `invoice_application` (system-applied) are blocked client-side.
+ * Void (reverse) a manual vendor credit row. Inserts an offsetting row that
+ * points back at the original via `reversed_credit_id`. The original row is
+ * never deleted — enterprise ledgers don't lose history. Double-voids are
+ * impossible because we check for an existing reversal first.
+ */
+export async function voidVendorCredit(id: string): Promise<{ newBalance: number }> {
+  const { data: original, error: fetchErr } = await supabase
+    .from("vendor_credits" as any)
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (fetchErr) throw fetchErr;
+  if (!original) throw new Error("Credit entry not found");
+  const o = original as any;
+
+  if (o.source_type === "invoice_application") {
+    throw new Error("This is a system-applied credit — use Reverse on the application instead.");
+  }
+  if (o.source_type === "reversal" && o.reversed_credit_id) {
+    throw new Error("This row is itself a reversal and cannot be voided.");
+  }
+
+  // Block double-void.
+  const { data: existing } = await supabase
+    .from("vendor_credits" as any)
+    .select("id")
+    .eq("reversed_credit_id", id)
+    .maybeSingle();
+  if (existing) throw new Error("This entry has already been voided.");
+
+  const { error: insErr } = await supabase.from("vendor_credits" as any).insert({
+    vendor: o.vendor,
+    amount: -Number(o.amount),
+    description: `Void of: ${o.description ?? "(no description)"}`,
+    reference: o.reference ?? null,
+    source_type: "reversal",
+    related_invoice_id: o.related_invoice_id ?? null,
+    related_payment_id: o.related_payment_id ?? null,
+    reversed_credit_id: id,
+    occurred_on: new Date().toISOString().slice(0, 10),
+    created_by: "Staff",
+  });
+  if (insErr) throw insErr;
+
+  const newBalance = await fetchVendorCreditBalance(o.vendor);
+  return { newBalance };
+}
+
+/**
+ * Legacy delete (manual entries only). Prefer voidVendorCredit going forward.
+ * Kept for any older callers; new UI uses void.
  */
 export async function deleteVendorCredit(id: string): Promise<void> {
   const { data: existing, error: fetchErr } = await supabase
@@ -563,4 +646,3 @@ export async function dismissOnboardingFlag(flagKey: string): Promise<void> {
 export async function resetOnboardingFlag(flagKey: string): Promise<void> {
   await supabase.from("onboarding_flags" as any).delete().eq("flag_key", flagKey);
 }
-

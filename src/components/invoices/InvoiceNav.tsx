@@ -1,17 +1,46 @@
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { FileText, ScanLine, BarChart3, LogOut, Menu, X, FileSearch } from "lucide-react";
+import { FileText, ScanLine, BarChart3, LogOut, Menu, X, FileSearch, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useQuery } from "@tanstack/react-query";
+import { fetchAllVendorCreditBalances } from "@/lib/vendor-credits";
 
+function formatShort(n: number): string {
+  if (n >= 1000) return `$${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}K`;
+  return `$${n.toFixed(0)}`;
+}
 
 export function InvoiceNav() {
   const { pathname } = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  const links = [
+  const { data: balances = [] } = useQuery({
+    queryKey: ["vendor_credit_balances"],
+    queryFn: fetchAllVendorCreditBalances,
+    staleTime: 30_000,
+  });
+  const totalCredit = balances.filter(b => b.balance > 0).reduce((s, b) => s + b.balance, 0);
+
+  const links: Array<{
+    to: string;
+    label: string;
+    icon: any;
+    primary?: boolean;
+    badge?: number;
+    badgeContent?: string;
+    badgeTone?: string;
+  }> = [
     { to: "/invoices", label: "Invoices", icon: FileText },
     { to: "/invoices/reader", label: "Upload", icon: ScanLine },
     { to: "/invoices/ledger-check", label: "Ledger Check", icon: FileSearch },
+    {
+      to: "/invoices/credits",
+      label: "Credits",
+      icon: Wallet,
+      badge: totalCredit > 0 ? 1 : 0,
+      badgeContent: totalCredit > 0 ? formatShort(totalCredit) : "",
+      badgeTone: "bg-emerald-500 text-white",
+    },
     { to: "/invoices/dashboard", label: "Dashboard", icon: BarChart3, primary: true },
   ];
 
@@ -41,16 +70,16 @@ export function InvoiceNav() {
                   className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs transition-colors ${
                     pathname === l.to
                       ? "bg-primary text-primary-foreground font-semibold"
-                      : (l as any).primary
+                      : l.primary
                         ? "text-foreground font-bold hover:bg-accent"
                         : "text-muted-foreground hover:text-foreground hover:bg-accent font-medium"
                   }`}
                 >
                   <l.icon className="h-3.5 w-3.5" />
                   {l.label}
-                  {'badge' in l && (l as any).badge > 0 && (
-                    <span className="absolute -top-1.5 -right-1.5 flex items-center gap-0.5 rounded-full bg-destructive text-destructive-foreground text-[7px] font-bold px-1.5 py-0.5 whitespace-nowrap">
-                      {(l as any).badgeContent || (l as any).badge}
+                  {l.badge && l.badge > 0 && (
+                    <span className={`ml-1 rounded px-1 py-0.5 text-[9px] font-bold whitespace-nowrap ${l.badgeTone ?? "bg-destructive text-destructive-foreground"}`}>
+                      {l.badgeContent || l.badge}
                     </span>
                   )}
                 </Link>
@@ -77,7 +106,6 @@ export function InvoiceNav() {
             </Button>
           </div>
         </div>
-        {/* Mobile nav dropdown */}
         {mobileOpen && (
           <nav className="md:hidden border-t border-border bg-card px-4 py-2 flex flex-col gap-1">
             {links.map(l => (
@@ -93,8 +121,10 @@ export function InvoiceNav() {
               >
                 <l.icon className="h-4 w-4" />
                 {l.label}
-                {'badge' in l && (l as any).badge > 0 && (
-                  <span className="ml-auto text-[9px] font-bold">{(l as any).badgeContent}</span>
+                {l.badge && l.badge > 0 && (
+                  <span className={`ml-auto rounded px-1 py-0.5 text-[9px] font-bold ${l.badgeTone ?? ""}`}>
+                    {l.badgeContent}
+                  </span>
                 )}
               </Link>
             ))}
