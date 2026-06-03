@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,10 +6,12 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Separator } from "@/components/ui/separator";
+import { RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   manualOverrideInstallmentStatus,
+  clearManualStatusOverride,
   type InvoicePayment,
   type ManualOverrideMode,
   derivePaymentStatus,
@@ -23,19 +25,38 @@ interface Props {
   onComplete?: () => void;
 }
 
+function modeFromStatus(status: string): ManualOverrideMode {
+  if (status === "paid" || status === "overpaid") return "paid";
+  if (status === "partial") return "partial";
+  return "unpaid";
+}
+
 export function ManualStatusOverrideDialog({ payment, open, onOpenChange, onComplete }: Props) {
   const qc = useQueryClient();
-  const [mode, setMode] = useState<ManualOverrideMode>("paid");
+  const [mode, setMode] = useState<ManualOverrideMode>("unpaid");
   const [partial, setPartial] = useState("");
   const [paidDate, setPaidDate] = useState(new Date().toISOString().split("T")[0]);
   const [note, setNote] = useState("");
   const [confirming, setConfirming] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
+  // Bug 2 fix: fully reset every time the dialog opens or the target installment changes.
+  // Radix does not call onOpenChange when `open` flips programmatically, so we cannot
+  // rely on handleOpen for resets between installments.
+  useEffect(() => {
+    if (!open || !payment) return;
+    setMode(modeFromStatus(payment.payment_status));
+    setPartial("");
+    setPaidDate(new Date().toISOString().split("T")[0]);
+    setNote("");
+    setConfirming(false);
+  }, [open, payment?.id]);
+
   if (!payment) return null;
 
   const amountDue = Number(payment.amount_due) || 0;
   const before = payment.payment_status;
+  const isManualNow = (payment as any).manual_status_override === true;
   const partialNum = parseFloat(partial) || 0;
   const afterStatus =
     mode === "paid" ? "paid"
@@ -46,20 +67,15 @@ export function ManualStatusOverrideDialog({ payment, open, onOpenChange, onComp
     : mode === "unpaid" ? 0
     : partialNum;
 
-  const reset = () => {
-    setMode("paid");
-    setPartial("");
-    setPaidDate(new Date().toISOString().split("T")[0]);
-    setNote("");
-    setConfirming(false);
-  };
-
-  const handleOpen = (o: boolean) => {
-    if (o) reset();
-    onOpenChange(o);
-  };
-
   const partialInvalid = mode === "partial" && (!Number.isFinite(partialNum) || partialNum < 0 || partialNum > amountDue);
+
+  const invalidateAll = () => {
+    qc.invalidateQueries({ queryKey: ["invoice_payments_detail", payment.invoice_id] });
+    qc.invalidateQueries({ queryKey: ["invoice_payments"] });
+    qc.invalidateQueries({ queryKey: ["invoice_stats"] });
+    qc.invalidateQueries({ queryKey: ["ap_full_audit"] });
+    qc.invalidateQueries({ queryKey: ["vendor_invoices"] });
+  };
 
   const apply = async () => {
     setSubmitting(true);
@@ -73,11 +89,7 @@ export function ManualStatusOverrideDialog({ payment, open, onOpenChange, onComp
         performedBy: "Josh",
       });
       toast.success(`Override applied: ${before} → ${afterStatus}`);
-      qc.invalidateQueries({ queryKey: ["invoice_payments_detail", payment.invoice_id] });
-      qc.invalidateQueries({ queryKey: ["invoice_payments"] });
-      qc.invalidateQueries({ queryKey: ["invoice_stats"] });
-      qc.invalidateQueries({ queryKey: ["ap_full_audit"] });
-      qc.invalidateQueries({ queryKey: ["vendor_invoices"] });
+      invalidateAll();
       onComplete?.();
       onOpenChange(false);
     } catch (e: any) {
@@ -87,8 +99,23 @@ export function ManualStatusOverrideDialog({ payment, open, onOpenChange, onComp
     }
   };
 
+  const clearOverride = async () => {
+    setSubmitting(true);
+    try {
+      await clearManualStatusOverride(payment.id, "Josh");
+      toast.success("Manual override cleared — installment back to computed");
+      invalidateAll();
+      onComplete?.();
+      onOpenChange(false);
+    } catch (e: any) {
+      toast.error(e?.message ?? "Failed to clear override");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
-    <Dialog open={open} onOpenChange={handleOpen}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle className="text-base">Override installment status</DialogTitle>
@@ -99,6 +126,20 @@ export function ManualStatusOverrideDialog({ payment, open, onOpenChange, onComp
 
         {!confirming ? (
           <div className="space-y-4">
+            {isManualNow && (
+              <div className="rounded-md border border-amber-500/50 bg-amber-500/10 p-2 text-xs flex items-start gap-2">
+                <div className="flex-1">
+                  <div className="font-medium text-amber-700">This installment is currently a manual override.</div>
+                  <div className="text-muted-foreground mt-0.5">
+                    Clear it to remove the Manual badge and let the system manage its status again.
+                  </div>
+                </div>
+                <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={clearOverride} disabled={submitting}>
+                  <RotateCcw className="h-3 w-3" /> Clear override
+                </Button>
+              </div>
+            )}
+
             <div>
               <Label className="text-xs mb-2 block">New status</Label>
               <RadioGroup value={mode} onValueChange={v => setMode(v as ManualOverrideMode)} className="space-y-1.5">
