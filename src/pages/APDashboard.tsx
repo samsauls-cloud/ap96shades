@@ -363,7 +363,12 @@ export default function APDashboard() {
       <InvoiceNav />
       <div className="max-w-[1600px] mx-auto px-4 sm:px-6 py-6 space-y-6">
 
-        <DataHealthTile />
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div className="flex-1 min-w-[280px]"><DataHealthTile /></div>
+          <AddVendorCreditDialog buttonLabel="Add Vendor Credit" />
+        </div>
+
+
 
 
         {/* ── Header ───────────────────────────────────── */}
