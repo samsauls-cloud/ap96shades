@@ -1,16 +1,17 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { Wallet, Trash2, Loader2, Undo2 } from "lucide-react";
+import { Wallet, Ban, Loader2, Undo2 } from "lucide-react";
 import {
   fetchVendorCreditBalance,
   fetchVendorCreditLedger,
   fetchAllVendorCreditBalances,
-  deleteVendorCredit,
+  voidVendorCredit,
   reverseVendorCreditApplication,
 } from "@/lib/vendor-credits";
+import { fetchVendorAliasMap, resolveVendorKey } from "@/lib/vendor-alias-resolver";
 import { formatCurrency } from "@/lib/supabase-queries";
 import { useNavigate } from "react-router-dom";
 import { AddVendorCreditDialog } from "@/components/invoices/AddVendorCreditDialog";
@@ -35,7 +36,7 @@ const SOURCE_LABEL: Record<string, string> = {
 export function VendorCreditDrawer({ vendor, open, onOpenChange }: Props) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   const { data: balance = 0 } = useQuery({
     queryKey: ["vendor_credit_balances", vendor.toLowerCase()],
@@ -49,6 +50,15 @@ export function VendorCreditDrawer({ vendor, open, onOpenChange }: Props) {
     queryFn: () => fetchVendorCreditLedger(vendor),
   });
 
+  // Set of credit-row ids that have already been voided (a reversal row points to them).
+  const voidedIds = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of entries) {
+      if ((e as any).reversed_credit_id) set.add((e as any).reversed_credit_id);
+    }
+    return set;
+  }, [entries]);
+
   const oldestFirst = [...entries].reverse();
   let running = 0;
   const withRunning = oldestFirst.map(e => {
@@ -58,31 +68,33 @@ export function VendorCreditDrawer({ vendor, open, onOpenChange }: Props) {
 
   const lastActivity = entries[0]?.occurred_on ?? null;
 
-  async function handleDelete(id: string) {
-    if (!confirm("Delete this credit entry? This cannot be undone.")) return;
-    setDeletingId(id);
+  function invalidateAll() {
+    queryClient.invalidateQueries({ queryKey: ["vendor_credit_balances"] });
+    queryClient.invalidateQueries({ queryKey: ["vendor_credit_ledger"] });
+    queryClient.invalidateQueries({ queryKey: ["vendor_invoices"] });
+  }
+
+  async function handleVoid(id: string) {
+    if (!confirm("Void this credit entry?\n\nA reversal row will be added that offsets it. The original stays in the ledger for audit.")) return;
+    setBusyId(id);
     try {
-      await deleteVendorCredit(id);
-      toast.success("Credit entry deleted");
-      queryClient.invalidateQueries({ queryKey: ["vendor_credit_balances"] });
-      queryClient.invalidateQueries({ queryKey: ["vendor_credit_ledger"] });
-      queryClient.invalidateQueries({ queryKey: ["vendor_invoices"] });
+      const { newBalance } = await voidVendorCredit(id);
+      toast.success(`Entry voided. ${vendor} available balance: ${formatCurrency(newBalance)}`);
+      invalidateAll();
     } catch (e: any) {
-      toast.error(`Delete failed: ${e?.message ?? "unknown error"}`, { duration: 8000 });
+      toast.error(`Void failed: ${e?.message ?? "unknown error"}`, { duration: 8000 });
     } finally {
-      setDeletingId(null);
+      setBusyId(null);
     }
   }
 
   async function handleReverse(id: string) {
     if (!confirm("Reverse this applied credit?\n\nThe vendor's balance will be restored and the invoice will owe this amount again.")) return;
-    setDeletingId(id);
+    setBusyId(id);
     try {
       await reverseVendorCreditApplication(id);
       toast.success("Credit application reversed");
-      queryClient.invalidateQueries({ queryKey: ["vendor_credit_balances"] });
-      queryClient.invalidateQueries({ queryKey: ["vendor_credit_ledger"] });
-      queryClient.invalidateQueries({ queryKey: ["vendor_invoices"] });
+      invalidateAll();
       queryClient.invalidateQueries({ queryKey: ["invoice_payments"] });
       queryClient.invalidateQueries({ queryKey: ["invoice_payments_detail"] });
       queryClient.invalidateQueries({ queryKey: ["invoice_stats"] });
@@ -90,7 +102,7 @@ export function VendorCreditDrawer({ vendor, open, onOpenChange }: Props) {
     } catch (e: any) {
       toast.error(`Reverse failed: ${e?.message ?? "unknown error"}`, { duration: 8000 });
     } finally {
-      setDeletingId(null);
+      setBusyId(null);
     }
   }
 
@@ -101,7 +113,7 @@ export function VendorCreditDrawer({ vendor, open, onOpenChange }: Props) {
           <SheetTitle className="flex items-center gap-2">
             <Wallet className="h-4 w-4 text-emerald-500" />
             <span>{vendor}</span>
-            <span className="ml-auto text-emerald-500 tabular-nums">{formatCurrency(balance)}</span>
+            <span className="ml-auto text-emerald-500 tabular-nums">{formatCurrency(balance)} available</span>
           </SheetTitle>
           {lastActivity && (
             <p className="text-xs text-muted-foreground">Last activity: {lastActivity}</p>
@@ -130,12 +142,13 @@ export function VendorCreditDrawer({ vendor, open, onOpenChange }: Props) {
                 const clickable = !!e.related_invoice_id;
                 const isApplication = e.source_type === "invoice_application";
                 const isReversal = e.source_type === "reversal";
-                const canDelete = !isApplication && !isReversal && !e.related_payment_id;
-                const canReverse = isApplication;
+                const alreadyVoided = voidedIds.has(e.id);
+                const canVoid = !isApplication && !isReversal && !alreadyVoided && !(e as any).related_payment_id;
+                const canReverse = isApplication && !alreadyVoided;
                 return (
                   <div
                     key={e.id}
-                    className="p-2.5 rounded border text-xs space-y-0.5 hover:bg-muted/40 transition-colors"
+                    className={`p-2.5 rounded border text-xs space-y-0.5 hover:bg-muted/40 transition-colors ${alreadyVoided ? "opacity-60" : ""}`}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div
@@ -144,11 +157,21 @@ export function VendorCreditDrawer({ vendor, open, onOpenChange }: Props) {
                         onClick={() => clickable && navigate(`/invoices?open=${e.related_invoice_id}`)}
                         className={`flex-1 min-w-0 ${clickable ? "cursor-pointer" : ""}`}
                       >
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="font-mono">{e.occurred_on}</span>
                           <Badge variant="outline" className="text-[10px] h-4 px-1">
                             {SOURCE_LABEL[e.source_type] ?? e.source_type}
                           </Badge>
+                          {alreadyVoided && (
+                            <Badge variant="outline" className="text-[10px] h-4 px-1 text-amber-500 border-amber-500/40">
+                              Reversed
+                            </Badge>
+                          )}
+                          {(e as any).reference && (
+                            <Badge variant="outline" className="text-[10px] h-4 px-1 font-mono">
+                              {(e as any).reference}
+                            </Badge>
+                          )}
                           {clickable && (
                             <Badge variant="outline" className="text-[10px] h-4 px-1 text-primary">
                               linked
@@ -173,26 +196,26 @@ export function VendorCreditDrawer({ vendor, open, onOpenChange }: Props) {
                           size="icon"
                           className="h-6 w-6 shrink-0 text-muted-foreground hover:text-amber-500"
                           onClick={() => handleReverse(e.id)}
-                          disabled={deletingId === e.id}
+                          disabled={busyId === e.id}
                           title="Reverse / unapply this credit"
                         >
-                          {deletingId === e.id
+                          {busyId === e.id
                             ? <Loader2 className="h-3 w-3 animate-spin" />
                             : <Undo2 className="h-3 w-3" />}
                         </Button>
                       )}
-                      {canDelete && (
+                      {canVoid && (
                         <Button
                           variant="ghost"
                           size="icon"
                           className="h-6 w-6 shrink-0 text-muted-foreground hover:text-destructive"
-                          onClick={() => handleDelete(e.id)}
-                          disabled={deletingId === e.id}
-                          title="Delete entry"
+                          onClick={() => handleVoid(e.id)}
+                          disabled={busyId === e.id}
+                          title="Void this entry (inserts offsetting reversal row)"
                         >
-                          {deletingId === e.id
+                          {busyId === e.id
                             ? <Loader2 className="h-3 w-3 animate-spin" />
-                            : <Trash2 className="h-3 w-3" />}
+                            : <Ban className="h-3 w-3" />}
                         </Button>
                       )}
                     </div>
@@ -225,25 +248,33 @@ export function VendorCreditBadge({ vendor, balance: providedBalance }: { vendor
         type="button"
         onClick={(e) => { e.stopPropagation(); setOpen(true); }}
         className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20 transition-colors"
-        title={`Vendor credit balance: ${formatCurrency(balance)} — click for ledger`}
+        title={`Available credit: ${formatCurrency(balance)} — click for ledger`}
       >
         <Wallet className="h-2.5 w-2.5" />
-        Credit: {formatCurrency(balance)}
+        Available credit: {formatCurrency(balance)}
       </button>
       <VendorCreditDrawer vendor={vendor} open={open} onOpenChange={setOpen} />
     </>
   );
 }
 
-/** Bulk balance map for table rows — react-query so it refreshes on invalidation. */
+/**
+ * Bulk balance map — keyed by canonical vendor_id (via alias map) so a
+ * "Smith Sport Optics" invoice resolves to the same balance as "Smith Optics".
+ */
 export function useVendorCreditBalanceMap() {
-  const { data } = useQuery({
+  const { data: balances } = useQuery({
     queryKey: ["vendor_credit_balances"],
     queryFn: fetchAllVendorCreditBalances,
   });
+  const { data: aliasMap } = useQuery({
+    queryKey: ["vendor_alias_map"],
+    queryFn: fetchVendorAliasMap,
+  });
   return (vendor: string) => {
-    if (!vendor || !data) return 0;
-    const key = vendor.toLowerCase();
-    return data.find(r => r.vendor_key === key)?.balance ?? 0;
+    if (!vendor || !balances) return 0;
+    const map = aliasMap ?? new Map();
+    const key = resolveVendorKey(vendor, map);
+    return balances.find(r => r.vendor_key === key)?.balance ?? 0;
   };
 }
