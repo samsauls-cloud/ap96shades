@@ -32,7 +32,8 @@ import {
   type OverridePayload,
   type OverrideInstallment,
 } from "./InvoiceReviewOverridePanel";
-import { Pencil, CheckCircle2 } from "lucide-react";
+import { resolvePaymentSchedule } from "@/lib/payment-terms-engine";
+import { Pencil, CheckCircle2, AlertTriangle, X as XIcon } from "lucide-react";
 
 interface Props {
   invoice: VendorInvoice | null;
@@ -53,6 +54,7 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
   const [localPdfUrl, setLocalPdfUrl] = useState<string | null>(null);
   const [editingTerms, setEditingTerms] = useState(false);
   const [approvingExisting, setApprovingExisting] = useState(false);
+  const [mismatchDismissed, setMismatchDismissed] = useState(false);
   const inv = invoice;
 
   const { data: allTags = [] } = useQuery({
@@ -74,8 +76,51 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
       setLocalPdfUrl((inv as any).pdf_url ?? null);
       setActiveTab("line-items");
       setEditingTerms(false);
+      // Per-invoice "I've seen this warning, don't auto-open again" memory.
+      const dismissedKey = `term-mismatch-dismissed:${inv.id}`;
+      setMismatchDismissed(sessionStorage.getItem(dismissedKey) === "1");
     }
   }, [inv]);
+
+  // ── Schedule-vs-terms mismatch detector ──────────────────────────────
+  // If the saved installment count doesn't match what the current payment_terms
+  // text would compute, auto-open the override panel and surface a banner.
+  const scheduleMismatch = (() => {
+    if (!inv || isCreditMemo(inv) || existingPayments.length === 0) return null;
+    try {
+      const schedule = resolvePaymentSchedule(
+        inv.vendor,
+        "Procurement",
+        new Date(inv.invoice_date),
+        Number(inv.total ?? 0),
+        inv.payment_terms,
+        (inv as any).delivery_date ? new Date((inv as any).delivery_date) : null,
+      );
+      const expected = schedule.tranches.length;
+      const actual = existingPayments.length;
+      if (expected > 0 && expected !== actual) {
+        return { expected, actual };
+      }
+    } catch {
+      // ignore — engine failure shouldn't block the drawer
+    }
+    return null;
+  })();
+
+  useEffect(() => {
+    if (scheduleMismatch && !mismatchDismissed && !editingTerms) {
+      setEditingTerms(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scheduleMismatch?.expected, scheduleMismatch?.actual, mismatchDismissed]);
+
+  function dismissMismatch() {
+    if (!inv) return;
+    sessionStorage.setItem(`term-mismatch-dismissed:${inv.id}`, "1");
+    setMismatchDismissed(true);
+    setEditingTerms(false);
+  }
+
 
   // Auto-heal: sync invoice_payments when status is out of sync
   useEffect(() => {
@@ -596,8 +641,12 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
                 {!isCreditMemo(inv) && (
                   <Button
                     size="sm"
-                    variant="outline"
-                    className="text-xs h-7"
+                    variant={scheduleMismatch && !mismatchDismissed ? "default" : "outline"}
+                    className={
+                      scheduleMismatch && !mismatchDismissed
+                        ? "text-xs h-7 bg-amber-500 hover:bg-amber-500/90 text-white animate-pulse"
+                        : "text-xs h-7"
+                    }
                     onClick={() => setEditingTerms((v) => !v)}
                     title="Manually enter dates / amounts / preset — replaces existing unpaid installments"
                   >
@@ -607,6 +656,33 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
                 )}
               </div>
             </div>
+
+            {/* Auto-detect mismatch banner — dismissible per-invoice for the session */}
+            {scheduleMismatch && !mismatchDismissed && (
+              <div className="flex items-start gap-2 p-3 rounded-md border-2 border-amber-500/50 bg-amber-500/10">
+                <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
+                <div className="flex-1 text-xs">
+                  <p className="font-semibold text-amber-700">
+                    Schedule mismatch — terms expect {scheduleMismatch.expected} installment
+                    {scheduleMismatch.expected === 1 ? "" : "s"}, but {scheduleMismatch.actual}{" "}
+                    {scheduleMismatch.actual === 1 ? "is" : "are"} saved.
+                  </p>
+                  <p className="text-muted-foreground mt-0.5">
+                    The override panel below is open so you can fix it. Add rows, change dates / amounts, then Save.
+                  </p>
+                </div>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-6 w-6 shrink-0"
+                  onClick={dismissMismatch}
+                  title="Minimize — don't auto-open this for this invoice again this session"
+                >
+                  <XIcon className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            )}
+
             {existingPayments.length > 0 ? (
               <div className="space-y-1">
                 {existingPayments.map(p => {
