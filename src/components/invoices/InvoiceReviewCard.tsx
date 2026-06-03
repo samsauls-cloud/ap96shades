@@ -7,7 +7,7 @@ import {
   AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
   AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { CheckCircle2, AlertCircle, AlertTriangle, Loader2, X, Pencil } from "lucide-react";
+import { CheckCircle2, AlertCircle, AlertTriangle, Loader2, X } from "lucide-react";
 import { formatCurrency, isCreditMemo } from "@/lib/supabase-queries";
 import { resolvePaymentSchedule } from "@/lib/payment-terms-engine";
 import { getVendorTermsRule } from "@/lib/vendor-terms-registry";
@@ -17,6 +17,7 @@ import {
   type OverridePayload,
   type OverrideInstallment,
 } from "@/components/invoices/InvoiceReviewOverridePanel";
+import { OverrideScheduleButton, OverrideScheduleHelper } from "@/components/invoices/OverrideScheduleButton";
 
 interface Props {
   doc: ProcessedDoc;
