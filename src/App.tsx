@@ -41,6 +41,7 @@ const App = () => (
             <Route path="/audit" element={<AuditPage />} />
             <Route path="/invoices/ledger-check" element={<LedgerCheckPage />} />
             <Route path="/invoices/credits" element={<CreditCenterPage />} />
+            <Route path="/invoices/delivery-backfill" element={<DeliveryBackfillPage />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
