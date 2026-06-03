@@ -244,6 +244,10 @@ export type Database = {
           invoice_number: string
           is_paid: boolean
           last_payment_date: string | null
+          manual_status_note: string | null
+          manual_status_override: boolean
+          manual_status_set_at: string | null
+          manual_status_set_by: string | null
           notes: string | null
           paid_date: string | null
           payment_history: Json | null
@@ -272,6 +276,10 @@ export type Database = {
           invoice_number: string
           is_paid?: boolean
           last_payment_date?: string | null
+          manual_status_note?: string | null
+          manual_status_override?: boolean
+          manual_status_set_at?: string | null
+          manual_status_set_by?: string | null
           notes?: string | null
           paid_date?: string | null
           payment_history?: Json | null
@@ -300,6 +308,10 @@ export type Database = {
           invoice_number?: string
           is_paid?: boolean
           last_payment_date?: string | null
+          manual_status_note?: string | null
+          manual_status_override?: boolean
+          manual_status_set_at?: string | null
+          manual_status_set_by?: string | null
           notes?: string | null
           paid_date?: string | null
           payment_history?: Json | null
