@@ -224,7 +224,7 @@ export function VendorCreditDrawer({ vendor, open, onOpenChange }: Props) {
                           variant="ghost"
                           size="icon"
                           className="h-6 w-6 shrink-0 text-muted-foreground hover:text-destructive"
-                          onClick={() => handleVoid(e.id)}
+                          onClick={() => setPending({ kind: "void", id: e.id, amount: Number(e.amount), description: e.description ?? null, reference: (e as any).reference ?? null })}
                           disabled={busyId === e.id}
                           title="Void this entry (inserts offsetting reversal row)"
                         >
