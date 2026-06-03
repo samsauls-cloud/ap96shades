@@ -657,34 +657,49 @@ export async function recalculatePaymentsForInvoice(
     oldSnapshot = existingRows ?? [];
   }
 
-  // Delete existing
+  // Preserve manually-overridden rows: snapshot their (label, due_date) so we
+  // can skip generating duplicates for them after the delete+regenerate cycle.
+  const { data: overrideRows } = await supabase
+    .from("invoice_payments")
+    .select("id, installment_label, due_date, amount_due, amount_paid, balance_remaining, payment_status, is_paid, paid_date, payment_history, manual_status_override, manual_status_set_by, manual_status_set_at, manual_status_note, terms, invoice_number, invoice_amount, invoice_date, vendor, po_number")
+    .eq("invoice_id", invoiceId)
+    .eq("manual_status_override", true);
+  const preservedKeys = new Set(
+    (overrideRows ?? []).map((r: any) => `${r.installment_label ?? ""}|${r.due_date ?? ""}`)
+  );
+
+  // Delete only NON-overridden rows
   const { error: delErr } = await supabase
     .from("invoice_payments")
     .delete()
-    .eq("invoice_id", invoiceId);
+    .eq("invoice_id", invoiceId)
+    .eq("manual_status_override", false);
   if (delErr) throw delErr;
 
   const normalized = normalizeVendor(vendor);
-  if (!hasTermsEngine(normalized)) return 0;
+  if (!hasTermsEngine(normalized)) return (overrideRows?.length ?? 0);
 
   const installments = calculateInstallments(invoiceDate, total, normalized, invoiceNumber, poNumber, paymentTermsText, deliveryDate);
-  if (installments.length === 0) return 0;
+  if (installments.length === 0) return (overrideRows?.length ?? 0);
 
-  const rows = installments.map(inst => ({
-    invoice_id: invoiceId,
-    vendor: inst.vendor,
-    invoice_number: inst.invoice_number,
-    po_number: inst.po_number,
-    invoice_amount: inst.invoice_amount,
-    invoice_date: inst.invoice_date,
-    terms: inst.terms,
-    installment_label: inst.installment_label,
-    due_date: inst.due_date,
-    amount_due: inst.amount_due,
-    amount_paid: 0,
-    balance_remaining: inst.amount_due,
-    payment_status: "unpaid",
-  }));
+  const rows = installments
+    .filter(inst => !preservedKeys.has(`${inst.installment_label ?? ""}|${inst.due_date ?? ""}`))
+    .map(inst => ({
+      invoice_id: invoiceId,
+      vendor: inst.vendor,
+      invoice_number: inst.invoice_number,
+      po_number: inst.po_number,
+      invoice_amount: inst.invoice_amount,
+      invoice_date: inst.invoice_date,
+      terms: inst.terms,
+      installment_label: inst.installment_label,
+      due_date: inst.due_date,
+      amount_due: inst.amount_due,
+      amount_paid: 0,
+      balance_remaining: inst.amount_due,
+      payment_status: "unpaid",
+    }));
+
 
   const { error } = await supabase.from("invoice_payments").insert(rows);
   if (error) throw error;
