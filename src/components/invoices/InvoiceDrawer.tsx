@@ -666,8 +666,30 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
                     mismatch={!!(scheduleMismatch && !mismatchDismissed)}
                   />
                 )}
+                {!isCreditMemo(inv) && vendorCreditBalance > 0 && invoiceOwed > 0 && (
+                  <Button
+                    size="sm"
+                    className="text-xs h-7 bg-emerald-600 hover:bg-emerald-700 text-white"
+                    onClick={() => setApplyCreditOpen(true)}
+                    title={`Vendor has ${formatCurrency(vendorCreditBalance)} in on-account credit`}
+                  >
+                    <Wallet className="h-3 w-3 mr-1" />
+                    Apply Credit ({formatCurrency(Math.min(vendorCreditBalance, invoiceOwed))})
+                  </Button>
+                )}
               </div>
             </div>
+
+            {inv && (
+              <ApplyVendorCreditDialog
+                invoiceId={inv.id}
+                invoiceNumber={inv.invoice_number}
+                vendor={inv.vendor}
+                amountOwed={invoiceOwed}
+                open={applyCreditOpen}
+                onOpenChange={setApplyCreditOpen}
+              />
+            )}
 
             {/* Auto-detect mismatch banner — dismissible per-invoice for the session */}
             {scheduleMismatch && !mismatchDismissed && (
