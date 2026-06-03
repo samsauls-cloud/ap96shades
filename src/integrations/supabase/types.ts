@@ -499,6 +499,24 @@ export type Database = {
         }
         Relationships: []
       }
+      onboarding_flags: {
+        Row: {
+          dismissed_at: string
+          dismissed_by: string
+          flag_key: string
+        }
+        Insert: {
+          dismissed_at?: string
+          dismissed_by?: string
+          flag_key: string
+        }
+        Update: {
+          dismissed_at?: string
+          dismissed_by?: string
+          flag_key?: string
+        }
+        Relationships: []
+      }
       po_receiving_lines: {
         Row: {
           billing_discrepancy: boolean | null
