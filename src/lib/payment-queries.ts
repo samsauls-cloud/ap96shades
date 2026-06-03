@@ -113,9 +113,14 @@ export async function fetchPayments(): Promise<InvoicePayment[]> {
   return normalized.map(p => {
     if (!p.invoice_id) return p;
     const siblings = byInvoice.get(p.invoice_id) ?? [p];
-    const allPaid = siblings.every(s => s.is_paid || s.payment_status === "paid");
-    const somePaid = siblings.some(s => s.is_paid || s.payment_status === "paid");
-    const invoiceStatus = allPaid ? "paid" : somePaid ? "partial" : p.payment_status;
+    const live = siblings.filter(s => s.payment_status !== "void");
+    const totalDue = live.reduce((s, x) => s + (Number(x.amount_due) || 0), 0);
+    const totalPaid = live.reduce((s, x) => s + (Number(x.amount_paid) || 0), 0);
+    const invoiceStatus =
+      siblings.some(s => s.payment_status === "disputed") ? "disputed"
+      : totalPaid <= 0.005 ? "unpaid"
+      : totalPaid + 0.005 >= totalDue ? "paid"
+      : "partial";
     return { ...p, invoice_payment_status: invoiceStatus, sibling_count: siblings.length };
   });
 }
@@ -288,18 +293,27 @@ export async function markPaymentPaid(paymentId: string): Promise<void> {
   }
 }
 
-/** Sync vendor_invoices.status based on all installment statuses */
+/** Sync vendor_invoices.status based on aggregate paid vs due across installments.
+ *  Rule: total_paid==0 → unpaid; total_paid>=total_due → paid; otherwise → partial.
+ *  Disputed on any row wins; void rows are excluded from the denominator. */
 export async function syncInvoicePaymentStatus(invoiceId: string): Promise<void> {
   const { data: allInstallments, error: fetchErr } = await supabase
     .from("invoice_payments")
-    .select("payment_status, balance_remaining")
+    .select("payment_status, amount_due, amount_paid")
     .eq("invoice_id", invoiceId);
   if (fetchErr) throw fetchErr;
   if (!allInstallments || allInstallments.length === 0) return;
 
-  const allPaid = allInstallments.every(p => p.payment_status === "paid" || p.payment_status === "overpaid");
-  const anyPartial = allInstallments.some(p => p.payment_status === "partial");
-  const newStatus = allPaid ? "paid" : anyPartial ? "partial" : "unpaid";
+  const anyDisputed = allInstallments.some(p => p.payment_status === "disputed");
+  const live = allInstallments.filter(p => p.payment_status !== "void");
+  const totalDue = live.reduce((s, p) => s + (Number(p.amount_due) || 0), 0);
+  const totalPaid = live.reduce((s, p) => s + (Number(p.amount_paid) || 0), 0);
+
+  let newStatus: string;
+  if (anyDisputed) newStatus = "disputed";
+  else if (totalPaid <= 0.005) newStatus = "unpaid";
+  else if (totalPaid + 0.005 >= totalDue) newStatus = "paid";
+  else newStatus = "partial";
 
   const { error } = await supabase
     .from("vendor_invoices")
@@ -351,7 +365,7 @@ export async function markPaymentUnpaid(paymentId: string): Promise<void> {
   // 2026-05-26: append a history entry so the un-mark leaves a recoverable trail.
   const { data: current } = await supabase
     .from("invoice_payments")
-    .select("payment_history")
+    .select("payment_history, invoice_id")
     .eq("id", paymentId)
     .maybeSingle();
   const existingHistory = Array.isArray((current as any)?.payment_history) ? (current as any).payment_history : [];
@@ -376,6 +390,9 @@ export async function markPaymentUnpaid(paymentId: string): Promise<void> {
     } as any)
     .eq("id", paymentId);
   if (error) throw error;
+  if ((current as any)?.invoice_id) {
+    try { await syncInvoicePaymentStatus((current as any).invoice_id); } catch { /* non-fatal */ }
+  }
 }
 
 /**
@@ -439,25 +456,9 @@ export async function markInstallmentPaid(
 
   console.log(`[markInstallmentPaid] ✓ Row ${paymentRowId} updated successfully`);
 
-  // Sync parent invoice status
+  // Sync parent invoice status (aggregate paid vs due — handles partial correctly)
   if (row.invoice_id) {
-    const { data: siblings } = await supabase
-      .from("invoice_payments")
-      .select("id, is_paid, due_date")
-      .eq("invoice_id", row.invoice_id)
-      .order("due_date", { ascending: true });
-
-    console.log(`[markInstallmentPaid] Siblings for invoice ${row.invoice_id}:`, (siblings ?? []).map(s => ({ id: s.id, is_paid: s.is_paid, due_date: (s as any).due_date })));
-
-    const allPaid = (siblings ?? []).every(s => s.is_paid);
-    const anyPaid = (siblings ?? []).some(s => s.is_paid);
-
-    await supabase
-      .from("vendor_invoices")
-      .update({
-        status: allPaid ? "paid" : anyPaid ? "partial" : "unpaid"
-      } as any)
-      .eq("id", row.invoice_id);
+    await syncInvoicePaymentStatus(row.invoice_id);
   }
 }
 
@@ -1209,7 +1210,36 @@ export async function manualOverrideInstallmentStatus(
   }
 }
 
-export async function clearManualStatusOverride(paymentId: string): Promise<void> {
+export async function clearManualStatusOverride(
+  paymentId: string,
+  performedBy: string = "Staff"
+): Promise<void> {
+  const { data: current, error: readErr } = await supabase
+    .from("invoice_payments")
+    .select("invoice_id, amount_due, amount_paid, payment_status, payment_history, is_paid, paid_date")
+    .eq("id", paymentId)
+    .maybeSingle();
+  if (readErr) throw readErr;
+  if (!current) throw new Error("Installment not found");
+
+  const amountDue = Number(current.amount_due) || 0;
+  const amountPaid = Number(current.amount_paid) || 0;
+  const computedStatus = derivePaymentStatus(amountDue, amountPaid);
+  const isPaid = computedStatus === "paid" || computedStatus === "overpaid";
+
+  const existingHistory = Array.isArray((current as any).payment_history)
+    ? (current as any).payment_history
+    : [];
+  const historyEntry: PaymentHistoryEntry = {
+    date: new Date().toISOString().split("T")[0],
+    amount: 0,
+    method: "Manual Override",
+    reference: `${current.payment_status} → ${computedStatus}`,
+    note: `Manual override cleared — reverted to computed (${computedStatus})`,
+    recorded_by: performedBy,
+    timestamp: new Date().toISOString(),
+  };
+
   const { error } = await supabase
     .from("invoice_payments")
     .update({
@@ -1217,7 +1247,16 @@ export async function clearManualStatusOverride(paymentId: string): Promise<void
       manual_status_set_by: null,
       manual_status_set_at: null,
       manual_status_note: null,
+      payment_status: computedStatus,
+      balance_remaining: amountDue - amountPaid,
+      is_paid: isPaid,
+      paid_date: isPaid ? (current.paid_date || new Date().toISOString().split("T")[0]) : null,
+      payment_history: [...existingHistory, historyEntry],
     } as any)
     .eq("id", paymentId);
   if (error) throw error;
+
+  if (current.invoice_id) {
+    try { await syncInvoicePaymentStatus(current.invoice_id); } catch { /* non-fatal */ }
+  }
 }
