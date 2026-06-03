@@ -627,7 +627,13 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
                         queryClient.invalidateQueries({ queryKey: ["terms_approval_audit", inv.id] });
                         onUpdate();
                       } catch (e: any) {
-                        toast.error(e?.message ?? "Approve failed");
+                        // Fallback: surface the error AND open the override panel
+                        // so Josh can immediately fix the schedule by hand instead
+                        // of being stuck on a failed Approve.
+                        toast.error(
+                          `${e?.message ?? "Approve failed"} — opening override so you can fix it manually`,
+                        );
+                        setEditingTerms(true);
                       } finally {
                         setApprovingExisting(false);
                       }
