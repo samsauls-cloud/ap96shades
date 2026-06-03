@@ -241,6 +241,84 @@ export function VendorCreditDrawer({ vendor, open, onOpenChange }: Props) {
           )}
         </div>
       </SheetContent>
+
+      <AlertDialog open={!!pending} onOpenChange={(v) => { if (!v && !busyId) setPending(null); }}>
+        <AlertDialogContent>
+          {pending?.kind === "reverse" && (() => {
+            const restore = Math.abs(pending.amount);
+            const after = balance + restore;
+            return (
+              <>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Reverse credit application</AlertDialogTitle>
+                  <AlertDialogDescription asChild>
+                    <div className="space-y-2 text-sm">
+                      <p>
+                        This un-applies the credit. The vendor's balance is restored and the invoice will owe this
+                        amount again.
+                      </p>
+                      <div className="rounded border bg-muted/30 p-2 space-y-1 font-mono text-xs">
+                        {pending.invoiceNumber && (
+                          <div className="flex justify-between"><span className="text-muted-foreground">Invoice</span><span>{pending.invoiceNumber}</span></div>
+                        )}
+                        <div className="flex justify-between"><span className="text-muted-foreground">Amount restored</span><span className="text-emerald-500">+{formatCurrency(restore)}</span></div>
+                        <div className="flex justify-between"><span className="text-muted-foreground">Vendor balance</span><span>{formatCurrency(balance)} → <span className="text-emerald-500">{formatCurrency(after)}</span></span></div>
+                      </div>
+                    </div>
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel disabled={!!busyId}>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={(ev) => { ev.preventDefault(); performReverse(pending.id); }}
+                    disabled={!!busyId}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  >
+                    {busyId === pending.id ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : null}
+                    Reverse credit
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </>
+            );
+          })()}
+          {pending?.kind === "void" && (() => {
+            const after = balance - pending.amount;
+            return (
+              <>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Void this credit entry?</AlertDialogTitle>
+                  <AlertDialogDescription asChild>
+                    <div className="space-y-2 text-sm">
+                      <p>
+                        A reversal row will be added that offsets this entry. The original stays in the ledger for
+                        audit.
+                      </p>
+                      <div className="rounded border bg-muted/30 p-2 space-y-1 font-mono text-xs">
+                        {pending.reference && (
+                          <div className="flex justify-between"><span className="text-muted-foreground">Reference</span><span>{pending.reference}</span></div>
+                        )}
+                        <div className="flex justify-between"><span className="text-muted-foreground">Entry amount</span><span className={pending.amount >= 0 ? "text-emerald-500" : "text-orange-400"}>{pending.amount >= 0 ? "+" : ""}{formatCurrency(pending.amount)}</span></div>
+                        <div className="flex justify-between"><span className="text-muted-foreground">Vendor balance</span><span>{formatCurrency(balance)} → <span className={after < 0 ? "text-destructive" : ""}>{formatCurrency(after)}</span></span></div>
+                      </div>
+                    </div>
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel disabled={!!busyId}>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={(ev) => { ev.preventDefault(); performVoid(pending.id); }}
+                    disabled={!!busyId}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  >
+                    {busyId === pending.id ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : null}
+                    Void entry
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </>
+            );
+          })()}
+        </AlertDialogContent>
+      </AlertDialog>
     </Sheet>
   );
 }
