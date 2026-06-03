@@ -331,8 +331,8 @@ export function SmartApplyCreditDialog({ vendor, open, onOpenChange }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={(v) => !submitting && onOpenChange(v)}>
-      <DialogContent className="max-w-3xl">
-        <DialogHeader>
+      <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col p-0 gap-0">
+        <DialogHeader className="p-6 pb-3 shrink-0 border-b">
           <DialogTitle className="flex items-center gap-2">
             <Wallet className="h-4 w-4 text-emerald-500" />
             Smart Apply Credit — {vendor}
@@ -342,7 +342,7 @@ export function SmartApplyCreditDialog({ vendor, open, onOpenChange }: Props) {
           </DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4 text-sm">
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4 text-sm min-h-0">
           {/* Header stats */}
           <div className="grid grid-cols-4 gap-3">
             <div className="p-3 rounded border">
@@ -525,41 +525,41 @@ export function SmartApplyCreditDialog({ vendor, open, onOpenChange }: Props) {
               <Loader2 className="h-3 w-3 animate-spin" /> Applying {progress.done} / {progress.total}…
             </div>
           )}
+        </div>
 
-          {/* Footer buttons */}
-          <div className="flex gap-2 justify-end">
-            <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
-              Cancel
+        {/* Pinned footer */}
+        <div className="shrink-0 border-t px-6 py-3 flex gap-2 justify-end bg-background">
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
+            Cancel
+          </Button>
+          {step === "review" ? (
+            <Button
+              onClick={() => setStep("confirm")}
+              disabled={!valid}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+            >
+              Review &amp; confirm →
             </Button>
-            {step === "review" ? (
+          ) : (
+            <>
+              <Button variant="outline" onClick={() => setStep("review")} disabled={submitting}>
+                Back
+              </Button>
               <Button
-                onClick={() => setStep("confirm")}
-                disabled={!valid}
+                onClick={handleConfirm}
+                disabled={!valid || submitting}
                 className="bg-emerald-600 hover:bg-emerald-700 text-white"
               >
-                Review &amp; confirm →
+                {submitting ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Wallet className="h-4 w-4 mr-2" />
+                )}
+                Confirm — apply {formatCurrency(totalApplied)} to {allocations.length} invoice
+                {allocations.length === 1 ? "" : "s"}
               </Button>
-            ) : (
-              <>
-                <Button variant="outline" onClick={() => setStep("review")} disabled={submitting}>
-                  Back
-                </Button>
-                <Button
-                  onClick={handleConfirm}
-                  disabled={!valid || submitting}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white"
-                >
-                  {submitting ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  ) : (
-                    <Wallet className="h-4 w-4 mr-2" />
-                  )}
-                  Confirm — apply {formatCurrency(totalApplied)} to {allocations.length} invoice
-                  {allocations.length === 1 ? "" : "s"}
-                </Button>
-              </>
-            )}
-          </div>
+            </>
+          )}
         </div>
       </DialogContent>
     </Dialog>
