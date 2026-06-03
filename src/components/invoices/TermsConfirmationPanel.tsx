@@ -26,6 +26,7 @@ import {
   type OverridePayload,
   type OverrideInstallment,
 } from "@/components/invoices/InvoiceReviewOverridePanel";
+import { OverrideScheduleButton } from "@/components/invoices/OverrideScheduleButton";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 
 interface Props {
