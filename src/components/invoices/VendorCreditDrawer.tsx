@@ -89,8 +89,7 @@ export function VendorCreditDrawer({ vendor, open, onOpenChange }: Props) {
     queryClient.invalidateQueries({ queryKey: ["vendor_invoices"] });
   }
 
-  async function handleVoid(id: string) {
-    if (!confirm("Void this credit entry?\n\nA reversal row will be added that offsets it. The original stays in the ledger for audit.")) return;
+  async function performVoid(id: string) {
     setBusyId(id);
     try {
       const { newBalance } = await voidVendorCredit(id);
@@ -100,11 +99,11 @@ export function VendorCreditDrawer({ vendor, open, onOpenChange }: Props) {
       toast.error(`Void failed: ${e?.message ?? "unknown error"}`, { duration: 8000 });
     } finally {
       setBusyId(null);
+      setPending(null);
     }
   }
 
-  async function handleReverse(id: string) {
-    if (!confirm("Reverse this applied credit?\n\nThe vendor's balance will be restored and the invoice will owe this amount again.")) return;
+  async function performReverse(id: string) {
     setBusyId(id);
     try {
       await reverseVendorCreditApplication(id);
@@ -118,6 +117,7 @@ export function VendorCreditDrawer({ vendor, open, onOpenChange }: Props) {
       toast.error(`Reverse failed: ${e?.message ?? "unknown error"}`, { duration: 8000 });
     } finally {
       setBusyId(null);
+      setPending(null);
     }
   }
 
