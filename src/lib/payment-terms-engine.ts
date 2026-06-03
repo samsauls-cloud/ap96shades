@@ -425,6 +425,39 @@ export function resolvePaymentSchedule(
     }
   }
 
+  // ── UNIVERSAL N-way split parser ──
+  // For any vendor whose printed terms include an explicit list of offsets
+  // (e.g. "Bank transfer 30/60/90/120 inv.date", "60/90/120 days"), honor the
+  // exact N tranches printed. EOM-anchored variants are handled per-vendor above;
+  // here we cover invoice-date-based splits to avoid truncating to a 3-tranche
+  // registry default.
+  {
+    const splitMatch = termsLower.match(/\b\d{2,3}(?:\s*[\/,]\s*\d{2,3}){1,}\b/);
+    if (splitMatch) {
+      const offsets = splitMatch[0]
+        .split(/[\/,]/)
+        .map(s => parseInt(s.trim(), 10))
+        .filter(n => n >= 15 && n <= 365);
+      if (offsets.length >= 2) {
+        const isEomVariant = /\beom\b|end of month|fine mese/.test(termsLower);
+        if (isEomVariant) {
+          return buildEomSplitSchedule(
+            eomAnchor,
+            totalAmount,
+            offsets,
+            `EOM ${offsets.join('/')} — ${offsets.length} equal tranches`,
+          );
+        }
+        return buildDaysSplitSchedule(
+          documentDate,
+          totalAmount,
+          offsets,
+          `${offsets.join('/')} from invoice date — ${offsets.length} equal tranches`,
+        );
+      }
+    }
+  }
+
   // ── All other vendors: use registry ──
   const rule = getVendorTermsRule(vendor);
 
