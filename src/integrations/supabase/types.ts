@@ -994,7 +994,7 @@ export type Database = {
           amount: number
           created_at: string
           created_by: string | null
-          description: string
+          description: string | null
           id: string
           occurred_on: string
           related_history_index: number | null
@@ -1007,7 +1007,7 @@ export type Database = {
           amount: number
           created_at?: string
           created_by?: string | null
-          description: string
+          description?: string | null
           id?: string
           occurred_on: string
           related_history_index?: number | null
@@ -1020,7 +1020,7 @@ export type Database = {
           amount?: number
           created_at?: string
           created_by?: string | null
-          description?: string
+          description?: string | null
           id?: string
           occurred_on?: string
           related_history_index?: number | null

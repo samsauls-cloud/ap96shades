@@ -20,7 +20,9 @@ export type VendorCreditSource =
   | "remittance_overpay"
   | "invoice_application"
   | "manual_adjustment"
-  | "reversal";
+  | "reversal"
+  | "returned_ra"
+  | "other";
 
 export interface VendorCredit {
   id: string;
@@ -209,19 +211,19 @@ export async function applyVendorCreditToInstallment(args: {
 export async function addVendorCreditAdjustment(args: {
   vendor: string;
   amount: number;
-  description: string;
+  description?: string;
   sourceType?: VendorCreditSource;
   occurredOn?: string;
   relatedInvoiceId?: string | null;
 }): Promise<void> {
-  const { vendor, amount, description } = args;
-  if (!vendor || amount === 0 || !description) throw new Error("vendor, amount, description required");
+  const { vendor, amount } = args;
+  if (!vendor || amount === 0) throw new Error("vendor and non-zero amount required");
   const occurredOn = args.occurredOn ?? new Date().toISOString().split("T")[0];
 
   const { error } = await supabase.from("vendor_credits" as any).insert({
     vendor,
     amount,
-    description,
+    description: args.description?.trim() || null,
     source_type: args.sourceType ?? "manual_adjustment",
     related_invoice_id: args.relatedInvoiceId ?? null,
     occurred_on: occurredOn,
@@ -229,3 +231,24 @@ export async function addVendorCreditAdjustment(args: {
   });
   if (error) throw error;
 }
+
+/**
+ * Delete a manual vendor credit entry. The balance-guard trigger will reject
+ * if removal would drive the running balance below zero. Entries tied to
+ * `invoice_application` (system-applied) are blocked client-side.
+ */
+export async function deleteVendorCredit(id: string): Promise<void> {
+  const { data: existing, error: fetchErr } = await supabase
+    .from("vendor_credits" as any)
+    .select("source_type, related_payment_id")
+    .eq("id", id)
+    .maybeSingle();
+  if (fetchErr) throw fetchErr;
+  if (!existing) throw new Error("Credit entry not found");
+  if ((existing as any).source_type === "invoice_application" || (existing as any).related_payment_id) {
+    throw new Error("System-applied credits cannot be deleted. Void the linked payment instead.");
+  }
+  const { error } = await supabase.from("vendor_credits" as any).delete().eq("id", id);
+  if (error) throw error;
+}
+
