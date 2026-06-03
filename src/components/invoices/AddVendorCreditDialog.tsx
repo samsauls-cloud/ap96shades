@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +11,8 @@ import { toast } from "sonner";
 import { addVendorCreditAdjustment, type VendorCreditSource } from "@/lib/vendor-credits";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
+import { formatCurrency } from "@/lib/supabase-queries";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -23,12 +25,12 @@ interface Props {
   onSaved?: () => void;
 }
 
-const SOURCE_OPTIONS: { value: VendorCreditSource; label: string }[] = [
-  { value: "manual_adjustment", label: "Manual adjustment" },
-  { value: "remittance_overpay", label: "Overpayment" },
-  { value: "returned_ra", label: "Returned / RA frames" },
-  { value: "reversal", label: "Reversal" },
-  { value: "other", label: "Other" },
+const SOURCE_OPTIONS: { value: VendorCreditSource; label: string; hint: string }[] = [
+  { value: "manual_adjustment", label: "Manual adjustment",  hint: "Catch-all correction you're booking by hand." },
+  { value: "remittance_overpay", label: "Overpayment",       hint: "You paid more than the invoices selected." },
+  { value: "returned_ra",       label: "Returned / RA frames", hint: "You sent product back — vendor owes you." },
+  { value: "reversal",          label: "Reversal",            hint: "Backing out a credit booked earlier." },
+  { value: "other",             label: "Other",               hint: "Anything that doesn't fit the buckets above." },
 ];
 
 export function AddVendorCreditDialog({
@@ -41,17 +43,18 @@ export function AddVendorCreditDialog({
   onSaved,
 }: Props) {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [vendor, setVendor] = useState(lockedVendor ?? "");
   const [vendorPickerOpen, setVendorPickerOpen] = useState(false);
   const [amountStr, setAmountStr] = useState("");
   const [description, setDescription] = useState("");
+  const [reference, setReference] = useState("");
   const [sourceType, setSourceType] = useState<VendorCreditSource>("manual_adjustment");
   const [occurredOn, setOccurredOn] = useState(() => new Date().toISOString().slice(0, 10));
   const [invoiceNumber, setInvoiceNumber] = useState(defaultInvoiceNumber ?? "");
   const [saving, setSaving] = useState(false);
 
-  // Distinct vendor list for searchable select (skip when locked).
   const { data: vendorList = [] } = useQuery({
     queryKey: ["distinct_vendors_credit_dialog"],
     enabled: open && !lockedVendor,
@@ -72,6 +75,7 @@ export function AddVendorCreditDialog({
       setVendor(lockedVendor ?? "");
       setAmountStr("");
       setDescription("");
+      setReference("");
       setSourceType("manual_adjustment");
       setOccurredOn(new Date().toISOString().slice(0, 10));
       setInvoiceNumber(defaultInvoiceNumber ?? "");
@@ -80,7 +84,10 @@ export function AddVendorCreditDialog({
 
   const amount = parseFloat(amountStr);
   const amountValid = Number.isFinite(amount) && amount !== 0;
-  const canSave = !!vendor.trim() && amountValid && !!occurredOn && !saving;
+  const descValid = description.trim().length > 0;
+  const canSave = !!vendor.trim() && amountValid && descValid && !!occurredOn && !saving;
+
+  const activeSource = SOURCE_OPTIONS.find(o => o.value === sourceType);
 
   async function handleSave() {
     if (!canSave) return;
@@ -103,24 +110,34 @@ export function AddVendorCreditDialog({
         }
       }
 
-      await addVendorCreditAdjustment({
+      const { newBalance } = await addVendorCreditAdjustment({
         vendor: vendor.trim(),
         amount,
         description,
+        reference,
         sourceType,
         occurredOn,
         relatedInvoiceId,
       });
 
-      toast.success(`${amount > 0 ? "Credit added" : "Credit deducted"} for ${vendor.trim()}: $${Math.abs(amount).toFixed(2)}`);
       queryClient.invalidateQueries({ queryKey: ["vendor_credit_balances"] });
       queryClient.invalidateQueries({ queryKey: ["vendor_credit_ledger"] });
       queryClient.invalidateQueries({ queryKey: ["vendor_invoices"] });
+
+      const verb = amount > 0 ? "Credit added" : "Credit deducted";
+      const savedVendor = vendor.trim();
+      toast.success(`${verb}. ${savedVendor} available balance: ${formatCurrency(newBalance)}`, {
+        duration: 7000,
+        action: {
+          label: "View ledger",
+          onClick: () => navigate(`/invoices/credits?vendor=${encodeURIComponent(savedVendor)}`),
+        },
+      });
+
       onSaved?.();
       setOpen(false);
     } catch (e: any) {
       const msg = e?.message ?? "Failed to save credit";
-      // Surface trigger errors (negative balance guard, CHECK violations, RLS).
       toast.error(`Save failed: ${msg}`, { duration: 8000 });
       console.error("[add-credit] save failed", e);
     } finally {
@@ -233,6 +250,21 @@ export function AddVendorCreditDialog({
                 <option key={o.value} value={o.value}>{o.label}</option>
               ))}
             </select>
+            {activeSource && (
+              <p className="text-[10px] text-muted-foreground mt-1">{activeSource.hint}</p>
+            )}
+          </div>
+
+          <div>
+            <Label className="text-xs">Reference # (optional)</Label>
+            <Input
+              value={reference}
+              onChange={(e) => setReference(e.target.value)}
+              placeholder="RA-12345 / CM-987 / remittance #"
+            />
+            <p className="text-[10px] text-muted-foreground mt-1">
+              Vendor-issued doc backing this entry (RA, credit memo, remittance).
+            </p>
           </div>
 
           <div>
@@ -242,19 +274,20 @@ export function AddVendorCreditDialog({
               onChange={(e) => setInvoiceNumber(e.target.value)}
               placeholder="Invoice number from this vendor"
             />
-            <p className="text-[10px] text-muted-foreground mt-1">
-              Resolved to the invoice and deep-linked from the ledger if found.
-            </p>
           </div>
 
           <div>
-            <Label className="text-xs">Note (optional)</Label>
+            <Label className="text-xs">Description * <span className="text-muted-foreground font-normal">(required)</span></Label>
             <Textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="e.g. Credit memo CM-12345 for damaged shipment"
+              placeholder="e.g. RA 12345 — returned 18 frames"
               rows={2}
+              className={!description || descValid ? "" : "border-destructive"}
             />
+            <p className="text-[10px] text-muted-foreground mt-1">
+              What is this credit from? Future-you will thank present-you.
+            </p>
           </div>
         </div>
 
