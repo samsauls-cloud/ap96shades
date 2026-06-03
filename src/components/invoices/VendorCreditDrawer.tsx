@@ -1,12 +1,20 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Wallet } from "lucide-react";
-import { fetchVendorCreditBalance, fetchVendorCreditLedger, type VendorCredit } from "@/lib/vendor-credits";
+import { Button } from "@/components/ui/button";
+import { Wallet, Trash2, Loader2 } from "lucide-react";
+import {
+  fetchVendorCreditBalance,
+  fetchVendorCreditLedger,
+  fetchAllVendorCreditBalances,
+  deleteVendorCredit,
+} from "@/lib/vendor-credits";
 import { formatCurrency } from "@/lib/supabase-queries";
 import { useNavigate } from "react-router-dom";
 import { AddVendorCreditDialog } from "@/components/invoices/AddVendorCreditDialog";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 
 interface Props {
   vendor: string;
@@ -15,31 +23,31 @@ interface Props {
 }
 
 const SOURCE_LABEL: Record<string, string> = {
-  remittance_overpay: "Remittance overpay",
+  remittance_overpay: "Overpayment",
   invoice_application: "Applied to invoice",
   manual_adjustment: "Manual adjustment",
   reversal: "Reversal",
+  returned_ra: "Returned / RA",
+  other: "Other",
 };
 
 export function VendorCreditDrawer({ vendor, open, onOpenChange }: Props) {
-  const [loading, setLoading] = useState(false);
-  const [balance, setBalance] = useState(0);
-  const [entries, setEntries] = useState<VendorCredit[]>([]);
-  const [refreshKey, setRefreshKey] = useState(0);
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!open || !vendor) return;
-    setLoading(true);
-    Promise.all([fetchVendorCreditBalance(vendor), fetchVendorCreditLedger(vendor)])
-      .then(([bal, ledger]) => {
-        setBalance(bal);
-        setEntries(ledger);
-      })
-      .finally(() => setLoading(false));
-  }, [open, vendor, refreshKey]);
+  const { data: balance = 0 } = useQuery({
+    queryKey: ["vendor_credit_balances", vendor.toLowerCase()],
+    enabled: open && !!vendor,
+    queryFn: () => fetchVendorCreditBalance(vendor),
+  });
 
-  // Build running balance oldest → newest, then reverse for display.
+  const { data: entries = [], isLoading } = useQuery({
+    queryKey: ["vendor_credit_ledger", vendor.toLowerCase()],
+    enabled: open && !!vendor,
+    queryFn: () => fetchVendorCreditLedger(vendor),
+  });
+
   const oldestFirst = [...entries].reverse();
   let running = 0;
   const withRunning = oldestFirst.map(e => {
@@ -48,6 +56,22 @@ export function VendorCreditDrawer({ vendor, open, onOpenChange }: Props) {
   }).reverse();
 
   const lastActivity = entries[0]?.occurred_on ?? null;
+
+  async function handleDelete(id: string) {
+    if (!confirm("Delete this credit entry? This cannot be undone.")) return;
+    setDeletingId(id);
+    try {
+      await deleteVendorCredit(id);
+      toast.success("Credit entry deleted");
+      queryClient.invalidateQueries({ queryKey: ["vendor_credit_balances"] });
+      queryClient.invalidateQueries({ queryKey: ["vendor_credit_ledger"] });
+      queryClient.invalidateQueries({ queryKey: ["vendor_invoices"] });
+    } catch (e: any) {
+      toast.error(`Delete failed: ${e?.message ?? "unknown error"}`, { duration: 8000 });
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -65,13 +89,12 @@ export function VendorCreditDrawer({ vendor, open, onOpenChange }: Props) {
             <AddVendorCreditDialog
               lockedVendor={vendor}
               buttonLabel="Add credit for this vendor"
-              onSaved={() => setRefreshKey((k) => k + 1)}
             />
           </div>
         </SheetHeader>
 
         <div className="mt-4">
-          {loading ? (
+          {isLoading ? (
             <div className="space-y-2">
               <Skeleton className="h-12 w-full" />
               <Skeleton className="h-12 w-full" />
@@ -84,27 +107,33 @@ export function VendorCreditDrawer({ vendor, open, onOpenChange }: Props) {
               {withRunning.map(e => {
                 const isPositive = e.amount > 0;
                 const clickable = !!e.related_invoice_id;
+                const isSystem = e.source_type === "invoice_application" || !!e.related_payment_id;
                 return (
                   <div
                     key={e.id}
-                    role={clickable ? "button" : undefined}
-                    tabIndex={clickable ? 0 : undefined}
-                    onClick={() => {
-                      if (clickable) navigate(`/invoices?open=${e.related_invoice_id}`);
-                    }}
-                    className={`p-2.5 rounded border text-xs space-y-0.5 ${
-                      clickable ? "cursor-pointer hover:bg-muted/40 transition-colors" : ""
-                    }`}
+                    className="p-2.5 rounded border text-xs space-y-0.5 hover:bg-muted/40 transition-colors"
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <div className="flex-1 min-w-0">
+                      <div
+                        role={clickable ? "button" : undefined}
+                        tabIndex={clickable ? 0 : undefined}
+                        onClick={() => clickable && navigate(`/invoices?open=${e.related_invoice_id}`)}
+                        className={`flex-1 min-w-0 ${clickable ? "cursor-pointer" : ""}`}
+                      >
                         <div className="flex items-center gap-1.5">
                           <span className="font-mono">{e.occurred_on}</span>
                           <Badge variant="outline" className="text-[10px] h-4 px-1">
                             {SOURCE_LABEL[e.source_type] ?? e.source_type}
                           </Badge>
+                          {clickable && (
+                            <Badge variant="outline" className="text-[10px] h-4 px-1 text-primary">
+                              linked
+                            </Badge>
+                          )}
                         </div>
-                        <p className="mt-0.5 text-muted-foreground truncate">{e.description}</p>
+                        {e.description && (
+                          <p className="mt-0.5 text-muted-foreground truncate">{e.description}</p>
+                        )}
                       </div>
                       <div className="text-right shrink-0">
                         <p className={`font-bold tabular-nums ${isPositive ? "text-emerald-500" : "text-orange-400"}`}>
@@ -114,6 +143,20 @@ export function VendorCreditDrawer({ vendor, open, onOpenChange }: Props) {
                           bal {formatCurrency(e.runningBalance)}
                         </p>
                       </div>
+                      {!isSystem && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 shrink-0 text-muted-foreground hover:text-destructive"
+                          onClick={() => handleDelete(e.id)}
+                          disabled={deletingId === e.id}
+                          title="Delete entry"
+                        >
+                          {deletingId === e.id
+                            ? <Loader2 className="h-3 w-3 animate-spin" />
+                            : <Trash2 className="h-3 w-3" />}
+                        </Button>
+                      )}
                     </div>
                   </div>
                 );
@@ -126,27 +169,17 @@ export function VendorCreditDrawer({ vendor, open, onOpenChange }: Props) {
   );
 }
 
-/**
- * Inline pill that opens the ledger drawer when clicked. Hides when balance ≤ 0.
- * Pass `balance` from a parent bulk-fetch to avoid N queries in lists.
- */
+/** Pill that opens the ledger drawer; hides when balance ≤ 0. */
 export function VendorCreditBadge({ vendor, balance: providedBalance }: { vendor: string; balance?: number }) {
-  const [balance, setBalance] = useState<number | null>(providedBalance ?? null);
   const [open, setOpen] = useState(false);
+  const { data: fetched = 0 } = useQuery({
+    queryKey: ["vendor_credit_balances", vendor.toLowerCase()],
+    enabled: providedBalance === undefined,
+    queryFn: () => fetchVendorCreditBalance(vendor),
+  });
+  const balance = providedBalance ?? fetched;
 
-  useEffect(() => {
-    if (providedBalance !== undefined) {
-      setBalance(providedBalance);
-      return;
-    }
-    let active = true;
-    fetchVendorCreditBalance(vendor).then(b => {
-      if (active) setBalance(b);
-    });
-    return () => { active = false; };
-  }, [vendor, providedBalance]);
-
-  if (balance === null || balance <= 0) return null;
+  if (balance <= 0) return null;
 
   return (
     <>
@@ -164,20 +197,15 @@ export function VendorCreditBadge({ vendor, balance: providedBalance }: { vendor
   );
 }
 
-/** React-Query-free bulk balance lookup map for use in table headers/rows. */
+/** Bulk balance map for table rows — react-query so it refreshes on invalidation. */
 export function useVendorCreditBalanceMap() {
-  const [map, setMap] = useState<Record<string, number>>({});
-  useEffect(() => {
-    let active = true;
-    import("@/lib/vendor-credits").then(({ fetchAllVendorCreditBalances }) => {
-      fetchAllVendorCreditBalances().then(rows => {
-        if (!active) return;
-        const m: Record<string, number> = {};
-        for (const r of rows) m[r.vendor_key] = r.balance;
-        setMap(m);
-      });
-    });
-    return () => { active = false; };
-  }, []);
-  return (vendor: string) => map[vendor?.toLowerCase()] ?? 0;
+  const { data } = useQuery({
+    queryKey: ["vendor_credit_balances"],
+    queryFn: fetchAllVendorCreditBalances,
+  });
+  return (vendor: string) => {
+    if (!vendor || !data) return 0;
+    const key = vendor.toLowerCase();
+    return data.find(r => r.vendor_key === key)?.balance ?? 0;
+  };
 }
