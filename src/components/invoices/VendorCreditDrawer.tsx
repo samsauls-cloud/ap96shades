@@ -6,6 +6,7 @@ import { Wallet } from "lucide-react";
 import { fetchVendorCreditBalance, fetchVendorCreditLedger, type VendorCredit } from "@/lib/vendor-credits";
 import { formatCurrency } from "@/lib/supabase-queries";
 import { useNavigate } from "react-router-dom";
+import { AddVendorCreditDialog } from "@/components/invoices/AddVendorCreditDialog";
 
 interface Props {
   vendor: string;
