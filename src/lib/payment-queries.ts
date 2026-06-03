@@ -40,10 +40,15 @@ export interface InvoicePayment {
   paid_date: string | null;
   notes: string | null;
   created_at: string;
+  manual_status_override?: boolean;
+  manual_status_set_by?: string | null;
+  manual_status_set_at?: string | null;
+  manual_status_note?: string | null;
   /** Derived: invoice-level status across all sibling installments */
   invoice_payment_status?: string;
   /** Derived: total sibling installments for this invoice */
   sibling_count?: number;
+
 }
 
 export type PaymentStatus = "unpaid" | "partial" | "paid" | "overpaid" | "disputed" | "void";
