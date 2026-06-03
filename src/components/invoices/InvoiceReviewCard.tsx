@@ -7,7 +7,7 @@ import {
   AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
   AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { CheckCircle2, AlertCircle, AlertTriangle, Loader2, X, Pencil } from "lucide-react";
+import { CheckCircle2, AlertCircle, AlertTriangle, Loader2, X } from "lucide-react";
 import { formatCurrency, isCreditMemo } from "@/lib/supabase-queries";
 import { resolvePaymentSchedule } from "@/lib/payment-terms-engine";
 import { getVendorTermsRule } from "@/lib/vendor-terms-registry";
@@ -17,6 +17,7 @@ import {
   type OverridePayload,
   type OverrideInstallment,
 } from "@/components/invoices/InvoiceReviewOverridePanel";
+import { OverrideScheduleButton, OverrideScheduleHelper } from "@/components/invoices/OverrideScheduleButton";
 
 interface Props {
   doc: ProcessedDoc;
@@ -319,62 +320,75 @@ export function InvoiceReviewCard({ doc, onApprove, onDiscard }: Props) {
         )}
 
         {/* ACTION BUTTONS */}
-        {!editing && (
-        <div className="flex gap-2 pt-1">
-          <Button
-            className={`flex-1 gap-1.5 ${isCredit ? "bg-emerald-600 hover:bg-emerald-700" : ""}`}
-            onClick={handleApprove}
-            disabled={(!isCredit && !effectiveTerms.trim()) || saving}
-          >
-            {saving ? (
-              <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Saving…</>
-            ) : (
-              <><CheckCircle2 className="h-3.5 w-3.5" /> {isCredit ? "Approve Credit" : "Approve as-is"}</>
-            )}
-          </Button>
-
-          {!isCredit && (
-            <Button
-              variant="default"
-              className="gap-1.5 bg-orange-500 hover:bg-orange-600 text-white shadow-md shadow-orange-500/30 ring-2 ring-orange-400/40 animate-pulse"
-              disabled={saving}
-              onClick={() => setEditing(true)}
-              title="Manually set installments, dates, and amounts. Your entries trump the AI-extracted terms."
-            >
-              <Pencil className="h-3.5 w-3.5" /> Override Schedule
-            </Button>
-          )}
-
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button
-                variant="outline"
-                className="gap-1.5 text-muted-foreground"
-                disabled={saving}
-              >
-                <X className="h-3.5 w-3.5" /> Discard
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Discard this invoice?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  Are you sure you want to discard this invoice? It will not be saved.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction
-                  onClick={() => onDiscard(doc.id)}
-                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+        {!editing && (() => {
+          // Mismatch detector: the AI claims N installments, the engine produced M.
+          // If they disagree (or engine produced 0), pulse the Override button.
+          const aiCount = (doc.parsedData?.payment_terms_extracted as any)?.installments as number | undefined;
+          const computedCount = previewInstallments.length;
+          const mismatch = !isCredit && effectiveTerms.trim() !== "" && (
+            computedCount === 0 ||
+            (typeof aiCount === "number" && aiCount > 0 && aiCount !== computedCount)
+          );
+          const mismatchInfo = mismatch
+            ? { expected: typeof aiCount === "number" && aiCount > 0 ? aiCount : computedCount, actual: computedCount }
+            : null;
+          return (
+            <div className="space-y-2 pt-1">
+              <div className="flex gap-2 items-center">
+                <Button
+                  className={`flex-1 gap-1.5 h-11 ${isCredit ? "bg-emerald-600 hover:bg-emerald-700" : ""}`}
+                  onClick={handleApprove}
+                  disabled={(!isCredit && !effectiveTerms.trim()) || saving}
                 >
-                  Discard
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        </div>
-        )}
+                  {saving ? (
+                    <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</>
+                  ) : (
+                    <><CheckCircle2 className="h-4 w-4" /> {isCredit ? "Approve Credit" : "Approve as-is"}</>
+                  )}
+                </Button>
+
+                {!isCredit && (
+                  <OverrideScheduleButton
+                    onClick={() => setEditing(true)}
+                    mismatch={mismatch}
+                    disabled={saving}
+                  />
+                )}
+
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      className="gap-1.5 h-11 text-muted-foreground hover:text-foreground"
+                      disabled={saving}
+                    >
+                      <X className="h-4 w-4" /> Discard
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Discard this invoice?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Are you sure you want to discard this invoice? It will not be saved.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={() => onDiscard(doc.id)}
+                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      >
+                        Discard
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </div>
+
+              {!isCredit && <OverrideScheduleHelper mismatch={mismatchInfo} />}
+            </div>
+          );
+        })()}
       </CardContent>
     </Card>
   );

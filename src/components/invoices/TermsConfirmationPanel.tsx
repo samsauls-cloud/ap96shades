@@ -4,7 +4,7 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { AlertCircle, Check, Loader2, Pencil } from "lucide-react";
+import { AlertCircle, Check, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { generatePaymentsForInvoice, fetchPaymentsForInvoice } from "@/lib/payment-queries";
@@ -26,6 +26,7 @@ import {
   type OverridePayload,
   type OverrideInstallment,
 } from "@/components/invoices/InvoiceReviewOverridePanel";
+import { OverrideScheduleButton } from "@/components/invoices/OverrideScheduleButton";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 
 interface Props {
@@ -564,17 +565,15 @@ export function TermsConfirmationPanel({ invoice, onConfirmed }: Props) {
           {confirming ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Check className="h-3 w-3 mr-1" />}
           Confirm these dates & save
         </Button>
-        <Button
-          type="button"
-          variant="outline"
+        <OverrideScheduleButton
           size="sm"
           onClick={() => setEditing((v) => !v)}
-          title="Manually enter dates / amounts / preset — replaces the auto-generated installments"
-        >
-          <Pencil className="h-3 w-3 mr-1" />
-          {editing ? "Cancel edit" : "Edit terms / dates"}
-        </Button>
+          active={editing}
+        />
       </div>
+      <p className="text-xs text-muted-foreground mt-1.5">
+        Need custom dates, amounts, or a different number of installments? Click Override Schedule.
+      </p>
 
       {editing && (
         <div className="mt-3">
