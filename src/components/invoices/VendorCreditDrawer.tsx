@@ -61,6 +61,13 @@ export function VendorCreditDrawer({ vendor, open, onOpenChange }: Props) {
           {lastActivity && (
             <p className="text-xs text-muted-foreground">Last activity: {lastActivity}</p>
           )}
+          <div className="pt-2">
+            <AddVendorCreditDialog
+              lockedVendor={vendor}
+              buttonLabel="Add credit for this vendor"
+              onSaved={() => setRefreshKey((k) => k + 1)}
+            />
+          </div>
         </SheetHeader>
 
         <div className="mt-4">
