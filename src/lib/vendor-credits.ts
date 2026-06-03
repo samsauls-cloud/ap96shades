@@ -20,7 +20,9 @@ export type VendorCreditSource =
   | "remittance_overpay"
   | "invoice_application"
   | "manual_adjustment"
-  | "reversal";
+  | "reversal"
+  | "returned_ra"
+  | "other";
 
 export interface VendorCredit {
   id: string;
