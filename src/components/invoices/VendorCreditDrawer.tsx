@@ -6,6 +6,7 @@ import { Wallet } from "lucide-react";
 import { fetchVendorCreditBalance, fetchVendorCreditLedger, type VendorCredit } from "@/lib/vendor-credits";
 import { formatCurrency } from "@/lib/supabase-queries";
 import { useNavigate } from "react-router-dom";
+import { AddVendorCreditDialog } from "@/components/invoices/AddVendorCreditDialog";
 
 interface Props {
   vendor: string;
@@ -24,6 +25,7 @@ export function VendorCreditDrawer({ vendor, open, onOpenChange }: Props) {
   const [loading, setLoading] = useState(false);
   const [balance, setBalance] = useState(0);
   const [entries, setEntries] = useState<VendorCredit[]>([]);
+  const [refreshKey, setRefreshKey] = useState(0);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -35,7 +37,7 @@ export function VendorCreditDrawer({ vendor, open, onOpenChange }: Props) {
         setEntries(ledger);
       })
       .finally(() => setLoading(false));
-  }, [open, vendor]);
+  }, [open, vendor, refreshKey]);
 
   // Build running balance oldest → newest, then reverse for display.
   const oldestFirst = [...entries].reverse();
@@ -59,6 +61,13 @@ export function VendorCreditDrawer({ vendor, open, onOpenChange }: Props) {
           {lastActivity && (
             <p className="text-xs text-muted-foreground">Last activity: {lastActivity}</p>
           )}
+          <div className="pt-2">
+            <AddVendorCreditDialog
+              lockedVendor={vendor}
+              buttonLabel="Add credit for this vendor"
+              onSaved={() => setRefreshKey((k) => k + 1)}
+            />
+          </div>
         </SheetHeader>
 
         <div className="mt-4">

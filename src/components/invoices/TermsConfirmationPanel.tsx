@@ -474,13 +474,16 @@ export function TermsConfirmationPanel({ invoice, onConfirmed }: Props) {
       {/* Days input */}
       {termType !== "cod" && termType !== "early_pay" && (
         <div className="space-y-1">
-          <Label className="text-xs">Days (comma or slash separated)</Label>
+          <Label className="text-xs">Days (comma or slash separated — any number of installments)</Label>
           <Input
             value={daysInput}
             onChange={e => setDaysInput(e.target.value)}
-            placeholder="30, 60, 90"
+            placeholder="e.g. 30, 60, 90, 120  —  or  60/90/120/150"
             className="h-8 text-xs"
           />
+          <p className="text-[10px] text-muted-foreground italic">
+            Type any custom split (4-way, 5-way, etc.). For unusual schedules with different amounts per installment, use "Edit terms / dates" below.
+          </p>
         </div>
       )}
 
