@@ -72,6 +72,16 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
     enabled: !!inv,
   });
 
+  const { data: vendorCreditBalance = 0 } = useQuery({
+    queryKey: ["vendor_credit_balances", (inv?.vendor ?? "").toLowerCase()],
+    queryFn: () => fetchVendorCreditBalance(inv!.vendor),
+    enabled: !!inv?.vendor,
+  });
+
+  const invoiceOwed = existingPayments
+    .filter(p => !p.is_paid && p.payment_status !== "void")
+    .reduce((s, p) => s + Number(p.balance_remaining ?? 0), 0);
+
   useEffect(() => {
     if (inv) {
       setNotes(inv.notes || "");
