@@ -43,10 +43,15 @@ const SOURCE_LABEL: Record<string, string> = {
   other: "Other",
 };
 
+type PendingAction =
+  | { kind: "void"; id: string; amount: number; description: string | null; reference: string | null }
+  | { kind: "reverse"; id: string; amount: number; invoiceNumber: string | null };
+
 export function VendorCreditDrawer({ vendor, open, onOpenChange }: Props) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [pending, setPending] = useState<PendingAction | null>(null);
 
   const { data: balance = 0 } = useQuery({
     queryKey: ["vendor_credit_balances", vendor.toLowerCase()],
