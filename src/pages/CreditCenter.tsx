@@ -32,7 +32,21 @@ import { AddVendorCreditDialog } from "@/components/invoices/AddVendorCreditDial
 import { ApplyVendorCreditDialog } from "@/components/invoices/ApplyVendorCreditDialog";
 import { SmartApplyCreditDialog } from "@/components/invoices/SmartApplyCreditDialog";
 import { VendorCreditDrawer } from "@/components/invoices/VendorCreditDrawer";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
+
+type PendingLedgerAction =
+  | { kind: "void"; id: string; amount: number; description: string | null; reference: string | null; vendor: string }
+  | { kind: "reverse"; id: string; amount: number; invoiceNumber: string | null; vendor: string };
 
 const SOURCE_LABEL: Record<string, string> = {
   remittance_overpay: "Overpayment",
