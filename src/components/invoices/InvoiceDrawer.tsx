@@ -721,11 +721,27 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
                       inv.payment_terms ??
                       "") as string
                   }
-                  initialInstallments={existingPayments.map((p: any, i: number) => ({
-                    due_date: p.due_date ?? inv.invoice_date ?? "",
-                    amount_due: Number(p.amount_due ?? 0),
-                    installment_label: p.installment_label ?? `Installment ${i + 1}`,
-                  }))}
+                  initialInstallments={
+                    scheduleMismatch && scheduleMismatch.tranches.length > 0
+                      ? (() => {
+                          const total = Number(inv.total ?? 0);
+                          const tr = scheduleMismatch.tranches;
+                          // Round each to cents, then absorb rounding into the last row
+                          const amounts = tr.map((t) => Math.round(total * t.amount_fraction * 100) / 100);
+                          const drift = Math.round((total - amounts.reduce((a, b) => a + b, 0)) * 100) / 100;
+                          if (amounts.length > 0) amounts[amounts.length - 1] = Math.round((amounts[amounts.length - 1] + drift) * 100) / 100;
+                          return tr.map((t, i) => ({
+                            due_date: t.due_date.toISOString().slice(0, 10),
+                            amount_due: amounts[i],
+                            installment_label: t.tranche_label || `Installment ${i + 1}`,
+                          }));
+                        })()
+                      : existingPayments.map((p: any, i: number) => ({
+                          due_date: p.due_date ?? inv.invoice_date ?? "",
+                          amount_due: Number(p.amount_due ?? 0),
+                          installment_label: p.installment_label ?? `Installment ${i + 1}`,
+                        }))
+                  }
                   invoiceTotal={Number(inv.total ?? 0)}
                   anchorDate={inv.invoice_date ?? new Date().toISOString().slice(0, 10)}
                   onCancel={() => setEditingTerms(false)}
