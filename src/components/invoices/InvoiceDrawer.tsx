@@ -99,7 +99,7 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
       const expected = schedule.tranches.length;
       const actual = existingPayments.length;
       if (expected > 0 && expected !== actual) {
-        return { expected, actual };
+        return { expected, actual, tranches: schedule.tranches };
       }
     } catch {
       // ignore — engine failure shouldn't block the drawer
