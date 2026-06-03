@@ -3,12 +3,13 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { Wallet, Trash2, Loader2 } from "lucide-react";
+import { Wallet, Trash2, Loader2, Undo2 } from "lucide-react";
 import {
   fetchVendorCreditBalance,
   fetchVendorCreditLedger,
   fetchAllVendorCreditBalances,
   deleteVendorCredit,
+  reverseVendorCreditApplication,
 } from "@/lib/vendor-credits";
 import { formatCurrency } from "@/lib/supabase-queries";
 import { useNavigate } from "react-router-dom";
