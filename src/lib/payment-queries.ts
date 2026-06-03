@@ -365,7 +365,7 @@ export async function markPaymentUnpaid(paymentId: string): Promise<void> {
   // 2026-05-26: append a history entry so the un-mark leaves a recoverable trail.
   const { data: current } = await supabase
     .from("invoice_payments")
-    .select("payment_history")
+    .select("payment_history, invoice_id")
     .eq("id", paymentId)
     .maybeSingle();
   const existingHistory = Array.isArray((current as any)?.payment_history) ? (current as any).payment_history : [];
@@ -390,6 +390,9 @@ export async function markPaymentUnpaid(paymentId: string): Promise<void> {
     } as any)
     .eq("id", paymentId);
   if (error) throw error;
+  if ((current as any)?.invoice_id) {
+    try { await syncInvoicePaymentStatus((current as any).invoice_id); } catch { /* non-fatal */ }
+  }
 }
 
 /**
