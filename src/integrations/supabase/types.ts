@@ -1027,9 +1027,11 @@ export type Database = {
           description: string | null
           id: string
           occurred_on: string
+          reference: string | null
           related_history_index: number | null
           related_invoice_id: string | null
           related_payment_id: string | null
+          reversed_credit_id: string | null
           source_type: string
           vendor: string
         }
@@ -1040,9 +1042,11 @@ export type Database = {
           description?: string | null
           id?: string
           occurred_on: string
+          reference?: string | null
           related_history_index?: number | null
           related_invoice_id?: string | null
           related_payment_id?: string | null
+          reversed_credit_id?: string | null
           source_type: string
           vendor: string
         }
@@ -1053,13 +1057,23 @@ export type Database = {
           description?: string | null
           id?: string
           occurred_on?: string
+          reference?: string | null
           related_history_index?: number | null
           related_invoice_id?: string | null
           related_payment_id?: string | null
+          reversed_credit_id?: string | null
           source_type?: string
           vendor?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "vendor_credits_reversed_credit_id_fkey"
+            columns: ["reversed_credit_id"]
+            isOneToOne: false
+            referencedRelation: "vendor_credits"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       vendor_definitions: {
         Row: {
