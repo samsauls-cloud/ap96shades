@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import {
   AlertTriangle, CheckCircle2, Database, FileText, CreditCard,
   PackageCheck, ChevronDown, ChevronRight, Loader2, Zap, Download,
-  DollarSign, Search as SearchIcon, Link2,
+  DollarSign, Search as SearchIcon, Link2, CalendarClock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,6 +19,7 @@ import { InvoiceNav } from "@/components/invoices/InvoiceNav";
 import { ReconciliationAuditPanel } from "@/components/invoices/ReconciliationAuditPanel";
 import { VendorCoveragePanel } from "@/components/invoices/VendorCoveragePanel";
 import { MatchStatusPanel } from "@/components/invoices/MatchStatusPanel";
+import { EomDeliveryBackfillSection } from "@/components/invoices/EomDeliveryBackfillSection";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchAllRows } from "@/lib/supabase-fetch-all";
 import { auditDatabaseScale } from "@/lib/supabase-fetch-all";
@@ -417,6 +418,12 @@ export default function AuditPage() {
               recSessions={recSessions as any[]}
               recLines={recLines as any[]}
             />
+
+            {/* ── Two-Way Match Status ── */}
+            {/* ── EOM Delivery-Date Backfill ── */}
+            <Section title="EOM Delivery-Date Backfill" icon={CalendarClock} defaultOpen>
+              <EomDeliveryBackfillSection />
+            </Section>
 
             {/* ── Two-Way Match Status ── */}
             <Section title="Invoice ↔ Receipt Match Status" icon={Link2} defaultOpen>
