@@ -735,6 +735,11 @@ export default function APDashboard() {
           refreshAll();
         }}
       />
+      <SmartApplyCreditDialog
+        vendor={creditDialogVendor ?? ""}
+        open={!!creditDialogVendor}
+        onOpenChange={(o) => { if (!o) setCreditDialogVendor(null); }}
+      />
     </div>
   );
 }
