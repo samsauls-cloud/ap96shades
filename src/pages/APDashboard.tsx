@@ -94,6 +94,8 @@ export default function APDashboard() {
   const [dashTab, setDashTab] = useState<'outstanding' | 'history'>('outstanding');
   const [historySearch, setHistorySearch] = useState("");
   const [historyVendor, setHistoryVendor] = useState("all");
+  const [creditDialogVendor, setCreditDialogVendor] = useState<string | null>(null);
+  const getCreditBalance = useVendorCreditBalanceMap();
   const midnightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const midnightIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const minuteIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
