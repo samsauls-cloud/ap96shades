@@ -420,6 +420,12 @@ export default function AuditPage() {
             />
 
             {/* ── Two-Way Match Status ── */}
+            {/* ── EOM Delivery-Date Backfill ── */}
+            <Section title="EOM Delivery-Date Backfill" icon={CalendarClock} defaultOpen>
+              <EomDeliveryBackfillSection />
+            </Section>
+
+            {/* ── Two-Way Match Status ── */}
             <Section title="Invoice ↔ Receipt Match Status" icon={Link2} defaultOpen>
               <MatchStatusPanel />
             </Section>
