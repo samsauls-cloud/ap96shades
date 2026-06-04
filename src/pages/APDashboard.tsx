@@ -454,9 +454,31 @@ export default function APDashboard() {
                     {vendorGrid.map((row) => (
                       <TableRow key={row.vendor} className="border-border hover:bg-muted/30 transition-colors">
                         <TableCell className="sticky left-0 bg-card z-10">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <div className={`w-2 h-4 rounded-sm ${getVendorColor(row.vendor)}`} />
                             <span className="text-xs font-bold">{row.vendor}</span>
+                            {(() => {
+                              const bal = getCreditBalance(row.vendor);
+                              if (bal <= 0) return null;
+                              return (
+                                <>
+                                  <span
+                                    className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-green-500/15 text-green-600 dark:text-green-400 border border-green-500/30 tabular-nums"
+                                    title="Available vendor credit"
+                                  >
+                                    Credit {formatCurrency(bal)}
+                                  </span>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-6 px-2 text-[10px] border-green-500/40 text-green-600 dark:text-green-400 hover:bg-green-500/10 hover:text-green-600"
+                                    onClick={(e) => { e.stopPropagation(); setCreditDialogVendor(row.vendor); }}
+                                  >
+                                    Apply credit ({formatCurrency(bal)})
+                                  </Button>
+                                </>
+                              );
+                            })()}
                           </div>
                         </TableCell>
                         {row.months.map((cell, mi) => (
