@@ -19,6 +19,7 @@ import { InvoiceNav } from "@/components/invoices/InvoiceNav";
 import { ReconciliationAuditPanel } from "@/components/invoices/ReconciliationAuditPanel";
 import { VendorCoveragePanel } from "@/components/invoices/VendorCoveragePanel";
 import { MatchStatusPanel } from "@/components/invoices/MatchStatusPanel";
+import { EomDeliveryBackfillSection } from "@/components/invoices/EomDeliveryBackfillSection";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchAllRows } from "@/lib/supabase-fetch-all";
 import { auditDatabaseScale } from "@/lib/supabase-fetch-all";
