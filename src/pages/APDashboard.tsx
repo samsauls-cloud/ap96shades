@@ -22,6 +22,8 @@ import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
 import { DataHealthTile } from "@/components/invoices/DataHealthTile";
 import { AddVendorCreditDialog } from "@/components/invoices/AddVendorCreditDialog";
+import { useVendorCreditBalanceMap } from "@/components/invoices/VendorCreditDrawer";
+import { SmartApplyCreditDialog } from "@/components/invoices/SmartApplyCreditDialog";
 
 // ── Server date hook ──────────────────────────────────
 function useServerDate() {
