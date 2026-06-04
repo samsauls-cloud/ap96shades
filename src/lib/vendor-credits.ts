@@ -160,6 +160,8 @@ export async function applyVendorCreditToInstallment(args: {
     ? ((current as any).payment_history as PaymentHistoryEntry[])
     : [];
 
+  const historyIndex = existingHistory.length;
+
   const historyEntry: PaymentHistoryEntry = {
     date: occurredOn,
     amount,
@@ -204,6 +206,7 @@ export async function applyVendorCreditToInstallment(args: {
   if (updErr) throw updErr;
 
   // Step 2: insert vendor_credits debit row. If this fails, undo step 1.
+  // Includes related_history_index so reverseVendorCreditApplication can anchor exactly.
   const { error: insErr } = await supabase
     .from("vendor_credits" as any)
     .insert({
@@ -213,6 +216,7 @@ export async function applyVendorCreditToInstallment(args: {
       source_type: "invoice_application",
       related_invoice_id: invoiceId,
       related_payment_id: paymentId,
+      related_history_index: historyIndex,
       occurred_on: occurredOn,
       created_by: "Staff",
     });
@@ -225,6 +229,7 @@ export async function applyVendorCreditToInstallment(args: {
     throw new Error(`Vendor credit ledger write failed (changes reverted): ${insErr.message}`);
   }
 }
+
 
 /**
  * Manually add (or adjust) a vendor credit. Positive = add, negative = consume.
