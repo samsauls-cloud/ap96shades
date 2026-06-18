@@ -14,6 +14,7 @@ import { PaymentStatusBadge } from "@/components/invoices/PaymentStatusBadge";
 import { fetchAllRows } from "@/lib/supabase-fetch-all";
 import { Badge } from "@/components/ui/badge";
 import { addDays, startOfWeek, format, subMonths, isWithinInterval } from "date-fns";
+import BrandSpendRollup from "@/components/invoices/BrandSpendRollup";
 
 type ReportTab = "aging" | "history" | "outstanding" | "cashflow" | "fulfillment" | "vendorspend" | "backorder";
 
@@ -74,6 +75,8 @@ export default function ReportsPage() {
     <div className="min-h-screen bg-background">
       <InvoiceNav />
       <div className="max-w-[1600px] mx-auto px-4 sm:px-6 py-6 space-y-6">
+        <BrandSpendRollup variant="compact" />
+
         <div className="flex gap-2 flex-wrap">
           {tabs.map(t => (
             <Button key={t.key} size="sm" variant={tab === t.key ? "default" : "outline"} className="text-xs h-8" onClick={() => setTab(t.key)}>
