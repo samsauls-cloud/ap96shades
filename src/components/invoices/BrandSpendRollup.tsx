@@ -20,7 +20,7 @@
  *     so one vendor's credit surplus never cancels another vendor's debt.
  *   - Brand sub-rows always render gross owed.
  */
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
