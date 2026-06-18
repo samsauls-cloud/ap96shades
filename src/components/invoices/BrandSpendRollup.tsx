@@ -204,7 +204,8 @@ export default function BrandSpendRollup({ variant = "full", defaultNetOfCredits
   });
   const getCreditBalance = useVendorCreditBalanceMap();
 
-  const { vendors, grand } = useMemo(() => buildRollup(invoices, payments), [invoices, payments]);
+  const { vendors, grand, unscheduledAll } = useMemo(() => buildRollup(invoices, payments), [invoices, payments]);
+  const unscheduledTotal = unscheduledAll.reduce((s, u) => s + u.total, 0);
 
   const availFor = (vendorName: string) => getCreditBalance(vendorName);
   const owedDisplay = (vendorName: string, grossOwed: number) =>
