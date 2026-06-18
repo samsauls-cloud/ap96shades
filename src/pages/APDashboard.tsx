@@ -24,6 +24,7 @@ import { DataHealthTile } from "@/components/invoices/DataHealthTile";
 import { AddVendorCreditDialog } from "@/components/invoices/AddVendorCreditDialog";
 import { useVendorCreditBalanceMap } from "@/components/invoices/VendorCreditDrawer";
 import { SmartApplyCreditDialog } from "@/components/invoices/SmartApplyCreditDialog";
+import BrandSpendRollup from "@/components/invoices/BrandSpendRollup";
 
 // ── Server date hook ──────────────────────────────────
 function useServerDate() {
@@ -371,6 +372,10 @@ export default function APDashboard() {
           <div className="flex-1 min-w-[280px]"><DataHealthTile /></div>
           <AddVendorCreditDialog buttonLabel="Add Vendor Credit" />
         </div>
+
+        <BrandSpendRollup />
+
+
 
 
 
