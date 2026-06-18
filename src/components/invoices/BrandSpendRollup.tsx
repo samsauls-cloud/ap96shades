@@ -414,6 +414,11 @@ export default function BrandSpendRollup({ variant = "full", defaultNetOfCredits
                 </tr>
               </tbody>
             </table>
+            {unscheduledAll.length > 0 && (
+              <div className="px-3 py-2 text-[11px] text-amber-400/90 border-t border-border bg-amber-500/5">
+                {unscheduledAll.length} invoice{unscheduledAll.length === 1 ? "" : "s"} totaling {formatCurrency(unscheduledTotal)} are confirmed without a payment schedule and won't appear on the payment calendar.
+              </div>
+            )}
           </div>
         )}
       </CardContent>
