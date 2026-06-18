@@ -48,15 +48,23 @@ interface BrandBucket {
   owed: number;
 }
 
+interface UnscheduledInvoice {
+  id: string;
+  invoice_number: string | null;
+  total: number;
+}
+
 interface VendorBucket {
   name: string; // canonical (normalizeVendor) display name
   purchased: number;
   paid: number;
   owed: number;
   brands: BrandBucket[];
+  unscheduled: UnscheduledInvoice[];
 }
 
 const YEAR = new Date().getFullYear();
+const SCHEDULE_TOLERANCE = 1; // dollars
 
 function lineExtended(li: ReturnType<typeof getLineItems>[number]): number {
   if (typeof li.line_total === "number" && li.line_total) return li.line_total;
@@ -77,23 +85,56 @@ function buildRollup(invoices: VendorInvoice[], payments: InvoicePayment[]) {
     return dt === "INVOICE";
   });
 
+  // Per-invoice paid + schedule total from active (non-void) payments.
+  // Owed is derived from the invoice header (Purchased - Paid), NOT from the
+  // installment schedule — so the identity Purchased = Paid + Owed holds even
+  // when an invoice was confirmed without a payment schedule.
+  const paidByInvoice = new Map<string, number>();
+  const scheduleByInvoice = new Map<string, number>();
+  for (const p of payments) {
+    if (p.payment_status === "void") continue;
+    paidByInvoice.set(p.invoice_id, (paidByInvoice.get(p.invoice_id) ?? 0) + Number(p.amount_paid ?? 0));
+    const inst = Number(p.amount_paid ?? 0) + Number(p.balance_remaining ?? 0);
+    scheduleByInvoice.set(p.invoice_id, (scheduleByInvoice.get(p.invoice_id) ?? 0) + inst);
+  }
+
   // group invoices by canonical vendor
   const vendorMap = new Map<string, {
     invoices: VendorInvoice[];
     purchased: number;
+    paid: number;
     brandPurchased: Map<string, number>;
+    unscheduled: UnscheduledInvoice[];
   }>();
 
   for (const inv of ytd) {
     const v = normalizeVendor(inv.vendor) || (inv.vendor ?? "Unknown");
     let bucket = vendorMap.get(v);
     if (!bucket) {
-      bucket = { invoices: [], purchased: 0, brandPurchased: new Map() };
+      bucket = { invoices: [], purchased: 0, paid: 0, brandPurchased: new Map(), unscheduled: [] };
       vendorMap.set(v, bucket);
     }
     bucket.invoices.push(inv);
     const invTotal = Number(inv.total ?? 0);
+    const rawPaid = paidByInvoice.get(inv.id) ?? 0;
+    // Clamp paid into [0, invTotal] so Owed = Purchased - Paid stays ≥ 0
+    // even on edge cases (overpay, negative totals).
+    const invPaid = Math.max(0, Math.min(rawPaid, Math.max(invTotal, 0)));
     bucket.purchased += invTotal;
+    bucket.paid += invPaid;
+
+    // Data-gap detection: no schedule rows, or schedule total drifts from header.
+    const sched = scheduleByInvoice.get(inv.id);
+    const hasSchedule = sched !== undefined && sched > 0;
+    const drift = hasSchedule ? Math.abs((sched ?? 0) - invTotal) : invTotal;
+    if (!hasSchedule || drift > SCHEDULE_TOLERANCE) {
+      bucket.unscheduled.push({
+        id: inv.id,
+        invoice_number: (inv as any).invoice_number ?? null,
+        total: invTotal,
+      });
+    }
+
     // Allocate this invoice's `total` across brands by line-item share, so
     // brand sub-rows sum exactly to the vendor's `total`-based purchased row.
     const items = getLineItems(inv);
@@ -118,40 +159,25 @@ function buildRollup(invoices: VendorInvoice[], payments: InvoicePayment[]) {
     }
   }
 
-  // sum paid/owed per vendor from payments (active, non-void)
-  const paidByVendor = new Map<string, number>();
-  const owedByVendor = new Map<string, number>();
-  for (const p of payments) {
-    if (p.payment_status === "void") continue;
-    const v = normalizeVendor(p.vendor) || (p.vendor ?? "Unknown");
-    if (!vendorMap.has(v)) continue; // only count payments tied to YTD invoices' vendors
-    // Only attribute paid/owed that correspond to a YTD invoice in our set
-    const invIds = new Set(vendorMap.get(v)!.invoices.map(i => i.id));
-    if (!invIds.has(p.invoice_id)) continue;
-    paidByVendor.set(v, (paidByVendor.get(v) ?? 0) + Number(p.amount_paid ?? 0));
-    if (p.payment_status !== "paid") {
-      owedByVendor.set(v, (owedByVendor.get(v) ?? 0) + Number(p.balance_remaining ?? 0));
-    }
-  }
-
   const vendors: VendorBucket[] = [];
   for (const [name, b] of vendorMap.entries()) {
-    const paid = paidByVendor.get(name) ?? 0;
-    const owed = owedByVendor.get(name) ?? 0;
+    const paid = b.paid;
+    const owed = Math.max(b.purchased - paid, 0);
     const brandsRaw = Array.from(b.brandPurchased.entries())
       .map(([brand, purchased]) => ({ brand, purchased }))
       .sort((a, z) => z.purchased - a.purchased);
     const sumLines = brandsRaw.reduce((s, x) => s + x.purchased, 0);
     const brands: BrandBucket[] = brandsRaw.map(x => {
       const share = sumLines > 0 ? x.purchased / sumLines : 0;
+      const brandPaid = paid * share;
       return {
         brand: x.brand,
         purchased: x.purchased,
-        paid: paid * share,
-        owed: owed * share,
+        paid: brandPaid,
+        owed: Math.max(x.purchased - brandPaid, 0),
       };
     });
-    vendors.push({ name, purchased: b.purchased, paid, owed, brands });
+    vendors.push({ name, purchased: b.purchased, paid, owed, brands, unscheduled: b.unscheduled });
   }
 
   vendors.sort((a, z) => z.purchased - a.purchased);
@@ -159,7 +185,8 @@ function buildRollup(invoices: VendorInvoice[], payments: InvoicePayment[]) {
     (s, v) => ({ purchased: s.purchased + v.purchased, paid: s.paid + v.paid, owed: s.owed + v.owed }),
     { purchased: 0, paid: 0, owed: 0 },
   );
-  return { vendors, grand };
+  const unscheduledAll = vendors.flatMap(v => v.unscheduled);
+  return { vendors, grand, unscheduledAll };
 }
 
 export default function BrandSpendRollup({ variant = "full", defaultNetOfCredits = false }: Props) {
@@ -177,7 +204,8 @@ export default function BrandSpendRollup({ variant = "full", defaultNetOfCredits
   });
   const getCreditBalance = useVendorCreditBalanceMap();
 
-  const { vendors, grand } = useMemo(() => buildRollup(invoices, payments), [invoices, payments]);
+  const { vendors, grand, unscheduledAll } = useMemo(() => buildRollup(invoices, payments), [invoices, payments]);
+  const unscheduledTotal = unscheduledAll.reduce((s, u) => s + u.total, 0);
 
   const availFor = (vendorName: string) => getCreditBalance(vendorName);
   const owedDisplay = (vendorName: string, grossOwed: number) =>
@@ -333,6 +361,15 @@ export default function BrandSpendRollup({ variant = "full", defaultNetOfCredits
                                 Credit: {formatCurrency(credit)}
                               </Badge>
                             )}
+                            {v.unscheduled.length > 0 && (
+                              <Badge
+                                variant="outline"
+                                className="text-[10px] h-4 px-1.5 border-amber-500/40 text-amber-400 bg-amber-500/10"
+                                title={`Unscheduled invoice${v.unscheduled.length > 1 ? "s" : ""}: ${v.unscheduled.map(u => u.invoice_number || u.id.slice(0, 8)).join(", ")}`}
+                              >
+                                unscheduled{v.unscheduled.length > 1 ? ` ×${v.unscheduled.length}` : ""}
+                              </Badge>
+                            )}
                           </div>
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums">{formatCurrency(v.purchased)}</td>
@@ -377,6 +414,11 @@ export default function BrandSpendRollup({ variant = "full", defaultNetOfCredits
                 </tr>
               </tbody>
             </table>
+            {unscheduledAll.length > 0 && (
+              <div className="px-3 py-2 text-[11px] text-amber-400/90 border-t border-border bg-amber-500/5">
+                {unscheduledAll.length} invoice{unscheduledAll.length === 1 ? "" : "s"} totaling {formatCurrency(unscheduledTotal)} are confirmed without a payment schedule and won't appear on the payment calendar.
+              </div>
+            )}
           </div>
         )}
       </CardContent>
