@@ -66,11 +66,13 @@ function lineExtended(li: ReturnType<typeof getLineItems>[number]): number {
 }
 
 function buildRollup(invoices: VendorInvoice[], payments: InvoicePayment[]) {
-  // YTD invoices, payable docs only
+  // YTD invoices, payable docs only — exclude voided invoices (no installment
+  // schedule, so Paid/Owed would never reconcile against Purchased).
   const ytd = invoices.filter(i => {
     if (!i.invoice_date) return false;
     if (!String(i.invoice_date).startsWith(String(YEAR))) return false;
     if (isProforma(i as any)) return false;
+    if (String((i as any).status || "").toLowerCase() === "void") return false;
     const dt = (i.doc_type || "").toUpperCase();
     return dt === "INVOICE";
   });
@@ -90,13 +92,29 @@ function buildRollup(invoices: VendorInvoice[], payments: InvoicePayment[]) {
       vendorMap.set(v, bucket);
     }
     bucket.invoices.push(inv);
-    bucket.purchased += Number(inv.total ?? 0);
+    const invTotal = Number(inv.total ?? 0);
+    bucket.purchased += invTotal;
+    // Allocate this invoice's `total` across brands by line-item share, so
+    // brand sub-rows sum exactly to the vendor's `total`-based purchased row.
     const items = getLineItems(inv);
+    const perBrandRaw = new Map<string, number>();
+    let rawSum = 0;
     for (const li of items) {
       const brand = (li.brand ?? "").trim() || "(unspecified)";
       const amt = lineExtended(li);
       if (!Number.isFinite(amt) || amt === 0) continue;
-      bucket.brandPurchased.set(brand, (bucket.brandPurchased.get(brand) ?? 0) + amt);
+      perBrandRaw.set(brand, (perBrandRaw.get(brand) ?? 0) + amt);
+      rawSum += amt;
+    }
+    if (rawSum > 0 && invTotal !== 0) {
+      for (const [brand, raw] of perBrandRaw) {
+        const share = (raw / rawSum) * invTotal;
+        bucket.brandPurchased.set(brand, (bucket.brandPurchased.get(brand) ?? 0) + share);
+      }
+    } else if (perBrandRaw.size === 0 && invTotal !== 0) {
+      // No line items — put the whole invoice under (unspecified) so the
+      // brand rows still sum to the vendor total.
+      bucket.brandPurchased.set("(unspecified)", (bucket.brandPurchased.get("(unspecified)") ?? 0) + invTotal);
     }
   }
 
