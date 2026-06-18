@@ -361,6 +361,15 @@ export default function BrandSpendRollup({ variant = "full", defaultNetOfCredits
                                 Credit: {formatCurrency(credit)}
                               </Badge>
                             )}
+                            {v.unscheduled.length > 0 && (
+                              <Badge
+                                variant="outline"
+                                className="text-[10px] h-4 px-1.5 border-amber-500/40 text-amber-400 bg-amber-500/10"
+                                title={`Unscheduled invoice${v.unscheduled.length > 1 ? "s" : ""}: ${v.unscheduled.map(u => u.invoice_number || u.id.slice(0, 8)).join(", ")}`}
+                              >
+                                unscheduled{v.unscheduled.length > 1 ? ` ×${v.unscheduled.length}` : ""}
+                              </Badge>
+                            )}
                           </div>
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums">{formatCurrency(v.purchased)}</td>
