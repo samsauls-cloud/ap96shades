@@ -80,6 +80,17 @@ const VENDOR_MAP: Record<string, string> = {
   "b robinson llc / revo": "Revo",
   "b. robinson llc / revo": "Revo",
   "b robinson / revo": "Revo",
+  // Dita
+  "dita": "DITA",
+  "dita inc": "DITA",
+  "dita inc.": "DITA",
+  "dita, inc.": "DITA",
+  "dita usa": "DITA",
+  "dita usa inc": "DITA",
+  "dita usa inc.": "DITA",
+  "dita group": "DITA",
+  "dita eyewear": "DITA",
+  "dita legends": "DITA",
   // Legacy extras
   "chanel": "Chanel",
   "costa del mar": "Costa",
