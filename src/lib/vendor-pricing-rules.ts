@@ -15,12 +15,11 @@ export interface VendorPricingRule {
  * All vendor pricing rules. Add new vendor discounts here.
  */
 export const VENDOR_PRICING_RULES: VendorPricingRule[] = [
-  {
-    vendor: "Marchon",
-    discountPercent: 10,
-    description: "All Marchon frames and brands receive a 10% discount",
-    applyTo: "all",
-  },
+  // NOTE: Marchon's 10% standing discount was REMOVED. Marchon invoices print
+  // the net "EXTENDED PRICE" already reflecting any per-line discount; applying
+  // a second automatic 10% double-discounted line totals and corrupted subtotals
+  // (e.g. invoice 9636841356: real $1,050 → stored as $945). Never auto-apply
+  // any discount to Marchon — the EXTENDED PRICE column is authoritative.
 ];
 
 /**
