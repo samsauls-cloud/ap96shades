@@ -56,6 +56,26 @@ For Marcolin invoices, also return:
 
 Set payment_terms_extracted.type to "eom_single" for Check 20 EoM (with days: [20], installments: 1) or "eom_split" for EOM 50/80/110 (with days: [50, 80, 110], installments: 3). Always set eom_based to true for Marcolin.
 
+MARCHON PAYMENT TERMS & LINE ITEMS — CRITICAL:
+Marchon invoices (vendor "Marchon", "VSP/Marchon", brands Nike/Calvin Klein/Columbia/Dragon/Flexon/Donna Karan/Lacoste/Salvatore Ferragamo/MCM/Nautica/Nine West/Skaga) require these rules:
+
+Payment terms: "US 30/60/90" (or "30/60/90" on a Marchon invoice) means THREE EQUAL installments at 30, 60, and 90 days from the INVOICE DATE — NOT end-of-month. Set payment_terms_extracted.type = "net_split", days = [30, 60, 90], installments = 3, eom_based = false, confidence = "high", raw_text = "US 30/60/90".
+
+Line items — DO NOT DUPLICATE OR SPLIT ROWS:
+- Each printed product row in the body is EXACTLY ONE line_items entry. Never emit the same row twice. Never split a single printed row into multiple entries. If two adjacent rows share the same UPC but print different QTYs (e.g. one row qty 5, next row qty 15), they ARE two separate line items — emit exactly those two, not four. Before returning, deduplicate any line_items that share (upc, qty, unit_price, line_total) to guard against accidental repetition.
+- Per row: model/style = the alphanumeric code like "IQ7183X"; the "5813-084" style token is size-base/color (parse "5813" as size/base and "084" as color_code); the long numeric token is the UPC; QTY is the LEFTMOST numeric column on the row.
+- Use the printed "EXTENDED PRICE" column VERBATIM as line_total. NEVER re-apply, add, or subtract the DISCOUNT% shown — EXTENDED PRICE is already net of that discount. unit_price = EXTENDED PRICE / QTY (do not back-compute from list price).
+- The sum of priced rows MUST equal the printed Subtotal. If it does not, recheck for a duplicated row before adjusting anything.
+
+Free / credit lines: any row with 100% discount or $0 EXTENDED PRICE is a free/credit line — include it in line_items with line_total = 0, but it must NOT add to total units, subtotal, or total.
+
+Totals: map the "Postage/Ins" line value to freight. total = subtotal + freight + tax and MUST equal the printed "TOTAL" on the document. currency = "USD".
+
+Doc type: a Marchon document whose header reads "Debit Memo" is still a payable invoice — set doc_type = "INVOICE" (NOT "credit_memo").
+
+Backordered section: IGNORE any section titled "Products listed below will ship at a later date" (or equivalent backorder header). Those rows are NOT invoiced on this document — exclude them from line_items, units, subtotal, and total entirely.
+
+
 CREDIT MEMO DETECTION — set doc_type = "credit_memo" if ANY of these are true:
 - The word "Credit" appears as a standalone header/title on the document (distinct from appearing in body text)
 - The phrase "Credit Note" appears as the document title
