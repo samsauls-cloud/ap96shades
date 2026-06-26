@@ -53,7 +53,7 @@ export const VENDOR_DEFAULTS: Record<string, VendorTermsDefault> = {
   "Maui Jim": { type: "net_split", days: [60, 90, 120, 150], installments: 4, eom_based: false, label: "Days 60 / 90 / 120 / 150" },
   Marcolin: { type: "eom_split", days: [50, 80, 110], installments: 3, eom_based: true, label: "EOM 50 / 80 / 110" },
   Safilo: { type: "eom_single", days: [60], installments: 1, eom_based: true, label: "EOM 60" },
-  Marchon: { type: "net_single", days: [30], installments: 1, eom_based: false, label: "Net 30" },
+  Marchon: { type: "net_split", days: [30, 60, 90], installments: 3, eom_based: false, label: "Days 30 / 60 / 90" },
   Revo: { type: "net_single", days: [90], installments: 1, eom_based: false, label: "Net 90" },
 };
 
