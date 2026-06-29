@@ -257,23 +257,17 @@ export function EomDeliveryBackfillSection() {
         </div>
       </div>
 
-      {showKeyPrompt && (
-        <div className="border border-border rounded-md p-3 bg-card space-y-2">
-          <div className="text-xs font-medium">Anthropic API key required</div>
-          <div className="flex gap-2">
-            <Input type="password" placeholder="sk-ant-..." value={keyInput} onChange={e => setKeyInput(e.target.value)} />
-            <Button onClick={saveKey} size="sm">Save</Button>
-          </div>
-        </div>
-      )}
-
       <div className="border border-border rounded-md p-3 bg-card">
         <div className="flex items-center justify-between text-xs mb-2">
-          <span>{completed} / {total} processed</span>
-          <span className="text-muted-foreground">Eligible w/ PDF: {total} · Without PDF: {rows.length - total}</span>
+          <span>
+            {completed} / {total} processed
+            {running && <span className="ml-2 text-muted-foreground">(saved this session: {serverProgress.savedThisSession}{serverProgress.failuresThisSession ? ` · ${serverProgress.failuresThisSession} failures` : ""})</span>}
+          </span>
+          <span className="text-muted-foreground">Eligible w/ PDF: {eligible.length} · Without PDF: {rows.length - eligible.length}</span>
         </div>
         <Progress value={total > 0 ? (completed / total) * 100 : 0} />
       </div>
+
 
       <div className="border border-border rounded-md bg-card overflow-auto max-h-[500px]">
         <Table>
