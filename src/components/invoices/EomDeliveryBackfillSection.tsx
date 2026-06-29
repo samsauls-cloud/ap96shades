@@ -64,20 +64,33 @@ async function fetchTargets(): Promise<Row[]> {
     }));
 }
 
-type BackfillResp = {
-  processed: number;
-  saved: number;
-  null_found: number;
-  remaining: number;
+type JobSnapshot = {
+  id: string;
+  status: "running" | "paused" | "done" | "failed";
+  invoice_ids: string[];
+  remaining_ids: string[];
+  processed_count: number;
+  saved_count: number;
+  failure_count: number;
+  null_count: number;
   failures: Array<{ id: string; invoice_number: string | null; error: string }>;
+  stop_reason: string | null;
 };
 
-async function invokeBackfillChunk(invoiceIds: string[]): Promise<BackfillResp> {
+async function startJob(invoiceIds: string[]): Promise<{ job_id: string; total: number }> {
   const { data, error } = await supabase.functions.invoke("backfill-delivery-dates", {
-    body: { chunk_size: CHUNK_SIZE, invoice_ids: invoiceIds },
+    body: { action: "start", invoice_ids: invoiceIds },
   });
   if (error) throw error;
-  return data as BackfillResp;
+  return data as { job_id: string; total: number };
+}
+
+async function callJobAction(action: "pause" | "resume" | "status", jobId: string) {
+  const { data, error } = await supabase.functions.invoke("backfill-delivery-dates", {
+    body: { action, job_id: jobId },
+  });
+  if (error) throw error;
+  return data;
 }
 
 export function EomDeliveryBackfillSection() {
@@ -85,7 +98,8 @@ export function EomDeliveryBackfillSection() {
   const { data: rows = [], isLoading, refetch } = useQuery({
     queryKey: ["delivery_backfill_targets"],
     queryFn: fetchTargets,
-    // Poll while running so progress survives tab close/reopen.
+    // Poll while a job is in-flight so the progress bar reflects server-side
+    // writes even when the tab was backgrounded.
     refetchInterval: (q) => {
       const r = (q.state.data as Row[] | undefined)?.filter(x => !!x.pdf_url).length ?? 0;
       return r > 0 ? 4000 : false;
@@ -94,14 +108,16 @@ export function EomDeliveryBackfillSection() {
 
   // Phase 1 state
   const [states, setStates] = useState<Record<string, RowState>>({});
-  const [running, setRunning] = useState(false);
-  const pausedRef = useRef(false);
-  const [paused, setPaused] = useState(false);
-  const [serverProgress, setServerProgress] = useState<{ savedThisSession: number; failuresThisSession: number }>({
-    savedThisSession: 0,
-    failuresThisSession: 0,
-  });
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [job, setJob] = useState<JobSnapshot | null>(null);
   const initialRemainingRef = useRef<number | null>(null);
+
+  const running = job?.status === "running";
+  const paused = job?.status === "paused";
+  const serverProgress = {
+    savedThisSession: job?.saved_count ?? 0,
+    failuresThisSession: job?.failure_count ?? 0,
+  };
 
   // Phase 2 state
   const [previews, setPreviews] = useState<Record<string, InvoicePreview>>({});
@@ -115,67 +131,80 @@ export function EomDeliveryBackfillSection() {
   const total = initialRemainingRef.current ?? eligible.length;
   const completed = Math.max(0, total - eligible.length);
 
-  // Server-driven loop: invoke chunks until remaining == 0.
+  // Poll the job snapshot while a job is active.
   useEffect(() => {
-    if (!running) return;
+    if (!jobId) return;
     let cancelled = false;
-
-    (async () => {
-      while (!cancelled) {
-        if (pausedRef.current) {
-          await new Promise(r => setTimeout(r, 500));
-          continue;
-        }
-        try {
-          const resp = await invokeBackfillChunk(eligible.map(r => r.id));
-          if (cancelled) return;
-          setServerProgress(p => ({
-            savedThisSession: p.savedThisSession + (resp.saved || 0),
-            failuresThisSession: p.failuresThisSession + (resp.failures?.length || 0),
-          }));
-          // Mark per-row state based on failures returned this chunk.
-          if (resp.failures?.length) {
+    let lastTerminalStatus: string | null = null;
+    const tick = async () => {
+      try {
+        const data = await callJobAction("status", jobId);
+        if (cancelled) return;
+        const snap = (data as any)?.job as JobSnapshot | null;
+        if (snap) {
+          setJob(snap);
+          if (snap.failures?.length) {
             setStates(prev => {
               const next = { ...prev };
-              for (const f of resp.failures) next[f.id] = { kind: "error", message: f.error };
+              for (const f of snap.failures) next[f.id] = { kind: "error", message: f.error };
               return next;
             });
           }
-          await refetch();
-          if (resp.remaining <= 0) {
-            setRunning(false);
-            toast({ title: "Backfill complete", description: `Saved ${resp.saved} this chunk.` });
+          if ((snap.status === "done" || snap.status === "failed") && lastTerminalStatus !== snap.status) {
+            lastTerminalStatus = snap.status;
+            toast({
+              title: snap.status === "done" ? "Backfill complete" : "Backfill stopped",
+              description: snap.status === "done"
+                ? `Saved ${snap.saved_count} · ${snap.null_count} not found · ${snap.failure_count} failed.`
+                : (snap.stop_reason ?? "Worker stopped."),
+              variant: snap.status === "failed" ? "destructive" : undefined,
+            });
             qc.invalidateQueries({ queryKey: ["invoice_stats"] });
-            return;
           }
-        } catch (e: any) {
-          if (cancelled) return;
-          toast({ title: "Chunk failed", description: e?.message || String(e), variant: "destructive" });
-          // Brief pause before retry to avoid hammering on persistent failure.
-          await new Promise(r => setTimeout(r, 2000));
         }
+        await refetch();
+      } catch (e) {
+        console.error("status poll failed", e);
       }
-    })();
+    };
+    void tick();
+    const iv = setInterval(tick, 4000);
+    return () => { cancelled = true; clearInterval(iv); };
+  }, [jobId, qc, refetch]);
 
-    return () => { cancelled = true; };
-  }, [running, qc, refetch]);
-
-  const handleStart = () => {
+  const handleStart = async () => {
+    if (eligible.length === 0) return;
     initialRemainingRef.current = eligible.length;
-    setServerProgress({ savedThisSession: 0, failuresThisSession: 0 });
-    pausedRef.current = false;
-    setPaused(false);
-    setRunning(true);
+    try {
+      const { job_id } = await startJob(eligible.map(r => r.id));
+      setJobId(job_id);
+      setJob({
+        id: job_id, status: "running",
+        invoice_ids: eligible.map(r => r.id),
+        remaining_ids: eligible.map(r => r.id),
+        processed_count: 0, saved_count: 0, failure_count: 0, null_count: 0,
+        failures: [], stop_reason: null,
+      });
+      toast({ title: "Backfill started", description: `Server is processing ${eligible.length} invoice(s).` });
+    } catch (e: any) {
+      toast({ title: "Failed to start", description: e?.message || String(e), variant: "destructive" });
+    }
   };
-  const handlePause = () => { pausedRef.current = true; setPaused(true); };
-  const handleResume = () => { pausedRef.current = false; setPaused(false); };
+  const handlePause = async () => {
+    if (!jobId) return;
+    try { await callJobAction("pause", jobId); setJob(j => j ? { ...j, status: "paused" } : j); }
+    catch (e: any) { toast({ title: "Pause failed", description: e?.message, variant: "destructive" }); }
+  };
+  const handleResume = async () => {
+    if (!jobId) return;
+    try { await callJobAction("resume", jobId); setJob(j => j ? { ...j, status: "running" } : j); }
+    catch (e: any) { toast({ title: "Resume failed", description: e?.message, variant: "destructive" }); }
+  };
   const handleReset = () => {
     setStates({});
-    setRunning(false);
-    pausedRef.current = false;
-    setPaused(false);
+    setJobId(null);
+    setJob(null);
     initialRemainingRef.current = null;
-    setServerProgress({ savedThisSession: 0, failuresThisSession: 0 });
   };
 
   const setManual = async (row: Row, date: Date) => {

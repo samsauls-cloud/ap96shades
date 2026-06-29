@@ -83,6 +83,57 @@ export type Database = {
         }
         Relationships: []
       }
+      delivery_backfill_jobs: {
+        Row: {
+          created_at: string
+          failure_count: number
+          failures: Json
+          id: string
+          invoice_ids: string[]
+          last_progress_at: string
+          last_remaining: number | null
+          null_count: number
+          processed_count: number
+          remaining_ids: string[]
+          saved_count: number
+          status: string
+          stop_reason: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          failure_count?: number
+          failures?: Json
+          id?: string
+          invoice_ids?: string[]
+          last_progress_at?: string
+          last_remaining?: number | null
+          null_count?: number
+          processed_count?: number
+          remaining_ids?: string[]
+          saved_count?: number
+          status?: string
+          stop_reason?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          failure_count?: number
+          failures?: Json
+          id?: string
+          invoice_ids?: string[]
+          last_progress_at?: string
+          last_remaining?: number | null
+          null_count?: number
+          processed_count?: number
+          remaining_ids?: string[]
+          saved_count?: number
+          status?: string
+          stop_reason?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       final_bill_ledger: {
         Row: {
           amount_paid_toward_final: number | null
