@@ -75,6 +75,8 @@ Doc type: a Marchon document whose header reads "Debit Memo" is still a payable 
 
 Backordered section: IGNORE any section titled "Products listed below will ship at a later date" (or equivalent backorder header). Those rows are NOT invoiced on this document — exclude them from line_items, units, subtotal, and total entirely.
 
+AUTOMATIC VENDOR DISCOUNTS (any vendor): When an invoice applies an automatic vendor discount, output each physical line EXACTLY ONCE, at the discounted (net) unit_price. Put the pre-discount price in unit_price_before_discount and the rate in vendor_discount_applied on that same line. NEVER emit a second line at the pre-discount price. line_total MUST equal qty × net unit_price. subtotal and total MUST be the sum of the net line_totals (plus tax and freight) — never include any pre-discount amount.
+
 
 CREDIT MEMO DETECTION — set doc_type = "credit_memo" if ANY of these are true:
 - The word "Credit" appears as a standalone header/title on the document (distinct from appearing in body text)
