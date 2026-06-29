@@ -1,10 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { format } from "date-fns";
 import { CalendarIcon, Play, Pause, RotateCcw, Loader2, CheckCircle2, XCircle, AlertCircle, FileText } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Calendar } from "@/components/ui/calendar";
@@ -13,7 +12,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
-import { callAnthropicAPI, normalizeInvoiceYear } from "@/lib/reader-engine";
 import {
   previewInvoice,
   applyInvoiceBackfill,
@@ -37,7 +35,7 @@ type RowState =
   | { kind: "null" }
   | { kind: "error"; message: string };
 
-const BATCH_SIZE = 5;
+const CHUNK_SIZE = 5;
 
 async function fetchTargets(): Promise<Row[]> {
   const { data, error } = await supabase
@@ -60,17 +58,20 @@ async function fetchTargets(): Promise<Row[]> {
     }));
 }
 
-async function urlToBase64(url: string): Promise<string> {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Fetch PDF failed: ${res.status}`);
-  const buf = await res.arrayBuffer();
-  const bytes = new Uint8Array(buf);
-  let binary = "";
-  const chunk = 8192;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
-  }
-  return btoa(binary);
+type BackfillResp = {
+  processed: number;
+  saved: number;
+  null_found: number;
+  remaining: number;
+  failures: Array<{ id: string; invoice_number: string | null; error: string }>;
+};
+
+async function invokeBackfillChunk(): Promise<BackfillResp> {
+  const { data, error } = await supabase.functions.invoke("backfill-delivery-dates", {
+    body: { chunk_size: CHUNK_SIZE },
+  });
+  if (error) throw error;
+  return data as BackfillResp;
 }
 
 export function EomDeliveryBackfillSection() {
@@ -78,16 +79,23 @@ export function EomDeliveryBackfillSection() {
   const { data: rows = [], isLoading, refetch } = useQuery({
     queryKey: ["delivery_backfill_targets"],
     queryFn: fetchTargets,
+    // Poll while running so progress survives tab close/reopen.
+    refetchInterval: (q) => {
+      const r = (q.state.data as Row[] | undefined)?.filter(x => !!x.pdf_url).length ?? 0;
+      return r > 0 ? 4000 : false;
+    },
   });
 
   // Phase 1 state
   const [states, setStates] = useState<Record<string, RowState>>({});
   const [running, setRunning] = useState(false);
+  const pausedRef = useRef(false);
   const [paused, setPaused] = useState(false);
-  const [cursor, setCursor] = useState(0);
-  const [apiKey, setApiKey] = useState(() => localStorage.getItem("anthropic_api_key") || "");
-  const [showKeyPrompt, setShowKeyPrompt] = useState(false);
-  const [keyInput, setKeyInput] = useState("");
+  const [serverProgress, setServerProgress] = useState<{ savedThisSession: number; failuresThisSession: number }>({
+    savedThisSession: 0,
+    failuresThisSession: 0,
+  });
+  const initialRemainingRef = useRef<number | null>(null);
 
   // Phase 2 state
   const [previews, setPreviews] = useState<Record<string, InvoicePreview>>({});
@@ -98,75 +106,70 @@ export function EomDeliveryBackfillSection() {
   const [applyTotal, setApplyTotal] = useState(0);
 
   const eligible = useMemo(() => rows.filter(r => !!r.pdf_url), [rows]);
-  const completed = Object.values(states).filter(s => s.kind === "success" || s.kind === "null" || s.kind === "error").length;
-  const total = eligible.length;
+  const total = initialRemainingRef.current ?? eligible.length;
+  const completed = Math.max(0, total - eligible.length);
 
+  // Server-driven loop: invoke chunks until remaining == 0.
   useEffect(() => {
-    if (!running || paused) return;
-    if (cursor >= eligible.length) {
-      setRunning(false);
-      toast({ title: "Batch complete", description: `Processed ${cursor} invoices.` });
-      refetch();
-      qc.invalidateQueries({ queryKey: ["invoice_stats"] });
-      return;
-    }
-    const batch = eligible.slice(cursor, cursor + BATCH_SIZE);
+    if (!running) return;
     let cancelled = false;
 
     (async () => {
-      await Promise.all(
-        batch.map(async (row) => {
-          setStates(prev => ({ ...prev, [row.id]: { kind: "running" } }));
-          try {
-            const base64 = await urlToBase64(row.pdf_url!);
-            const parsed = await callAnthropicAPI(apiKey, base64);
-            const rawDate = parsed?.delivery_date;
-            if (!rawDate || typeof rawDate !== "string") {
-              setStates(prev => ({ ...prev, [row.id]: { kind: "null" } }));
-              return;
-            }
-            const normalized = normalizeInvoiceYear(rawDate);
-            const m = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-            if (!m) {
-              setStates(prev => ({ ...prev, [row.id]: { kind: "error", message: "Bad date format" } }));
-              return;
-            }
-            const { error } = await supabase
-              .from("vendor_invoices")
-              .update({ delivery_date: normalized } as any)
-              .eq("id", row.id);
-            if (error) throw error;
-            setStates(prev => ({ ...prev, [row.id]: { kind: "success", date: normalized } }));
-          } catch (e: any) {
-            const msg = e?.message || String(e);
-            setStates(prev => ({ ...prev, [row.id]: { kind: "error", message: msg } }));
+      while (!cancelled) {
+        if (pausedRef.current) {
+          await new Promise(r => setTimeout(r, 500));
+          continue;
+        }
+        try {
+          const resp = await invokeBackfillChunk();
+          if (cancelled) return;
+          setServerProgress(p => ({
+            savedThisSession: p.savedThisSession + (resp.saved || 0),
+            failuresThisSession: p.failuresThisSession + (resp.failures?.length || 0),
+          }));
+          // Mark per-row state based on failures returned this chunk.
+          if (resp.failures?.length) {
+            setStates(prev => {
+              const next = { ...prev };
+              for (const f of resp.failures) next[f.id] = { kind: "error", message: f.error };
+              return next;
+            });
           }
-        })
-      );
-      if (!cancelled) setCursor(c => c + batch.length);
+          await refetch();
+          if (resp.remaining <= 0) {
+            setRunning(false);
+            toast({ title: "Backfill complete", description: `Saved ${resp.saved} this chunk.` });
+            qc.invalidateQueries({ queryKey: ["invoice_stats"] });
+            return;
+          }
+        } catch (e: any) {
+          if (cancelled) return;
+          toast({ title: "Chunk failed", description: e?.message || String(e), variant: "destructive" });
+          // Brief pause before retry to avoid hammering on persistent failure.
+          await new Promise(r => setTimeout(r, 2000));
+        }
+      }
     })();
 
     return () => { cancelled = true; };
-  }, [running, paused, cursor, eligible, apiKey, qc, refetch]);
+  }, [running, qc, refetch]);
 
   const handleStart = () => {
-    if (!apiKey) { setShowKeyPrompt(true); return; }
-    const remaining = eligible.findIndex(r => !states[r.id] || states[r.id].kind === "pending" || states[r.id].kind === "error");
-    setCursor(remaining === -1 ? eligible.length : remaining);
+    initialRemainingRef.current = eligible.length;
+    setServerProgress({ savedThisSession: 0, failuresThisSession: 0 });
+    pausedRef.current = false;
     setPaused(false);
     setRunning(true);
   };
-  const handlePause = () => setPaused(true);
-  const handleResume = () => setPaused(false);
-  const handleReset = () => { setStates({}); setCursor(0); setRunning(false); setPaused(false); };
-
-  const saveKey = () => {
-    const clean = keyInput.replace(/[^\x20-\x7E]/g, "").trim();
-    if (!clean) return;
-    localStorage.setItem("anthropic_api_key", clean);
-    setApiKey(clean);
-    setShowKeyPrompt(false);
-    setKeyInput("");
+  const handlePause = () => { pausedRef.current = true; setPaused(true); };
+  const handleResume = () => { pausedRef.current = false; setPaused(false); };
+  const handleReset = () => {
+    setStates({});
+    setRunning(false);
+    pausedRef.current = false;
+    setPaused(false);
+    initialRemainingRef.current = null;
+    setServerProgress({ savedThisSession: 0, failuresThisSession: 0 });
   };
 
   const setManual = async (row: Row, date: Date) => {
@@ -175,6 +178,7 @@ export function EomDeliveryBackfillSection() {
     if (error) { toast({ title: "Save failed", description: error.message, variant: "destructive" }); return; }
     setStates(prev => ({ ...prev, [row.id]: { kind: "success", date: iso } }));
     toast({ title: "Delivery date saved" });
+    refetch();
   };
 
   // ── Phase 2 handlers
@@ -253,23 +257,17 @@ export function EomDeliveryBackfillSection() {
         </div>
       </div>
 
-      {showKeyPrompt && (
-        <div className="border border-border rounded-md p-3 bg-card space-y-2">
-          <div className="text-xs font-medium">Anthropic API key required</div>
-          <div className="flex gap-2">
-            <Input type="password" placeholder="sk-ant-..." value={keyInput} onChange={e => setKeyInput(e.target.value)} />
-            <Button onClick={saveKey} size="sm">Save</Button>
-          </div>
-        </div>
-      )}
-
       <div className="border border-border rounded-md p-3 bg-card">
         <div className="flex items-center justify-between text-xs mb-2">
-          <span>{completed} / {total} processed</span>
-          <span className="text-muted-foreground">Eligible w/ PDF: {total} · Without PDF: {rows.length - total}</span>
+          <span>
+            {completed} / {total} processed
+            {running && <span className="ml-2 text-muted-foreground">(saved this session: {serverProgress.savedThisSession}{serverProgress.failuresThisSession ? ` · ${serverProgress.failuresThisSession} failures` : ""})</span>}
+          </span>
+          <span className="text-muted-foreground">Eligible w/ PDF: {eligible.length} · Without PDF: {rows.length - eligible.length}</span>
         </div>
         <Progress value={total > 0 ? (completed / total) * 100 : 0} />
       </div>
+
 
       <div className="border border-border rounded-md bg-card overflow-auto max-h-[500px]">
         <Table>
