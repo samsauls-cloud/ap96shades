@@ -1,10 +1,14 @@
-// Server-side backfill for vendor_invoices.delivery_date.
-// Processes a chunk of EOM-based invoices with delivery_date IS NULL and a PDF,
-// re-runs Claude extraction, and writes ONLY vendor_invoices.delivery_date.
-// HARD CONSTRAINTS: writes nothing else. No amounts, line_items, status,
-// invoice_payments, payment_history, or schedule recompute.
+// Self-orchestrating server-side backfill for vendor_invoices.delivery_date.
+// One client call starts a job. The function runs the entire job in the
+// background via EdgeRuntime.waitUntil(), self-chaining its own endpoint
+// before hitting the per-invocation wall-clock limit.
+//
+// HARD CONSTRAINTS:
+//  - Writes ONLY vendor_invoices.delivery_date (idempotent: .is delivery_date null).
+//  - No amounts, line_items, status, invoice_payments, payment_history,
+//    schedule recompute. No other column/table/Guard touched.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient, SupabaseClient } from "npm:@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -13,10 +17,15 @@ const corsHeaders = {
 };
 
 const FETCH_TIMEOUT = 90_000;
-const DEFAULT_CHUNK = 5;
+const CHUNK_SIZE = 5;
+const MAX_WALL_MS = 90_000; // self-chain before hitting edge wall-clock cap
 const MODEL = "claude-sonnet-4-6";
 
 const DELIVERY_PROMPT = `You are extracting ONE field from a vendor invoice PDF: the DELIVERY / SHIP date of the goods (distinct from the order date and the invoice date). Labels include "Delivery date", "Ship date", "Shipped", "Data consegna", "Data DDT". If an order date and a separate later delivery/ship date both appear, return the delivery/ship date. If none is present, return null — NEVER copy the invoice date. Return ONLY raw JSON of the form {"delivery_date": "YYYY-MM-DD" | null}. No markdown, no code fences, no preamble.`;
+
+// ─── Declared for the edge runtime; falls back to immediate await locally.
+// deno-lint-ignore no-explicit-any
+declare const EdgeRuntime: any;
 
 function normalizeInvoiceYear(dateStr: string): string {
   if (!dateStr) return dateStr;
@@ -61,7 +70,7 @@ async function fetchPdfBase64(url: string): Promise<string> {
   return btoa(binary);
 }
 
-async function callAnthropic(apiKey: string, base64: string): Promise<any> {
+async function callAnthropic(apiKey: string, base64: string): Promise<{ delivery_date: string | null; retry_after?: number; rate_limited?: boolean }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
   try {
@@ -86,6 +95,10 @@ async function callAnthropic(apiKey: string, base64: string): Promise<any> {
       }),
       signal: controller.signal,
     });
+    if (response.status === 429 || response.status === 529) {
+      const retryAfter = Number(response.headers.get("retry-after")) || 5;
+      return { delivery_date: null, rate_limited: true, retry_after: retryAfter };
+    }
     if (!response.ok) {
       const err = await response.text();
       throw new Error(`Anthropic ${response.status}: ${err.slice(0, 200)}`);
@@ -93,12 +106,204 @@ async function callAnthropic(apiKey: string, base64: string): Promise<any> {
     const result = await response.json();
     const text = result.content?.find((c: any) => c.type === "text")?.text;
     if (!text) throw new Error("No text content");
-    return extractJSON(text);
+    const parsed = extractJSON(text);
+    return { delivery_date: typeof parsed?.delivery_date === "string" ? parsed.delivery_date : null };
   } finally {
     clearTimeout(timer);
   }
 }
 
+// ─── Job helpers ──────────────────────────────────────────────────────────
+type JobRow = {
+  id: string;
+  status: "running" | "paused" | "done" | "failed";
+  invoice_ids: string[];
+  remaining_ids: string[];
+  processed_count: number;
+  saved_count: number;
+  failure_count: number;
+  null_count: number;
+  failures: Array<{ id: string; invoice_number: string | null; error: string }>;
+  last_remaining: number | null;
+};
+
+async function loadJob(supabase: SupabaseClient, jobId: string): Promise<JobRow | null> {
+  const { data, error } = await supabase
+    .from("delivery_backfill_jobs")
+    .select("*")
+    .eq("id", jobId)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as JobRow | null) ?? null;
+}
+
+async function patchJob(supabase: SupabaseClient, jobId: string, patch: Record<string, unknown>) {
+  const { error } = await supabase
+    .from("delivery_backfill_jobs")
+    .update({ ...patch, updated_at: new Date().toISOString() })
+    .eq("id", jobId);
+  if (error) console.error("patchJob failed", error);
+}
+
+async function chainSelf(jobId: string) {
+  const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+  const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const url = `${SUPABASE_URL}/functions/v1/backfill-delivery-dates`;
+  try {
+    // Fire-and-forget chain. We don't await the body; we only need the
+    // request to land so the next invocation picks up the job.
+    await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${SERVICE_KEY}`,
+        apikey: SERVICE_KEY,
+      },
+      body: JSON.stringify({ action: "_continue", job_id: jobId }),
+    });
+  } catch (e) {
+    console.error("chainSelf fetch failed", e);
+  }
+}
+
+// Long-running worker: processes chunks until done, paused, or wall-clock
+// exhausted. On wall-clock, self-chains to a fresh invocation.
+async function runWorker(supabase: SupabaseClient, apiKey: string, jobId: string) {
+  const startedAt = Date.now();
+  while (true) {
+    const job = await loadJob(supabase, jobId);
+    if (!job) { console.error("worker: job vanished", jobId); return; }
+    if (job.status === "paused") { console.log("worker: paused", jobId); return; }
+    if (job.status === "done" || job.status === "failed") return;
+
+    if (!job.remaining_ids || job.remaining_ids.length === 0) {
+      await patchJob(supabase, jobId, { status: "done" });
+      return;
+    }
+
+    // Wall-clock check BEFORE doing another chunk.
+    if (Date.now() - startedAt > MAX_WALL_MS) {
+      // No-progress guard: if remaining hasn't decreased since last chain hop, abort.
+      const remainingNow = job.remaining_ids.length;
+      if (job.last_remaining !== null && remainingNow >= job.last_remaining) {
+        await patchJob(supabase, jobId, {
+          status: "failed",
+          stop_reason: `No progress across self-chain (remaining stuck at ${remainingNow}).`,
+        });
+        console.error("worker: no-progress guard tripped", jobId, remainingNow);
+        return;
+      }
+      await patchJob(supabase, jobId, { last_remaining: remainingNow });
+      await chainSelf(jobId);
+      return;
+    }
+
+    const chunk = job.remaining_ids.slice(0, CHUNK_SIZE);
+    const newFailures: Array<{ id: string; invoice_number: string | null; error: string }> = [];
+    let chunkSaved = 0;
+    let chunkNull = 0;
+    let chunkProcessed = 0;
+
+    // Fetch invoice rows for this chunk.
+    const { data: invoices, error: qErr } = await supabase
+      .from("vendor_invoices")
+      .select("id, invoice_number, pdf_url, delivery_date")
+      .in("id", chunk);
+    if (qErr) {
+      console.error("worker: chunk query failed", qErr);
+      // Drop this chunk so we don't infinite loop on it.
+      const nextRemaining = job.remaining_ids.slice(CHUNK_SIZE);
+      await patchJob(supabase, jobId, {
+        remaining_ids: nextRemaining,
+        failures: [...job.failures, ...chunk.map(id => ({ id, invoice_number: null, error: qErr.message }))],
+        failure_count: job.failure_count + chunk.length,
+        processed_count: job.processed_count + chunk.length,
+      });
+      continue;
+    }
+
+    const byId = new Map((invoices ?? []).map((r: any) => [r.id, r]));
+
+    for (const id of chunk) {
+      const row: any = byId.get(id);
+      if (!row) {
+        newFailures.push({ id, invoice_number: null, error: "Invoice not found" });
+        chunkProcessed++;
+        continue;
+      }
+      if (row.delivery_date) {
+        // Already filled by a parallel writer; treat as a skip.
+        chunkProcessed++;
+        continue;
+      }
+      if (!row.pdf_url) {
+        newFailures.push({ id, invoice_number: row.invoice_number, error: "No PDF URL" });
+        chunkProcessed++;
+        continue;
+      }
+      try {
+        const base64 = await fetchPdfBase64(row.pdf_url);
+        let parsed = await callAnthropic(apiKey, base64);
+        if (parsed.rate_limited) {
+          const wait = Math.min(30, parsed.retry_after ?? 5);
+          console.warn("rate limited, backing off", wait, "s");
+          await new Promise(r => setTimeout(r, wait * 1000));
+          parsed = await callAnthropic(apiKey, base64);
+          if (parsed.rate_limited) {
+            newFailures.push({ id, invoice_number: row.invoice_number, error: "Rate limited" });
+            chunkProcessed++;
+            continue;
+          }
+        }
+        const raw = parsed.delivery_date;
+        if (!raw) {
+          chunkNull++;
+        } else {
+          const norm = normalizeInvoiceYear(raw);
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(norm)) {
+            newFailures.push({ id, invoice_number: row.invoice_number, error: `Bad date: ${raw}` });
+          } else {
+            const { error: upErr } = await supabase
+              .from("vendor_invoices")
+              .update({ delivery_date: norm })
+              .eq("id", id)
+              .is("delivery_date", null); // idempotent guard
+            if (upErr) {
+              newFailures.push({ id, invoice_number: row.invoice_number, error: upErr.message });
+            } else {
+              chunkSaved++;
+            }
+          }
+        }
+        chunkProcessed++;
+      } catch (e: any) {
+        const msg = e?.message || String(e);
+        console.error("worker: row failed", id, msg);
+        newFailures.push({ id, invoice_number: row.invoice_number, error: msg });
+        chunkProcessed++;
+      }
+    }
+
+    // Persist progress for this chunk.
+    const nextRemaining = job.remaining_ids.slice(CHUNK_SIZE);
+    await patchJob(supabase, jobId, {
+      remaining_ids: nextRemaining,
+      processed_count: job.processed_count + chunkProcessed,
+      saved_count: job.saved_count + chunkSaved,
+      failure_count: job.failure_count + newFailures.length,
+      null_count: job.null_count + chunkNull,
+      failures: [...job.failures, ...newFailures].slice(-500),
+      last_progress_at: new Date().toISOString(),
+    });
+
+    if (nextRemaining.length === 0) {
+      await patchJob(supabase, jobId, { status: "done" });
+      return;
+    }
+  }
+}
+
+// ─── HTTP handler ─────────────────────────────────────────────────────────
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -106,113 +311,134 @@ serve(async (req) => {
     const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
     const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-    if (!ANTHROPIC_API_KEY) {
-      return new Response(JSON.stringify({ error: "Missing ANTHROPIC_API_KEY secret" }), {
+    if (!ANTHROPIC_API_KEY || !SUPABASE_URL || !SERVICE_KEY) {
+      return new Response(JSON.stringify({ error: "Missing env" }), {
         status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-    if (!SUPABASE_URL || !SERVICE_KEY) {
-      return new Response(JSON.stringify({ error: "Missing Supabase env" }), {
-        status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    const supabase = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
     let body: any = {};
-    try { body = await req.json(); } catch { /* GET / no body */ }
-    const chunkSize = Math.max(1, Math.min(15, Number(body?.chunk_size) || DEFAULT_CHUNK));
-    const countOnly = !!body?.count_only;
-    const invoiceIds: string[] | null = Array.isArray(body?.invoice_ids) && body.invoice_ids.length > 0
-      ? body.invoice_ids.filter((x: any) => typeof x === "string")
-      : null;
+    try { body = await req.json(); } catch { /* no-op */ }
+    const action: string = body?.action ?? (Array.isArray(body?.invoice_ids) ? "start" : "status");
 
-    const supabase = createClient(SUPABASE_URL, SERVICE_KEY, {
-      auth: { persistSession: false },
-    });
+    // ── start: create job + kick off background worker
+    if (action === "start") {
+      const ids: string[] = Array.isArray(body?.invoice_ids)
+        ? body.invoice_ids.filter((x: any) => typeof x === "string")
+        : [];
+      if (ids.length === 0) {
+        return new Response(JSON.stringify({ error: "invoice_ids required" }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const { data: jobRow, error: insErr } = await supabase
+        .from("delivery_backfill_jobs")
+        .insert({
+          status: "running",
+          invoice_ids: ids,
+          remaining_ids: ids,
+        })
+        .select("id")
+        .single();
+      if (insErr) throw insErr;
+      const jobId = jobRow!.id as string;
 
-    // Preferred path: the UI passes the exact eligible ID list it renders, so the
-    // function operates on the SAME set the user sees (the UI's eligibility uses
-    // the payment_terms TEXT column / live computation that doesn't always
-    // populate payment_terms_extracted.eom_based). Fallback to the structured
-    // filter only if no IDs are passed.
-    let query = supabase
-      .from("vendor_invoices")
-      .select("id, invoice_number, vendor, pdf_url, payment_terms_extracted, delivery_date, doc_type")
-      .is("delivery_date", null)
-      .not("pdf_url", "is", null);
-    if (invoiceIds && invoiceIds.length > 0) {
-      // Chunk the .in() to avoid URL-length limits if a very large list is sent.
-      query = query.in("id", invoiceIds.slice(0, 1000));
-    } else {
-      query = query.eq("doc_type", "INVOICE").order("invoice_date", { ascending: false }).limit(2000);
-    }
-    const { data: candidates, error: qErr } = await query;
-    if (qErr) throw qErr;
+      const work = runWorker(supabase, ANTHROPIC_API_KEY, jobId)
+        .catch(async (e) => {
+          console.error("worker crashed", e);
+          await patchJob(supabase, jobId, { status: "failed", stop_reason: e?.message || String(e) });
+        });
+      if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) {
+        EdgeRuntime.waitUntil(work);
+      } else {
+        // Local dev fallback: don't block response.
+        work;
+      }
 
-    // When the UI passes invoice_ids, trust its eligibility judgment (it uses
-    // the payment_terms TEXT column for EOM detection). Otherwise fall back to
-    // the structured eom_based marker.
-    const eligible = (candidates ?? []).filter((r: any) => {
-      if (!r.pdf_url || r.delivery_date) return false;
-      if (invoiceIds) return true;
-      return r.payment_terms_extracted?.eom_based === true;
-    });
-
-    if (countOnly) {
-      return new Response(JSON.stringify({ remaining: eligible.length }), {
+      return new Response(JSON.stringify({ job_id: jobId, total: ids.length }), {
         status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const batch = eligible.slice(0, chunkSize);
-    let processed = 0;
-    let saved = 0;
-    let nullFound = 0;
-    const failures: Array<{ id: string; invoice_number: string | null; error: string }> = [];
-
-    for (const row of batch) {
-      try {
-        const base64 = await fetchPdfBase64(row.pdf_url!);
-        const parsed = await callAnthropic(ANTHROPIC_API_KEY, base64);
-        const raw = parsed?.delivery_date;
-        if (!raw || typeof raw !== "string") {
-          nullFound++;
-        } else {
-          const norm = normalizeInvoiceYear(raw);
-          if (!/^\d{4}-\d{2}-\d{2}$/.test(norm)) {
-            failures.push({ id: row.id, invoice_number: row.invoice_number, error: `Bad date: ${raw}` });
-          } else {
-            // Idempotent re-check + write ONLY delivery_date.
-            const { error: upErr } = await supabase
-              .from("vendor_invoices")
-              .update({ delivery_date: norm })
-              .eq("id", row.id)
-              .is("delivery_date", null);
-            if (upErr) throw upErr;
-            saved++;
-          }
-        }
-        processed++;
-      } catch (e: any) {
-        const msg = e?.message || String(e);
-        console.error("backfill row failed", row.id, msg);
-        failures.push({ id: row.id, invoice_number: row.invoice_number, error: msg });
-        processed++;
+    // ── _continue: internal self-chain entry. Resumes worker on this invocation.
+    if (action === "_continue") {
+      const jobId: string = body?.job_id;
+      if (!jobId) return new Response(JSON.stringify({ error: "job_id required" }), {
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+      const job = await loadJob(supabase, jobId);
+      if (!job) return new Response(JSON.stringify({ error: "job not found" }), {
+        status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+      if (job.status === "paused" || job.status === "done" || job.status === "failed") {
+        return new Response(JSON.stringify({ ok: true, status: job.status }), {
+          status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
+      const work = runWorker(supabase, ANTHROPIC_API_KEY, jobId)
+        .catch(async (e) => {
+          console.error("worker (chained) crashed", e);
+          await patchJob(supabase, jobId, { status: "failed", stop_reason: e?.message || String(e) });
+        });
+      if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) {
+        EdgeRuntime.waitUntil(work);
+      } else {
+        work;
+      }
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
-    const remaining = Math.max(0, eligible.length - saved - nullFound);
+    // ── pause: flip flag; running worker checks each loop iteration.
+    if (action === "pause") {
+      const jobId: string = body?.job_id;
+      if (!jobId) return new Response(JSON.stringify({ error: "job_id required" }), {
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+      await patchJob(supabase, jobId, { status: "paused" });
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
-    return new Response(
-      JSON.stringify({
-        processed,
-        saved,
-        null_found: nullFound,
-        failures,
-        remaining,
-        chunk_size: chunkSize,
-      }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-    );
+    // ── resume: flip flag back to running + kick off worker again.
+    if (action === "resume") {
+      const jobId: string = body?.job_id;
+      if (!jobId) return new Response(JSON.stringify({ error: "job_id required" }), {
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+      await patchJob(supabase, jobId, { status: "running", last_remaining: null });
+      const work = runWorker(supabase, ANTHROPIC_API_KEY, jobId)
+        .catch(async (e) => {
+          await patchJob(supabase, jobId, { status: "failed", stop_reason: e?.message || String(e) });
+        });
+      if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) {
+        EdgeRuntime.waitUntil(work);
+      } else {
+        work;
+      }
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ── status: return job row snapshot.
+    if (action === "status") {
+      const jobId: string = body?.job_id;
+      if (!jobId) return new Response(JSON.stringify({ error: "job_id required" }), {
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+      const job = await loadJob(supabase, jobId);
+      return new Response(JSON.stringify({ job }), {
+        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    return new Response(JSON.stringify({ error: `Unknown action: ${action}` }), {
+      status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   } catch (err: any) {
     console.error("backfill-delivery-dates fatal:", err);
     return new Response(JSON.stringify({ error: err?.message || "Unknown error" }), {
