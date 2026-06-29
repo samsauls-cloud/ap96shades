@@ -196,6 +196,70 @@ function extractJSON(raw: string): any {
   }
 }
 
+function round2(x: number): number {
+  return Math.round(x * 100) / 100;
+}
+
+// Two line items refer to the same physical item if their strongest available
+// identifier matches (sku → upc → item_number → description) AND qty matches.
+function sameLineItem(a: any, b: any): boolean {
+  const id = (x: any) =>
+    (x.sku ?? x.upc ?? x.item_number ?? x.description ?? "").toString().trim().toLowerCase();
+  return id(a) !== "" && id(a) === id(b) && Number(a.qty) === Number(b.qty);
+}
+
+// Remove any line that is the pre-discount duplicate of a discounted sibling.
+// A "gross twin" = a line with NO discount metadata whose unit_price equals a
+// discounted sibling's unit_price_before_discount.
+export function dropGrossDiscountTwins(items: any[]): { items: any[]; removed: number } {
+  const kept = items.filter((li) => {
+    const isGrossTwin = items.some(
+      (other) =>
+        other !== li &&
+        other.unit_price_before_discount != null &&
+        sameLineItem(other, li) &&
+        Number(li.unit_price) === Number(other.unit_price_before_discount) &&
+        li.unit_price_before_discount == null &&
+        !li.vendor_discount_applied,
+    );
+    return !isGrossTwin;
+  });
+  return { items: kept, removed: items.length - kept.length };
+}
+
+/**
+ * Post-extraction normalization. Runs on parsed JSON before parsedToInvoice.
+ * (1) Deterministically drops gross/net twin lines from auto-discount invoices
+ *     and recomputes subtotal/total from the deduped lines.
+ * (2) Catch-all safety net: if header total still disagrees with line items by
+ *     more than $1, flag needs_review (no silent rewrite outside the discount case).
+ */
+export function normalizeParsedInvoice(parsed: any): any {
+  if (!parsed || typeof parsed !== "object") return parsed;
+  const lineItems = Array.isArray(parsed.line_items) ? parsed.line_items : [];
+  const { items: dedupedItems, removed } = dropGrossDiscountTwins(lineItems);
+  parsed.line_items = dedupedItems;
+
+  if (removed > 0) {
+    const lineSum = dedupedItems.reduce((s, li: any) => s + Number(li.line_total ?? 0), 0);
+    parsed.subtotal = round2(lineSum);
+    parsed.total = round2(lineSum + Number(parsed.tax ?? 0) + Number(parsed.freight ?? 0));
+  }
+
+  const computed = round2(
+    (parsed.line_items ?? []).reduce((s: number, li: any) => s + Number(li.line_total ?? 0), 0) +
+      Number(parsed.tax ?? 0) +
+      Number(parsed.freight ?? 0),
+  );
+  if (Math.abs(Number(parsed.total ?? 0) - computed) > 1) {
+    parsed.needs_review = true;
+    const prefix = parsed.notes ? `${parsed.notes} ` : "";
+    parsed.notes = `${prefix}[REVIEW: header total ${parsed.total} ≠ line items ${computed}]`.trim();
+  }
+
+  return parsed;
+}
+
 export async function callAnthropicAPI(
   apiKey: string,
   base64: string,
@@ -224,7 +288,7 @@ export async function callAnthropicAPI(
     throw new Error("No extraction result returned");
   }
 
-  return data;
+  return normalizeParsedInvoice(data);
 }
 
 /**
