@@ -148,9 +148,14 @@ serve(async (req) => {
     const { data: candidates, error: qErr } = await query;
     if (qErr) throw qErr;
 
-    const eligible = (candidates ?? []).filter(
-      (r: any) => r.payment_terms_extracted?.eom_based === true && !!r.pdf_url && !r.delivery_date,
-    );
+    // When the UI passes invoice_ids, trust its eligibility judgment (it uses
+    // the payment_terms TEXT column for EOM detection). Otherwise fall back to
+    // the structured eom_based marker.
+    const eligible = (candidates ?? []).filter((r: any) => {
+      if (!r.pdf_url || r.delivery_date) return false;
+      if (invoiceIds) return true;
+      return r.payment_terms_extracted?.eom_based === true;
+    });
 
     if (countOnly) {
       return new Response(JSON.stringify({ remaining: eligible.length }), {
