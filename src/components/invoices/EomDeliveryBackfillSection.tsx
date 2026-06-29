@@ -127,7 +127,7 @@ export function EomDeliveryBackfillSection() {
           continue;
         }
         try {
-          const resp = await invokeBackfillChunk();
+          const resp = await invokeBackfillChunk(eligible.map(r => r.id));
           if (cancelled) return;
           setServerProgress(p => ({
             savedThisSession: p.savedThisSession + (resp.saved || 0),
