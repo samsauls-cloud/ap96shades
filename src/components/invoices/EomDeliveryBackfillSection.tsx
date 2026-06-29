@@ -40,14 +40,20 @@ const CHUNK_SIZE = 5;
 async function fetchTargets(): Promise<Row[]> {
   const { data, error } = await supabase
     .from("vendor_invoices")
-    .select("id, invoice_number, vendor, invoice_date, status, pdf_url, payment_terms_extracted, doc_type, delivery_date")
+    .select("id, invoice_number, vendor, invoice_date, status, pdf_url, payment_terms, payment_terms_extracted, doc_type, delivery_date")
     .is("delivery_date", null)
     .eq("doc_type", "INVOICE")
     .order("invoice_date", { ascending: false })
     .limit(2000);
   if (error) throw error;
   return (data ?? [])
-    .filter((r: any) => r.payment_terms_extracted?.eom_based === true)
+    .filter((r: any) => {
+      // Eligibility: EOM marker either in structured field OR in the raw
+      // payment_terms TEXT (where most legacy rows actually live).
+      if (r.payment_terms_extracted?.eom_based === true) return true;
+      const txt = String(r.payment_terms ?? "").toUpperCase();
+      return /\bEOM\b|\bEM\b|END OF MONTH/.test(txt);
+    })
     .map((r: any) => ({
       id: r.id,
       invoice_number: r.invoice_number,
@@ -66,9 +72,9 @@ type BackfillResp = {
   failures: Array<{ id: string; invoice_number: string | null; error: string }>;
 };
 
-async function invokeBackfillChunk(): Promise<BackfillResp> {
+async function invokeBackfillChunk(invoiceIds: string[]): Promise<BackfillResp> {
   const { data, error } = await supabase.functions.invoke("backfill-delivery-dates", {
-    body: { chunk_size: CHUNK_SIZE },
+    body: { chunk_size: CHUNK_SIZE, invoice_ids: invoiceIds },
   });
   if (error) throw error;
   return data as BackfillResp;
@@ -121,7 +127,7 @@ export function EomDeliveryBackfillSection() {
           continue;
         }
         try {
-          const resp = await invokeBackfillChunk();
+          const resp = await invokeBackfillChunk(eligible.map(r => r.id));
           if (cancelled) return;
           setServerProgress(p => ({
             savedThisSession: p.savedThisSession + (resp.saved || 0),

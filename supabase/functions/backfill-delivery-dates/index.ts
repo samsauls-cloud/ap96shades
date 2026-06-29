@@ -121,26 +121,41 @@ serve(async (req) => {
     try { body = await req.json(); } catch { /* GET / no body */ }
     const chunkSize = Math.max(1, Math.min(15, Number(body?.chunk_size) || DEFAULT_CHUNK));
     const countOnly = !!body?.count_only;
+    const invoiceIds: string[] | null = Array.isArray(body?.invoice_ids) && body.invoice_ids.length > 0
+      ? body.invoice_ids.filter((x: any) => typeof x === "string")
+      : null;
 
     const supabase = createClient(SUPABASE_URL, SERVICE_KEY, {
       auth: { persistSession: false },
     });
 
-    // Eligible set: same as Phase 1 UI — EOM-based, no delivery_date, has PDF, INVOICE doc_type.
-    // Fetch a working window; we filter eom_based in JS (jsonb).
-    const { data: candidates, error: qErr } = await supabase
+    // Preferred path: the UI passes the exact eligible ID list it renders, so the
+    // function operates on the SAME set the user sees (the UI's eligibility uses
+    // the payment_terms TEXT column / live computation that doesn't always
+    // populate payment_terms_extracted.eom_based). Fallback to the structured
+    // filter only if no IDs are passed.
+    let query = supabase
       .from("vendor_invoices")
       .select("id, invoice_number, vendor, pdf_url, payment_terms_extracted, delivery_date, doc_type")
       .is("delivery_date", null)
-      .eq("doc_type", "INVOICE")
-      .not("pdf_url", "is", null)
-      .order("invoice_date", { ascending: false })
-      .limit(2000);
+      .not("pdf_url", "is", null);
+    if (invoiceIds && invoiceIds.length > 0) {
+      // Chunk the .in() to avoid URL-length limits if a very large list is sent.
+      query = query.in("id", invoiceIds.slice(0, 1000));
+    } else {
+      query = query.eq("doc_type", "INVOICE").order("invoice_date", { ascending: false }).limit(2000);
+    }
+    const { data: candidates, error: qErr } = await query;
     if (qErr) throw qErr;
 
-    const eligible = (candidates ?? []).filter(
-      (r: any) => r.payment_terms_extracted?.eom_based === true && !!r.pdf_url && !r.delivery_date,
-    );
+    // When the UI passes invoice_ids, trust its eligibility judgment (it uses
+    // the payment_terms TEXT column for EOM detection). Otherwise fall back to
+    // the structured eom_based marker.
+    const eligible = (candidates ?? []).filter((r: any) => {
+      if (!r.pdf_url || r.delivery_date) return false;
+      if (invoiceIds) return true;
+      return r.payment_terms_extracted?.eom_based === true;
+    });
 
     if (countOnly) {
       return new Response(JSON.stringify({ remaining: eligible.length }), {
