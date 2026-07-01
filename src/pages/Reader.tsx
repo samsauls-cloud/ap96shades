@@ -619,6 +619,7 @@ export default function ReaderPage() {
     docId: string,
     confirmedTerms: string,
     override?: import("@/components/invoices/InvoiceReviewOverridePanel").OverridePayload,
+    overrideBlockers?: { reason: string },
   ) => {
     const doc = docs.find(d => d.id === docId);
     if (!doc?.invoiceData) return;
