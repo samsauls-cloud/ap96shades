@@ -268,6 +268,34 @@ export function parsePaymentTermsText(rawText: string | null | undefined): Extra
     };
   }
 
+  // Universal N-way split anywhere in the terms text.
+  // Handles prefixes/suffixes like "US 30/60/90/120", "Bank transfer 30/60/90 inv.date",
+  // "EOM 30/60/90". Keeps preview (payment-terms-engine) and the write path in lock-step
+  // so preflight check #3 (marker count == installment count) can never trip on a real invoice.
+  const anySplitMatch = lower.match(/\b\d{2,3}(?:\s*[\/,]\s*\d{2,3}){1,}\b/);
+  if (anySplitMatch) {
+    const dayNums = anySplitMatch[0]
+      .split(/[\/,]/)
+      .map(s => parseInt(s.trim(), 10))
+      .filter(n => n >= 15 && n <= 365);
+    if (dayNums.length > 1) {
+      const isEom = /\beom\b|end of month|fine mese/.test(lower);
+      return {
+        raw_text: text,
+        type: isEom ? "eom_split" : "net_split",
+        days: dayNums,
+        installments: dayNums.length,
+        eom_based: isEom,
+        discount_pct: null,
+        discount_days: null,
+        net_days: null,
+        confidence: "medium",
+        shipping_terms: shippingTerms,
+        extraction_notes: `Universal N-way split parsed: ${dayNums.join("/")}${isEom ? " (EOM-anchored)" : ""}`,
+      };
+    }
+  }
+
   return { ...empty, shipping_terms: shippingTerms, confidence: "low", extraction_notes: "Could not parse terms" };
 }
 
