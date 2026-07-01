@@ -665,6 +665,17 @@ export default function ReaderPage() {
             (confirmedInvoice as any).delivery_date ?? null,
           ).map(i => ({ due_date: i.due_date, amount_due: i.amount_due }))
         : [];
+      // TEMP DEBUG — trace preflight mismatch on Marchon-style N-way splits
+      console.log("[preflight-debug]", {
+        vendor: confirmedInvoice.vendor,
+        payment_terms: confirmedInvoice.payment_terms,
+        payment_terms_chars: JSON.stringify(confirmedInvoice.payment_terms),
+        total: confirmedInvoice.total,
+        invoice_date: confirmedInvoice.invoice_date,
+        delivery_date: (confirmedInvoice as any).delivery_date,
+        scheduleCount: prospectiveSchedule.length,
+        schedule: prospectiveSchedule,
+      });
       if (!overrideBlockers) {
         const ok = await runPreflightOrAbort(
           {
