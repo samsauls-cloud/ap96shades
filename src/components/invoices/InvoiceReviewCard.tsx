@@ -21,7 +21,12 @@ import { OverrideScheduleButton, OverrideScheduleHelper } from "@/components/inv
 
 interface Props {
   doc: ProcessedDoc;
-  onApprove: (docId: string, confirmedTerms: string, override?: OverridePayload) => Promise<void>;
+  onApprove: (
+    docId: string,
+    confirmedTerms: string,
+    override?: OverridePayload,
+    overrideBlockers?: { reason: string },
+  ) => Promise<void>;
   onDiscard: (docId: string) => void;
 }
 
@@ -29,6 +34,8 @@ export function InvoiceReviewCard({ doc, onApprove, onDiscard }: Props) {
   const [terms, setTerms] = useState(doc.reviewTerms ?? "");
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [overrideOpen, setOverrideOpen] = useState(false);
+  const [overrideReason, setOverrideReason] = useState("Reader parsed correctly; guard miscount");
 
   const vendor = doc.vendor || doc.parsedData?.vendor || "";
   const invoiceNumber = doc.invoice_number || doc.parsedData?.invoice_number || "";
