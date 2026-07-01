@@ -665,20 +665,34 @@ export default function ReaderPage() {
             (confirmedInvoice as any).delivery_date ?? null,
           ).map(i => ({ due_date: i.due_date, amount_due: i.amount_due }))
         : [];
-      const ok = await runPreflightOrAbort(
-        {
-          vendor: confirmedInvoice.vendor,
-          invoice_number: confirmedInvoice.invoice_number,
-          invoice_date: confirmedInvoice.invoice_date,
-          total: confirmedInvoice.total || 0,
-          payment_terms: confirmedInvoice.payment_terms ?? null,
-          doc_type: confirmedInvoice.doc_type ?? null,
-        },
-        prospectiveSchedule,
-      );
-      if (!ok) {
-        updateDoc(docId, { status: "review" as any });
-        return;
+      if (!overrideBlockers) {
+        const ok = await runPreflightOrAbort(
+          {
+            vendor: confirmedInvoice.vendor,
+            invoice_number: confirmedInvoice.invoice_number,
+            invoice_date: confirmedInvoice.invoice_date,
+            total: confirmedInvoice.total || 0,
+            payment_terms: confirmedInvoice.payment_terms ?? null,
+            doc_type: confirmedInvoice.doc_type ?? null,
+          },
+          prospectiveSchedule,
+        );
+        if (!ok) {
+          updateDoc(docId, { status: "review" as any });
+          return;
+        }
+      } else {
+        // Override & Save: bypass preflight blockers, record the reason as an audit tag
+        const existingTags = (confirmedInvoice as any).tags ?? [];
+        (confirmedInvoice as any).tags = [
+          ...existingTags,
+          "saved_via_override",
+          `override_reason:${overrideBlockers.reason.slice(0, 200)}`,
+        ];
+        toast.warning(
+          `Saving ${confirmedInvoice.invoice_number} via override — reason: "${overrideBlockers.reason}"`,
+          { duration: 8000 },
+        );
       }
 
       const saved = await insertInvoice(confirmedInvoice);
