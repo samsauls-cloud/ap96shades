@@ -21,7 +21,12 @@ import { OverrideScheduleButton, OverrideScheduleHelper } from "@/components/inv
 
 interface Props {
   doc: ProcessedDoc;
-  onApprove: (docId: string, confirmedTerms: string, override?: OverridePayload) => Promise<void>;
+  onApprove: (
+    docId: string,
+    confirmedTerms: string,
+    override?: OverridePayload,
+    overrideBlockers?: { reason: string },
+  ) => Promise<void>;
   onDiscard: (docId: string) => void;
 }
 
@@ -29,6 +34,8 @@ export function InvoiceReviewCard({ doc, onApprove, onDiscard }: Props) {
   const [terms, setTerms] = useState(doc.reviewTerms ?? "");
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [overrideOpen, setOverrideOpen] = useState(false);
+  const [overrideReason, setOverrideReason] = useState("Reader parsed correctly; guard miscount");
 
   const vendor = doc.vendor || doc.parsedData?.vendor || "";
   const invoiceNumber = doc.invoice_number || doc.parsedData?.invoice_number || "";
@@ -386,6 +393,67 @@ export function InvoiceReviewCard({ doc, onApprove, onDiscard }: Props) {
               </div>
 
               {!isCredit && <OverrideScheduleHelper mismatch={mismatchInfo} />}
+
+              {/* Override & Save — the backstop for a miscounting guard */}
+              {!isCredit && (
+                <AlertDialog open={overrideOpen} onOpenChange={setOverrideOpen}>
+                  <AlertDialogTrigger asChild>
+                    <button
+                      type="button"
+                      disabled={saving || !effectiveTerms.trim()}
+                      className="text-[11px] font-medium text-amber-600 hover:text-amber-700 underline underline-offset-2 disabled:opacity-40"
+                    >
+                      ⚠️ Override &amp; Save — save anyway, on my authority
+                    </button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Override preflight and save?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This bypasses the preflight blocking checks (marker/installment count,
+                        amount reconcile, due-date sanity, schedule-exists) and saves the invoice
+                        using the previewed schedule exactly as shown. Destructive-write Guards
+                        and the payment_history invariant remain in place. An audit tag
+                        <code className="mx-1 px-1 rounded bg-muted">saved_via_override</code>
+                        will be attached with your reason.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                        Reason (required)
+                      </label>
+                      <Input
+                        value={overrideReason}
+                        onChange={(e) => setOverrideReason(e.target.value)}
+                        placeholder="e.g. Reader parsed correctly; guard miscount"
+                      />
+                    </div>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction
+                        disabled={!overrideReason.trim()}
+                        className="bg-amber-600 hover:bg-amber-700 text-white"
+                        onClick={async () => {
+                          setSaving(true);
+                          try {
+                            await onApprove(
+                              doc.id,
+                              isCredit ? "credit_memo" : effectiveTerms,
+                              undefined,
+                              { reason: overrideReason.trim() },
+                            );
+                          } finally {
+                            setSaving(false);
+                            setOverrideOpen(false);
+                          }
+                        }}
+                      >
+                        Confirm override &amp; save
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              )}
             </div>
           );
         })()}

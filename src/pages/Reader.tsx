@@ -619,6 +619,7 @@ export default function ReaderPage() {
     docId: string,
     confirmedTerms: string,
     override?: import("@/components/invoices/InvoiceReviewOverridePanel").OverridePayload,
+    overrideBlockers?: { reason: string },
   ) => {
     const doc = docs.find(d => d.id === docId);
     if (!doc?.invoiceData) return;
@@ -664,20 +665,34 @@ export default function ReaderPage() {
             (confirmedInvoice as any).delivery_date ?? null,
           ).map(i => ({ due_date: i.due_date, amount_due: i.amount_due }))
         : [];
-      const ok = await runPreflightOrAbort(
-        {
-          vendor: confirmedInvoice.vendor,
-          invoice_number: confirmedInvoice.invoice_number,
-          invoice_date: confirmedInvoice.invoice_date,
-          total: confirmedInvoice.total || 0,
-          payment_terms: confirmedInvoice.payment_terms ?? null,
-          doc_type: confirmedInvoice.doc_type ?? null,
-        },
-        prospectiveSchedule,
-      );
-      if (!ok) {
-        updateDoc(docId, { status: "review" as any });
-        return;
+      if (!overrideBlockers) {
+        const ok = await runPreflightOrAbort(
+          {
+            vendor: confirmedInvoice.vendor,
+            invoice_number: confirmedInvoice.invoice_number,
+            invoice_date: confirmedInvoice.invoice_date,
+            total: confirmedInvoice.total || 0,
+            payment_terms: confirmedInvoice.payment_terms ?? null,
+            doc_type: confirmedInvoice.doc_type ?? null,
+          },
+          prospectiveSchedule,
+        );
+        if (!ok) {
+          updateDoc(docId, { status: "review" as any });
+          return;
+        }
+      } else {
+        // Override & Save: bypass preflight blockers, record the reason as an audit tag
+        const existingTags = (confirmedInvoice as any).tags ?? [];
+        (confirmedInvoice as any).tags = [
+          ...existingTags,
+          "saved_via_override",
+          `override_reason:${overrideBlockers.reason.slice(0, 200)}`,
+        ];
+        toast.warning(
+          `Saving ${confirmedInvoice.invoice_number} via override — reason: "${overrideBlockers.reason}"`,
+          { duration: 8000 },
+        );
       }
 
       const saved = await insertInvoice(confirmedInvoice);
@@ -747,6 +762,37 @@ export default function ReaderPage() {
         }
       } catch (err) {
         console.warn("Terms approval audit/override failed:", err);
+      }
+
+      // Override & Save audit — append a payment_history event on the first
+      // installment so overridden invoices are traceable per the
+      // history-on-every-path invariant.
+      if (overrideBlockers) {
+        try {
+          const { supabase } = await import("@/integrations/supabase/client");
+          const { data: firstInst } = await supabase
+            .from("invoice_payments")
+            .select("id, payment_history")
+            .eq("invoice_id", saved.id)
+            .order("due_date", { ascending: true })
+            .limit(1)
+            .maybeSingle();
+          if (firstInst?.id) {
+            const history = Array.isArray(firstInst.payment_history) ? firstInst.payment_history : [];
+            const event = {
+              method: "override_save",
+              reason: overrideBlockers.reason,
+              timestamp: new Date().toISOString(),
+              note: "Saved via Override & Save — preflight blockers bypassed by user",
+            };
+            await supabase
+              .from("invoice_payments")
+              .update({ payment_history: [...history, event] as any })
+              .eq("id", firstInst.id);
+          }
+        } catch (err) {
+          console.warn("override_save audit append failed:", err);
+        }
       }
 
       // Auto-check for pending matches
