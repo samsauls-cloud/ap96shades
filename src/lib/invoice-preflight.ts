@@ -40,7 +40,9 @@ export interface PreflightResult {
 /** Pull the printed N-way day-marker list out of a payment-terms string. */
 export function parseTermDayMarkers(termsText: string | null | undefined): number[] {
   if (!termsText) return [];
-  const m = String(termsText).match(/\b\d{2,3}(?:\s*[\/,]\s*\d{2,3}){1,}\b/);
+  // Strip any non-numeric prefix ("US 30/60/90/120", "EUR 30/60") before matching.
+  const cleaned = String(termsText).replace(/^[^\d]+/, "").trim();
+  const m = cleaned.match(/\b\d{2,3}(?:\s*[\/,]\s*\d{2,3}){1,}\b/);
   if (!m) return [];
   return m[0]
     .split(/[\/,]/)
