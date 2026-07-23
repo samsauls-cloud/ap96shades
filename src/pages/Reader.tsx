@@ -96,7 +96,7 @@ export default function ReaderPage() {
 
       try {
         const { base64, mediaType } = await imageToBase64(file);
-        const parsed = await callAnthropicImageAPI(apiKey, base64, mediaType);
+        const parsed = await callAnthropicImageAPI(base64, mediaType);
         const invoice = parsedToInvoice(parsed, file.name, null);
         invoice.import_source = "photo_capture";
 
@@ -177,7 +177,7 @@ export default function ReaderPage() {
 
     const tryCall = async (): Promise<any> => {
       try {
-        return await callAnthropicAPI(apiKey, base64);
+        return await callAnthropicAPI(base64);
       } catch (err: any) {
         lastError = err;
         throw err;
@@ -440,7 +440,7 @@ export default function ReaderPage() {
       return;
     }
 
-    if (!apiKey) { toast.error("Please enter your Anthropic API key for PDF processing"); return; }
+    
 
     setProcessing(true);
     cancelRef.current = false;
@@ -931,24 +931,7 @@ export default function ReaderPage() {
       <main className="max-w-5xl mx-auto px-4 sm:px-6 py-6 space-y-6">
 
         {/* Define New Vendor Wizard */}
-        <NewVendorWizard apiKey={apiKey} />
-
-        {/* API Key */}
-        <Card className="bg-card border-border">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm">Anthropic API Key</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Input
-              type="password"
-              value={apiKey}
-              onChange={e => saveApiKey(e.target.value)}
-              placeholder="sk-ant-..."
-              className="bg-secondary border-border font-mono text-xs max-w-md"
-            />
-            <p className="text-[10px] text-muted-foreground mt-1">Stored locally in your browser. Never sent to our servers.</p>
-          </CardContent>
-        </Card>
+        <NewVendorWizard />
 
         {/* Atomic Batch Mode Toggle */}
         <Card className="bg-card border-border">
