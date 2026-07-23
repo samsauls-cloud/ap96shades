@@ -261,16 +261,10 @@ export function normalizeParsedInvoice(parsed: any): any {
 }
 
 export async function callAnthropicAPI(
-  apiKey: string,
   base64: string,
 ): Promise<any> {
-  const cleanKey = apiKey.replace(/[^\x20-\x7E]/g, '').trim();
-
   const { data, error } = await supabase.functions.invoke("extract-invoice", {
-    body: {
-      apiKey: cleanKey,
-      base64,
-    },
+    body: { base64 },
   });
 
   if (error) {
