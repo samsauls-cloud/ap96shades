@@ -43,7 +43,6 @@ function formatElapsed(ms: number): string {
 
 export default function ReaderPage() {
   const queryClient = useQueryClient();
-  const [apiKey, setApiKey] = useState(() => localStorage.getItem("anthropic_api_key") || "");
   const [processing, setProcessing] = useState(false);
   const [queue, setQueue] = useState<File[]>([]);
   const [docs, setDocs] = useState<ProcessedDoc[]>([]);
@@ -59,12 +58,6 @@ export default function ReaderPage() {
   const fileMapRef = useRef<Map<string, File>>(new Map());
   const [skuResults, setSkuResults] = useState<Map<string, SKUCheckResult>>(new Map());
 
-  const saveApiKey = (key: string) => {
-    const cleanKey = key.replace(/[^\x20-\x7E]/g, '').trim();
-    setApiKey(cleanKey);
-    localStorage.setItem("anthropic_api_key", cleanKey);
-  };
-
   const isAcceptedFile = (f: File) =>
     (f.type === "application/pdf" || f.name.toLowerCase().endsWith(".csv") || f.type === "text/csv") && !isImageFile(f);
 
@@ -76,7 +69,7 @@ export default function ReaderPage() {
     const others = files.filter(f => !isImageFile(f));
     if (images.length > 0) processPhotoFiles(images);
     if (others.length > 0) setQueue(prev => [...prev, ...others]);
-  }, [apiKey]);
+  }, []);
 
   const handleFileInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []).filter(isAcceptedFile);
@@ -90,10 +83,9 @@ export default function ReaderPage() {
     if (files.length === 0) return;
     processPhotoFiles(files);
     e.target.value = "";
-  }, [apiKey]);
+  }, []);
 
   const processPhotoFiles = async (files: File[]) => {
-    if (!apiKey) { toast.error("Please enter your Anthropic API key for photo processing"); return; }
     for (const file of files) {
       const docId = crypto.randomUUID();
       setDocs(prev => [...prev, {

@@ -328,7 +328,7 @@ export function NewVendorWizard({ onComplete }: NewVendorWizardProps) {
     } finally {
       setExtracting(false);
     }
-  }, [apiKey]);
+  }, []);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
