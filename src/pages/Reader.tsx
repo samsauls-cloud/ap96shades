@@ -43,7 +43,6 @@ function formatElapsed(ms: number): string {
 
 export default function ReaderPage() {
   const queryClient = useQueryClient();
-  const [apiKey, setApiKey] = useState(() => localStorage.getItem("anthropic_api_key") || "");
   const [processing, setProcessing] = useState(false);
   const [queue, setQueue] = useState<File[]>([]);
   const [docs, setDocs] = useState<ProcessedDoc[]>([]);
@@ -59,12 +58,6 @@ export default function ReaderPage() {
   const fileMapRef = useRef<Map<string, File>>(new Map());
   const [skuResults, setSkuResults] = useState<Map<string, SKUCheckResult>>(new Map());
 
-  const saveApiKey = (key: string) => {
-    const cleanKey = key.replace(/[^\x20-\x7E]/g, '').trim();
-    setApiKey(cleanKey);
-    localStorage.setItem("anthropic_api_key", cleanKey);
-  };
-
   const isAcceptedFile = (f: File) =>
     (f.type === "application/pdf" || f.name.toLowerCase().endsWith(".csv") || f.type === "text/csv") && !isImageFile(f);
 
@@ -76,7 +69,7 @@ export default function ReaderPage() {
     const others = files.filter(f => !isImageFile(f));
     if (images.length > 0) processPhotoFiles(images);
     if (others.length > 0) setQueue(prev => [...prev, ...others]);
-  }, [apiKey]);
+  }, []);
 
   const handleFileInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []).filter(isAcceptedFile);
@@ -90,10 +83,9 @@ export default function ReaderPage() {
     if (files.length === 0) return;
     processPhotoFiles(files);
     e.target.value = "";
-  }, [apiKey]);
+  }, []);
 
   const processPhotoFiles = async (files: File[]) => {
-    if (!apiKey) { toast.error("Please enter your Anthropic API key for photo processing"); return; }
     for (const file of files) {
       const docId = crypto.randomUUID();
       setDocs(prev => [...prev, {
@@ -104,7 +96,7 @@ export default function ReaderPage() {
 
       try {
         const { base64, mediaType } = await imageToBase64(file);
-        const parsed = await callAnthropicImageAPI(apiKey, base64, mediaType);
+        const parsed = await callAnthropicImageAPI(base64, mediaType);
         const invoice = parsedToInvoice(parsed, file.name, null);
         invoice.import_source = "photo_capture";
 
@@ -185,7 +177,7 @@ export default function ReaderPage() {
 
     const tryCall = async (): Promise<any> => {
       try {
-        return await callAnthropicAPI(apiKey, base64);
+        return await callAnthropicAPI(base64);
       } catch (err: any) {
         lastError = err;
         throw err;
@@ -448,7 +440,7 @@ export default function ReaderPage() {
       return;
     }
 
-    if (!apiKey) { toast.error("Please enter your Anthropic API key for PDF processing"); return; }
+    
 
     setProcessing(true);
     cancelRef.current = false;
@@ -939,24 +931,7 @@ export default function ReaderPage() {
       <main className="max-w-5xl mx-auto px-4 sm:px-6 py-6 space-y-6">
 
         {/* Define New Vendor Wizard */}
-        <NewVendorWizard apiKey={apiKey} />
-
-        {/* API Key */}
-        <Card className="bg-card border-border">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm">Anthropic API Key</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Input
-              type="password"
-              value={apiKey}
-              onChange={e => saveApiKey(e.target.value)}
-              placeholder="sk-ant-..."
-              className="bg-secondary border-border font-mono text-xs max-w-md"
-            />
-            <p className="text-[10px] text-muted-foreground mt-1">Stored locally in your browser. Never sent to our servers.</p>
-          </CardContent>
-        </Card>
+        <NewVendorWizard />
 
         {/* Atomic Batch Mode Toggle */}
         <Card className="bg-card border-border">

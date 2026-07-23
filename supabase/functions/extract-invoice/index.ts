@@ -6,8 +6,11 @@ const corsHeaders = {
 };
 
 const FETCH_TIMEOUT = 115_000;
+// ~14 MB of base64 (roughly 10 MB decoded) — keeps callers from abusing the
+// endpoint as a large-payload proxy.
+const MAX_BASE64_LEN = 14 * 1024 * 1024;
 
-const SYSTEM_PROMPT = `You are a document data extractor for an optical retail business (NinetySix Shades). Extract data from vendor invoices AND purchase orders from: Maui Jim, Kering (Gucci, Saint Laurent, Balenciaga, Bottega Veneta, Alexander McQueen), Safilo (Carrera, Fossil, Hugo Boss, Jimmy Choo), Marcolin (Tom Ford, Guess, Swarovski, Montblanc), Luxottica (Ray-Ban, Oakley, Prada, Versace, Persol, Coach, DKNY, Dolce & Gabbana, Emporio Armani, Giorgio Armani, Burberry, Michael Kors, Tiffany, Vogue), Marchon (Nike, Columbia, Dragon, Flexon, Calvin Klein, Donna Karan, Lacoste, Salvatore Ferragamo, MCM, Nautica, Nine West, Skaga), Smith Optics, Revo (distributed by B Robinson LLC — invoice headers read "B Robinson LLC / Revo"; normalize vendor to "Revo"; Revo terms are ALWAYS Net 90 from invoice date). Luxottica POs use fields: Order Number, Account Number, Carrier, Terms, Item Number, Color Code, Temple, Quantity Ordered, Quantity Shipped, Unit Cost, Extended Cost. Detect INVOICE vs PO. IMPORTANT: If this document contains any of these phrases — "pro forma", "proforma", "not an invoice", "invoice to follow", "for reference only", "preliminary", "THIS IS NOT AN INVOICE", "for reference purposes only" — set doc_type to "proforma". Do NOT set it to "INVOICE". A proforma is NOT a payable document.
+const DEFAULT_SYSTEM_PROMPT = `You are a document data extractor for an optical retail business (NinetySix Shades). Extract data from vendor invoices AND purchase orders from: Maui Jim, Kering (Gucci, Saint Laurent, Balenciaga, Bottega Veneta, Alexander McQueen), Safilo (Carrera, Fossil, Hugo Boss, Jimmy Choo), Marcolin (Tom Ford, Guess, Swarovski, Montblanc), Luxottica (Ray-Ban, Oakley, Prada, Versace, Persol, Coach, DKNY, Dolce & Gabbana, Emporio Armani, Giorgio Armani, Burberry, Michael Kors, Tiffany, Vogue), Marchon (Nike, Columbia, Dragon, Flexon, Calvin Klein, Donna Karan, Lacoste, Salvatore Ferragamo, MCM, Nautica, Nine West, Skaga), Smith Optics, Revo (distributed by B Robinson LLC — invoice headers read "B Robinson LLC / Revo"; normalize vendor to "Revo"; Revo terms are ALWAYS Net 90 from invoice date). Luxottica POs use fields: Order Number, Account Number, Carrier, Terms, Item Number, Color Code, Temple, Quantity Ordered, Quantity Shipped, Unit Cost, Extended Cost. Detect INVOICE vs PO. IMPORTANT: If this document contains any of these phrases — "pro forma", "proforma", "not an invoice", "invoice to follow", "for reference only", "preliminary", "THIS IS NOT AN INVOICE", "for reference purposes only" — set doc_type to "proforma". Do NOT set it to "INVOICE". A proforma is NOT a payable document.
 
 PAYMENT TERMS EXTRACTION — CRITICAL:
 Carefully read the entire invoice for payment terms. They may appear in the header, footer, terms section, or anywhere on the document. Any term type can appear on any vendor's invoice — do NOT assume based on vendor name.
@@ -143,14 +146,47 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { apiKey, base64 } = await req.json();
+    const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
+    if (!ANTHROPIC_API_KEY) {
+      return new Response(JSON.stringify({ error: "Server missing ANTHROPIC_API_KEY" }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
-    if (!apiKey || !base64) {
-      return new Response(JSON.stringify({ error: "Missing apiKey or base64 payload" }), {
+    const body = await req.json();
+    const { base64, mediaType, systemPrompt, userText } = body ?? {};
+
+    if (!base64 || typeof base64 !== "string") {
+      return new Response(JSON.stringify({ error: "Missing base64 payload" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    if (base64.length > MAX_BASE64_LEN) {
+      return new Response(JSON.stringify({ error: "Payload too large" }), {
+        status: 413,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const resolvedMediaType = typeof mediaType === "string" && mediaType.length
+      ? mediaType
+      : "application/pdf";
+
+    const isImage = resolvedMediaType.startsWith("image/");
+    const sourceBlock = isImage
+      ? { type: "image", source: { type: "base64", media_type: resolvedMediaType, data: base64 } }
+      : { type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 } };
+
+    const resolvedSystem = typeof systemPrompt === "string" && systemPrompt.length > 20
+      ? systemPrompt
+      : DEFAULT_SYSTEM_PROMPT;
+
+    const resolvedUserText = typeof userText === "string" && userText.length
+      ? userText
+      : "Extract all invoice/PO data from this document. Return only valid JSON.";
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
@@ -160,22 +196,19 @@ serve(async (req) => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-api-key": String(apiKey).replace(/[^\x20-\x7E]/g, "").trim(),
+          "x-api-key": ANTHROPIC_API_KEY,
           "anthropic-version": "2023-06-01",
         },
         body: JSON.stringify({
           model: "claude-sonnet-4-6",
           max_tokens: 8192,
-          system: SYSTEM_PROMPT,
+          system: resolvedSystem,
           messages: [{
             role: "user",
-            content: [{
-              type: "document",
-              source: { type: "base64", media_type: "application/pdf", data: base64 },
-            }, {
-              type: "text",
-              text: "Extract all invoice/PO data from this document. Return only valid JSON.",
-            }],
+            content: [
+              sourceBlock,
+              { type: "text", text: resolvedUserText },
+            ],
           }],
         }),
         signal: controller.signal,

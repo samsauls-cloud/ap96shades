@@ -1,4 +1,5 @@
 import { FETCH_TIMEOUT } from "@/lib/reader-engine";
+import { supabase } from "@/integrations/supabase/client";
 
 const PHOTO_SYSTEM_PROMPT = `You are extracting data from a photo of a printed vendor invoice for an optical retail business. The photo may be angled, partially shadowed, or imperfectly framed — do your best to read all text.
 
@@ -166,67 +167,27 @@ function extractJSON(raw: string): any {
 }
 
 export async function callAnthropicImageAPI(
-  apiKey: string,
   base64: string,
   mediaType: string
 ): Promise<any> {
-  const cleanKey = apiKey.replace(/[^\x20-\x7E]/g, "").trim();
+  const { data, error } = await supabase.functions.invoke("extract-invoice", {
+    body: {
+      base64,
+      mediaType,
+      systemPrompt: PHOTO_SYSTEM_PROMPT,
+      userText: "Extract all invoice/PO data from this photo of a printed invoice. Return only valid JSON.",
+    },
+  });
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
-
-  try {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": cleanKey,
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true",
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-6",
-        max_tokens: 8192,
-        system: PHOTO_SYSTEM_PROMPT,
-        messages: [
-          {
-            role: "user",
-            content: [
-              {
-                type: "image",
-                source: { type: "base64", media_type: mediaType, data: base64 },
-              },
-              {
-                type: "text",
-                text: "Extract all invoice/PO data from this photo of a printed invoice. Return only valid JSON.",
-              },
-            ],
-          },
-        ],
-      }),
-      signal: controller.signal,
-    });
-
-    if (response.status === 429) {
-      throw { isRateLimit: true };
-    }
-
-    if (!response.ok) {
-      const err = await response.text();
-      throw new Error(`API error ${response.status}: ${err}`);
-    }
-
-    const result = await response.json();
-    const textContent = result.content?.find((c: any) => c.type === "text")?.text;
-    if (!textContent) throw new Error("No text content in response");
-
-    return extractJSON(textContent);
-  } catch (err: any) {
-    if (err.name === "AbortError") {
-      throw { isTimeout: true, message: "Request timed out" };
-    }
-    throw err;
-  } finally {
-    clearTimeout(timer);
+  if (error) {
+    const message = error.message || "Photo extraction failed";
+    if (/429|rate limited/i.test(message)) throw { isRateLimit: true, message };
+    if (/408|timed out|timeout/i.test(message)) throw { isTimeout: true, message };
+    throw new Error(message);
   }
+  if (!data) throw new Error("No extraction result returned");
+  return data;
 }
+// FETCH_TIMEOUT retained as re-export dep for any callers; not used here.
+void FETCH_TIMEOUT;
+void extractJSON;

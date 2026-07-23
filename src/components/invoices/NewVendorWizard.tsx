@@ -188,11 +188,10 @@ function endOfMonth(dateStr: string): string {
 
 // ── Component ──
 interface NewVendorWizardProps {
-  apiKey: string;
   onComplete?: (data: ExtractionResult) => void;
 }
 
-export function NewVendorWizard({ apiKey, onComplete }: NewVendorWizardProps) {
+export function NewVendorWizard({ onComplete }: NewVendorWizardProps) {
   const queryClient = useQueryClient();
   const [expanded, setExpanded] = useState(false);
   const [step, setStep] = useState<WizardStep>("upload");
@@ -216,11 +215,6 @@ export function NewVendorWizard({ apiKey, onComplete }: NewVendorWizardProps) {
   const [originalExtractedVendorName, setOriginalExtractedVendorName] = useState<string | null>(null);
 
   const handleFileUpload = useCallback(async (file: File) => {
-    if (!apiKey) {
-      toast.error("Please set your Anthropic API key first");
-      return;
-    }
-
     setStep("extracting");
     setExtracting(true);
     setError(null);
@@ -231,66 +225,32 @@ export function NewVendorWizard({ apiKey, onComplete }: NewVendorWizardProps) {
 
     try {
       let rawResult: any;
+      let invokeBody: any;
 
       if (isImageFile(file)) {
         const { base64, mediaType } = await imageToBase64(file);
-        const cleanKey = apiKey.replace(/[^\x20-\x7E]/g, "").trim();
-        const response = await fetch("https://api.anthropic.com/v1/messages", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-api-key": cleanKey,
-            "anthropic-version": "2023-06-01",
-            "anthropic-dangerous-direct-browser-access": "true",
-          },
-          body: JSON.stringify({
-            model: "claude-sonnet-4-6",
-            max_tokens: 8192,
-            system: NEW_VENDOR_SYSTEM_PROMPT,
-            messages: [{
-              role: "user",
-              content: [
-                { type: "image", source: { type: "base64", media_type: mediaType, data: base64 } },
-                { type: "text", text: "Extract all fields from this new vendor invoice. Return structured JSON with source_note for each field." },
-              ],
-            }],
-          }),
-        });
-        if (!response.ok) throw new Error(`API error ${response.status}: ${await response.text()}`);
-        const result = await response.json();
-        const text = result.content?.find((c: any) => c.type === "text")?.text;
-        if (!text) throw new Error("No text content in response");
-        rawResult = extractJSON(text);
+        invokeBody = {
+          base64,
+          mediaType,
+          systemPrompt: NEW_VENDOR_SYSTEM_PROMPT,
+          userText: "Extract all fields from this new vendor invoice. Return structured JSON with source_note for each field.",
+        };
       } else {
         const base64 = await fileToBase64(file);
-        const cleanKey = apiKey.replace(/[^\x20-\x7E]/g, "").trim();
-        const response = await fetch("https://api.anthropic.com/v1/messages", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-api-key": cleanKey,
-            "anthropic-version": "2023-06-01",
-            "anthropic-dangerous-direct-browser-access": "true",
-          },
-          body: JSON.stringify({
-            model: "claude-sonnet-4-6",
-            max_tokens: 8192,
-            system: NEW_VENDOR_SYSTEM_PROMPT,
-            messages: [{
-              role: "user",
-              content: [
-                { type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 } },
-                { type: "text", text: "Extract all fields from this new vendor invoice. Return structured JSON with source_note for each field." },
-              ],
-            }],
-          }),
-        });
-        if (!response.ok) throw new Error(`API error ${response.status}: ${await response.text()}`);
-        const result = await response.json();
-        const text = result.content?.find((c: any) => c.type === "text")?.text;
-        if (!text) throw new Error("No text content in response");
-        rawResult = extractJSON(text);
+        invokeBody = {
+          base64,
+          mediaType: "application/pdf",
+          systemPrompt: NEW_VENDOR_SYSTEM_PROMPT,
+          userText: "Extract all fields from this new vendor invoice. Return structured JSON with source_note for each field.",
+        };
       }
+
+      const { data, error: invokeError } = await supabase.functions.invoke("extract-invoice", {
+        body: invokeBody,
+      });
+      if (invokeError) throw new Error(invokeError.message || "Extraction failed");
+      if (!data) throw new Error("No extraction result returned");
+      rawResult = data;
 
       const normalized: ExtractionResult = {
         vendor_name: normalizeField(rawResult.vendor_name),
@@ -368,7 +328,7 @@ export function NewVendorWizard({ apiKey, onComplete }: NewVendorWizardProps) {
     } finally {
       setExtracting(false);
     }
-  }, [apiKey]);
+  }, []);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
