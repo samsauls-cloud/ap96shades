@@ -88,22 +88,16 @@ export function LinkRealInvoice({ proforma, onLinked }: Props) {
     if (!file) return;
     e.target.value = "";
 
-    const apiKey = localStorage.getItem("anthropic_api_key") || "";
-    if (!apiKey) {
-      toast.error("Please set your Anthropic API key on the Reader page first");
-      return;
-    }
-
     setUploading(true);
     try {
       let parsed: any;
 
       if (isImageFile(file)) {
         const { base64, mediaType } = await imageToBase64(file);
-        parsed = await callAnthropicImageAPI(apiKey, base64, mediaType);
+        parsed = await callAnthropicImageAPI(base64, mediaType);
       } else {
         const b64 = await fileToBase64(file);
-        parsed = await callAnthropicAPI(apiKey, b64);
+        parsed = await callAnthropicAPI(b64);
       }
 
       const invoice = parsedToInvoice(parsed, file.name);
