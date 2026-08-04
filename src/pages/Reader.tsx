@@ -104,7 +104,7 @@ export default function ReaderPage() {
 
         // Dedup check
         const dedupResult = await checkInvoiceDuplicate(
-          invoice.invoice_number, invoice.vendor, parsed.line_items || [], invoice.total || 0
+          invoice.invoice_number, invoice.vendor, parsed.line_items || [], invoice.total || 0, file.name
         );
 
         if (dedupResult.type === "true_duplicate") {

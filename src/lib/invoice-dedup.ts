@@ -426,7 +426,7 @@ export async function mergeExtendedInvoice(
   // "needs reschedule" and appears in the Needs Review queue.
   try {
     const { reconcileScheduleAfterMerge } = await import("./payment-queries");
-    return await reconcileScheduleAfterMerge(existingId, combinedTotal);
+    return await reconcileScheduleAfterMerge(existingId, effectiveTotal);
   } catch (e) {
     console.error("[merge] schedule reconciliation failed", e);
     return null;
@@ -455,4 +455,66 @@ export async function updatePOTotalInvoiced(poNumber: string, vendor: string) {
     .eq("vendor", normalizedVendor);
 
   return { count: data.length, total: poTotal };
+}
+
+
+// ── Undo a bad shipment merge (duplicate re-import repair) ─
+/**
+ * Collapses duplicate line items on a multi-shipment invoice back down to the
+ * unique lines, restores the total from those lines, and clears the
+ * multi-shipment flags. Payment schedule rows are left untouched.
+ */
+export async function undoDuplicateShipmentMerge(invoiceId: string) {
+  const { data: inv, error: fetchErr } = await supabase
+    .from("vendor_invoices")
+    .select("id, invoice_number, line_items, total, subtotal, tax, freight, notes, shipment_count")
+    .eq("id", invoiceId)
+    .single();
+  if (fetchErr || !inv) throw fetchErr ?? new Error("Invoice not found");
+
+  const items = (Array.isArray(inv.line_items) ? inv.line_items : []) as unknown as LineItem[];
+
+  // Keep the first (richest) occurrence of each unique line.
+  const seen = new Set<string>();
+  const unique: LineItem[] = [];
+  for (const li of [...items].sort((a, b) => JSON.stringify(b).length - JSON.stringify(a).length)) {
+    const keys = [lineKey(li), lineKeyLoose(li), lineKeyUpc(li)].filter(Boolean) as string[];
+    if (keys.some(k => seen.has(k))) continue;
+    keys.forEach(k => seen.add(k));
+    unique.push(li);
+  }
+
+  const removed = items.length - unique.length;
+  if (removed === 0) {
+    throw new Error("No duplicate line items found on this invoice — nothing to undo.");
+  }
+
+  const lineSum = unique.reduce((s, li) => s + Number((li as any).line_total ?? 0), 0);
+  const newTotal = Number(
+    (lineSum + Number(inv.tax ?? 0) + Number(inv.freight ?? 0)).toFixed(2)
+  );
+
+  const note = `[data repair] Removed ${removed} duplicate line item(s) from a re-imported shipment; restored total to ${newTotal.toFixed(2)}.`;
+
+  const { error } = await supabase
+    .from("vendor_invoices")
+    .update({
+      line_items: unique as any,
+      subtotal: Number(lineSum.toFixed(2)),
+      total: newTotal,
+      is_multi_shipment: false,
+      shipment_count: 1,
+      last_shipment_date: null,
+      last_shipment_file: null,
+      notes: `${inv.notes ? inv.notes + "\n" : ""}${note}`,
+    } as any)
+    .eq("id", invoiceId);
+  if (error) throw error;
+
+  try {
+    const { syncInvoicePaymentStatus } = await import("./payment-queries");
+    await syncInvoicePaymentStatus(invoiceId);
+  } catch { /* non-fatal */ }
+
+  return { removed, newTotal, remaining: unique.length };
 }
