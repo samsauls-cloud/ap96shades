@@ -386,9 +386,22 @@ export async function mergeExtendedInvoice(
   const shipmentCount = (current.shipment_count || 1) + 1;
 
 
+  // Recompute the total from the lines we actually appended (combinedTotal may
+  // have been computed before duplicate lines were filtered out).
+  const droppedCount = newItems.length - trulyNew.length;
+  const effectiveTotal =
+    droppedCount === 0
+      ? combinedTotal
+      : Number(
+          (
+            mergedItems.reduce((s, li) => s + Number((li as any).line_total ?? 0), 0)
+          ).toFixed(2)
+        );
+
   const updatePayload: any = {
     line_items: mergedItems as any,
-    total: combinedTotal,
+    total: effectiveTotal,
+
     is_multi_shipment: true,
     shipment_count: shipmentCount,
     last_shipment_date: incomingDate,
