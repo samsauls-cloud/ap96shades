@@ -420,14 +420,24 @@ export default function BrandSpendRollup({ variant = "full", defaultNetOfCredits
                               </Badge>
                             )}
                             {v.unscheduled.length > 0 && (
-                              <Badge
-                                variant="outline"
-                                className="text-[10px] h-4 px-1.5 border-amber-500/40 text-amber-400 bg-amber-500/10"
-                                title={`Unscheduled invoice${v.unscheduled.length > 1 ? "s" : ""}: ${v.unscheduled.map(u => u.invoice_number || u.id.slice(0, 8)).join(", ")}`}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const next = new Set(unschedOpen);
+                                  next.has(v.name) ? next.delete(v.name) : next.add(v.name);
+                                  setUnschedOpen(next);
+                                }}
+                                title="Show which invoices are missing a payment schedule"
                               >
-                                unscheduled{v.unscheduled.length > 1 ? ` ×${v.unscheduled.length}` : ""}
-                              </Badge>
+                                <Badge
+                                  variant="outline"
+                                  className="text-[10px] h-4 px-1.5 border-amber-500/40 text-amber-400 bg-amber-500/10 cursor-pointer hover:bg-amber-500/20 underline decoration-dotted"
+                                >
+                                  unscheduled{v.unscheduled.length > 1 ? ` ×${v.unscheduled.length}` : ""}
+                                </Badge>
+                              </button>
                             )}
+
                           </div>
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums">{formatCurrency(v.purchased)}</td>
