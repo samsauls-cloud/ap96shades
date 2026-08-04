@@ -51,8 +51,13 @@ interface BrandBucket {
 interface UnscheduledInvoice {
   id: string;
   invoice_number: string | null;
+  invoice_date: string | null;
+  vendor: string;
   total: number;
+  scheduled: number;
+  gap: number;
 }
+
 
 interface VendorBucket {
   name: string; // canonical (normalizeVendor) display name
@@ -131,8 +136,13 @@ function buildRollup(invoices: VendorInvoice[], payments: InvoicePayment[]) {
       bucket.unscheduled.push({
         id: inv.id,
         invoice_number: (inv as any).invoice_number ?? null,
+        invoice_date: (inv as any).invoice_date ?? null,
+        vendor: v,
         total: invTotal,
+        scheduled: sched ?? 0,
+        gap: invTotal - (sched ?? 0),
       });
+
     }
 
     // Allocate this invoice's `total` across brands by line-item share, so
@@ -189,10 +199,58 @@ function buildRollup(invoices: VendorInvoice[], payments: InvoicePayment[]) {
   return { vendors, grand, unscheduledAll };
 }
 
+/** Inline list of unscheduled invoices — each row links to the invoice drawer. */
+function UnscheduledList({ rows, showVendor }: { rows: UnscheduledInvoice[]; showVendor?: boolean }) {
+  return (
+    <div className="overflow-x-auto rounded border border-amber-500/30 bg-amber-500/5">
+      <table className="w-full text-[11px]">
+        <thead className="bg-amber-500/10 text-amber-300/90">
+          <tr>
+            {showVendor && <th className="text-left px-2 py-1 font-semibold">Vendor</th>}
+            <th className="text-left px-2 py-1 font-semibold">Invoice #</th>
+            <th className="text-left px-2 py-1 font-semibold">Date</th>
+            <th className="text-right px-2 py-1 font-semibold">Invoice total</th>
+            <th className="text-right px-2 py-1 font-semibold">Scheduled</th>
+            <th className="text-right px-2 py-1 font-semibold">Gap</th>
+            <th className="px-2 py-1" />
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(u => (
+            <tr key={u.id} className="border-t border-amber-500/20">
+              {showVendor && <td className="px-2 py-1">{u.vendor}</td>}
+              <td className="px-2 py-1 font-mono">
+                <Link to={`/invoices?open=${u.id}`} className="text-amber-300 hover:underline">
+                  {u.invoice_number || u.id.slice(0, 8)}
+                </Link>
+              </td>
+              <td className="px-2 py-1 text-muted-foreground">{u.invoice_date ?? "—"}</td>
+              <td className="px-2 py-1 text-right tabular-nums">{formatCurrency(u.total)}</td>
+              <td className="px-2 py-1 text-right tabular-nums">{formatCurrency(u.scheduled)}</td>
+              <td className="px-2 py-1 text-right tabular-nums text-amber-400 font-medium">{formatCurrency(u.gap)}</td>
+              <td className="px-2 py-1 text-right">
+                <Link
+                  to={`/invoices?open=${u.id}`}
+                  className="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
+                >
+                  Fix schedule <ExternalLink className="h-3 w-3" />
+                </Link>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function BrandSpendRollup({ variant = "full", defaultNetOfCredits = false }: Props) {
   const qc = useQueryClient();
   const [netOfCredits, setNetOfCredits] = useState(defaultNetOfCredits);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [unschedOpen, setUnschedOpen] = useState<Set<string>>(new Set());
+  const [footerOpen, setFooterOpen] = useState(false);
+
 
   const { data: invoices = [], isLoading: loadingInv } = useQuery({
     queryKey: ["brand_spend_invoices"],
@@ -362,14 +420,24 @@ export default function BrandSpendRollup({ variant = "full", defaultNetOfCredits
                               </Badge>
                             )}
                             {v.unscheduled.length > 0 && (
-                              <Badge
-                                variant="outline"
-                                className="text-[10px] h-4 px-1.5 border-amber-500/40 text-amber-400 bg-amber-500/10"
-                                title={`Unscheduled invoice${v.unscheduled.length > 1 ? "s" : ""}: ${v.unscheduled.map(u => u.invoice_number || u.id.slice(0, 8)).join(", ")}`}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const next = new Set(unschedOpen);
+                                  next.has(v.name) ? next.delete(v.name) : next.add(v.name);
+                                  setUnschedOpen(next);
+                                }}
+                                title="Show which invoices are missing a payment schedule"
                               >
-                                unscheduled{v.unscheduled.length > 1 ? ` ×${v.unscheduled.length}` : ""}
-                              </Badge>
+                                <Badge
+                                  variant="outline"
+                                  className="text-[10px] h-4 px-1.5 border-amber-500/40 text-amber-400 bg-amber-500/10 cursor-pointer hover:bg-amber-500/20 underline decoration-dotted"
+                                >
+                                  unscheduled{v.unscheduled.length > 1 ? ` ×${v.unscheduled.length}` : ""}
+                                </Badge>
+                              </button>
                             )}
+
                           </div>
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums">{formatCurrency(v.purchased)}</td>
@@ -383,7 +451,16 @@ export default function BrandSpendRollup({ variant = "full", defaultNetOfCredits
                           )}
                         </td>
                       </tr>
+                      {unschedOpen.has(v.name) && v.unscheduled.length > 0 && (
+                        <tr className="bg-amber-500/5">
+                          <td />
+                          <td colSpan={4} className="px-3 py-2">
+                            <UnscheduledList rows={v.unscheduled} />
+                          </td>
+                        </tr>
+                      )}
                       {open && (
+
                         <>
                           <tr className="bg-muted/10">
                             <td />
@@ -415,10 +492,26 @@ export default function BrandSpendRollup({ variant = "full", defaultNetOfCredits
               </tbody>
             </table>
             {unscheduledAll.length > 0 && (
-              <div className="px-3 py-2 text-[11px] text-amber-400/90 border-t border-border bg-amber-500/5">
-                {unscheduledAll.length} invoice{unscheduledAll.length === 1 ? "" : "s"} totaling {formatCurrency(unscheduledTotal)} are confirmed without a payment schedule and won't appear on the payment calendar.
+              <div className="border-t border-border bg-amber-500/5">
+                <button
+                  type="button"
+                  onClick={() => setFooterOpen(o => !o)}
+                  className="w-full text-left px-3 py-2 text-[11px] text-amber-400/90 hover:text-amber-300 flex items-start gap-1.5"
+                >
+                  {footerOpen ? <ChevronDown className="h-3.5 w-3.5 mt-px shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 mt-px shrink-0" />}
+                  <span>
+                    {unscheduledAll.length} invoice{unscheduledAll.length === 1 ? "" : "s"} totaling {formatCurrency(unscheduledTotal)} are confirmed without a payment schedule and won't appear on the payment calendar.{" "}
+                    <span className="underline">{footerOpen ? "Hide list" : "Show which ones"}</span>
+                  </span>
+                </button>
+                {footerOpen && (
+                  <div className="px-3 pb-3">
+                    <UnscheduledList rows={unscheduledAll} showVendor />
+                  </div>
+                )}
               </div>
             )}
+
           </div>
         )}
       </CardContent>

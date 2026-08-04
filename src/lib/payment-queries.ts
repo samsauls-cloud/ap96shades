@@ -101,6 +101,22 @@ export async function fetchPayments(): Promise<InvoicePayment[]> {
   });
   const normalized = data.map(normalizePayment);
 
+  // Invoice header totals — the header payment status must be derived against
+  // the INVOICE total, not just the existing schedule rows. A multi-shipment
+  // merge can double vendor_invoices.total while leaving the schedule at the
+  // first shipment's amount; deriving from schedule rows alone would then
+  // report "paid" when only half the invoice is actually paid.
+  const invoiceTotals = new Map<string, number>();
+  try {
+    const invRows = await fetchAllRows<{ id: string; total: number }>("vendor_invoices", {
+      select: "id, total",
+      label: "invoice_totals_for_payments",
+    });
+    for (const r of invRows) invoiceTotals.set(r.id, Number(r.total) || 0);
+  } catch {
+    // Fall back to schedule-only derivation if the header read fails.
+  }
+
   // Compute invoice-level status for each row
   const byInvoice = new Map<string, InvoicePayment[]>();
   for (const p of normalized) {
@@ -114,8 +130,12 @@ export async function fetchPayments(): Promise<InvoicePayment[]> {
     if (!p.invoice_id) return p;
     const siblings = byInvoice.get(p.invoice_id) ?? [p];
     const live = siblings.filter(s => s.payment_status !== "void");
-    const totalDue = live.reduce((s, x) => s + (Number(x.amount_due) || 0), 0);
+    const scheduleDue = live.reduce((s, x) => s + (Number(x.amount_due) || 0), 0);
     const totalPaid = live.reduce((s, x) => s + (Number(x.amount_paid) || 0), 0);
+    const headerTotal = invoiceTotals.get(p.invoice_id) ?? 0;
+    // Denominator = the larger of the schedule and the invoice header total, so
+    // an under-covering schedule can never make a half-paid invoice look paid.
+    const totalDue = Math.max(scheduleDue, headerTotal > 0 ? headerTotal : scheduleDue);
     const invoiceStatus =
       siblings.some(s => s.payment_status === "disputed") ? "disputed"
       : totalPaid <= 0.005 ? "unpaid"
@@ -124,6 +144,7 @@ export async function fetchPayments(): Promise<InvoicePayment[]> {
     return { ...p, invoice_payment_status: invoiceStatus, sibling_count: siblings.length };
   });
 }
+
 
 export async function fetchPaymentsForInvoice(invoiceId: string): Promise<InvoicePayment[]> {
   const { data, error } = await supabase
@@ -304,9 +325,19 @@ export async function syncInvoicePaymentStatus(invoiceId: string): Promise<void>
   if (fetchErr) throw fetchErr;
   if (!allInstallments || allInstallments.length === 0) return;
 
+  // Denominator must be the invoice header total when the schedule under-covers
+  // it (e.g. a multi-shipment merge doubled the total but not the schedule).
+  const { data: inv } = await supabase
+    .from("vendor_invoices")
+    .select("total")
+    .eq("id", invoiceId)
+    .maybeSingle();
+  const headerTotal = Number((inv as any)?.total ?? 0) || 0;
+
   const anyDisputed = allInstallments.some(p => p.payment_status === "disputed");
   const live = allInstallments.filter(p => p.payment_status !== "void");
-  const totalDue = live.reduce((s, p) => s + (Number(p.amount_due) || 0), 0);
+  const scheduleDue = live.reduce((s, p) => s + (Number(p.amount_due) || 0), 0);
+  const totalDue = Math.max(scheduleDue, headerTotal > 0 ? headerTotal : scheduleDue);
   const totalPaid = live.reduce((s, p) => s + (Number(p.amount_paid) || 0), 0);
 
   let newStatus: string;
@@ -314,6 +345,7 @@ export async function syncInvoicePaymentStatus(invoiceId: string): Promise<void>
   else if (totalPaid <= 0.005) newStatus = "unpaid";
   else if (totalPaid + 0.005 >= totalDue) newStatus = "paid";
   else newStatus = "partial";
+
 
   const { error } = await supabase
     .from("vendor_invoices")
@@ -1085,7 +1117,12 @@ export interface InvoicePaymentRollup {
   invoice_payment_status: string;
 }
 
-export function computeInvoiceRollup(payments: InvoicePayment[]): InvoicePaymentRollup {
+export function computeInvoiceRollup(
+  payments: InvoicePayment[],
+  /** Invoice header total — when supplied, the paid/partial decision is made
+   *  against the invoice total instead of only the existing schedule rows. */
+  invoiceTotal?: number,
+): InvoicePaymentRollup {
   const total_installments = payments.length;
   const installments_paid = payments.filter(p => p.payment_status === "paid" || p.payment_status === "overpaid").length;
   const installments_partial = payments.filter(p => p.payment_status === "partial").length;
@@ -1093,11 +1130,16 @@ export function computeInvoiceRollup(payments: InvoicePayment[]): InvoicePayment
   const total_amount_due = payments.reduce((s, p) => s + p.amount_due, 0);
   const total_amount_paid = payments.reduce((s, p) => s + p.amount_paid, 0);
   const total_balance_remaining = payments.reduce((s, p) => s + p.balance_remaining, 0);
+  const effective_total = Math.max(total_amount_due, Number(invoiceTotal ?? 0) || 0);
 
   let invoice_payment_status = "unpaid";
   if (payments.some(p => p.payment_status === "disputed")) invoice_payment_status = "disputed";
-  else if (installments_paid === total_installments && total_installments > 0) invoice_payment_status = "paid";
+  else if (
+    installments_paid === total_installments && total_installments > 0
+    && total_amount_paid + 0.005 >= effective_total
+  ) invoice_payment_status = "paid";
   else if (total_amount_paid > 0) invoice_payment_status = "partial";
+
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   if (payments.some(p => isOverdue(p.due_date, p.payment_status))) {
@@ -1259,4 +1301,128 @@ export async function clearManualStatusOverride(
   if (current.invoice_id) {
     try { await syncInvoicePaymentStatus(current.invoice_id); } catch { /* non-fatal */ }
   }
+}
+
+// ============================================================================
+// Multi-shipment merge → schedule reconciliation
+//
+// When an additional shipment increases vendor_invoices.total after a payment
+// schedule already exists, the schedule rows (and invoice_payments.invoice_amount)
+// used to be left at the first shipment's amount. The invoice then looked
+// "unscheduled" in the Purchased-by-Brand rollup and could even read as fully
+// paid while only half the invoice was covered.
+//
+// This helper:
+//   1. re-stamps invoice_amount on every schedule row to the new invoice total,
+//   2. spreads the increase across installments that are NOT already paid
+//      (preserving every already-paid / partially-paid amount),
+//   3. flags the invoice as "needs reschedule" (terms_status = needs_review,
+//      so it surfaces in the Needs Review queue) when it cannot cover the gap
+//      without touching paid installments.
+// ============================================================================
+export interface MergeRescheduleResult {
+  status: "no_schedule" | "already_covered" | "rescheduled" | "needs_reschedule";
+  gap: number;
+  scheduleTotalBefore: number;
+  scheduleTotalAfter: number;
+  adjustedRows: number;
+}
+
+export async function reconcileScheduleAfterMerge(
+  invoiceId: string,
+  newInvoiceTotal: number,
+): Promise<MergeRescheduleResult> {
+  const total = Number(newInvoiceTotal) || 0;
+
+  const { data: rows, error } = await supabase
+    .from("invoice_payments")
+    .select("id, amount_due, amount_paid, payment_status, due_date, invoice_amount")
+    .eq("invoice_id", invoiceId)
+    .order("due_date", { ascending: true });
+  if (error) throw error;
+
+  const all = rows ?? [];
+  if (all.length === 0) {
+    return { status: "no_schedule", gap: total, scheduleTotalBefore: 0, scheduleTotalAfter: 0, adjustedRows: 0 };
+  }
+
+  const live = all.filter(r => r.payment_status !== "void");
+  const before = live.reduce((s, r) => s + (Number(r.amount_due) || 0), 0);
+  const gap = total - before;
+
+  // Always keep invoice_amount in sync with the merged invoice total.
+  await supabase
+    .from("invoice_payments")
+    .update({ invoice_amount: total } as any)
+    .eq("invoice_id", invoiceId);
+
+  if (Math.abs(gap) <= 1) {
+    return { status: "already_covered", gap, scheduleTotalBefore: before, scheduleTotalAfter: before, adjustedRows: 0 };
+  }
+
+  if (gap < 0) {
+    // Schedule over-covers the invoice — never shrink paid work automatically.
+    await flagNeedsReschedule(invoiceId, `Payment schedule totals ${before.toFixed(2)} but invoice total is ${total.toFixed(2)} after a shipment merge. Manual reschedule required.`);
+    return { status: "needs_reschedule", gap, scheduleTotalBefore: before, scheduleTotalAfter: before, adjustedRows: 0 };
+  }
+
+  // Distribute the increase across installments with no recorded payment.
+  const openRows = live.filter(r => (Number(r.amount_paid) || 0) <= 0.005 && r.payment_status !== "disputed");
+  if (openRows.length === 0) {
+    await flagNeedsReschedule(invoiceId, `A shipment merge raised the invoice total to ${total.toFixed(2)} but every installment is already paid (schedule covers ${before.toFixed(2)}). Add an installment for the ${gap.toFixed(2)} difference.`);
+    return { status: "needs_reschedule", gap, scheduleTotalBefore: before, scheduleTotalAfter: before, adjustedRows: 0 };
+  }
+
+  const openSum = openRows.reduce((s, r) => s + (Number(r.amount_due) || 0), 0);
+  let allocated = 0;
+  let adjusted = 0;
+  for (let i = 0; i < openRows.length; i++) {
+    const r = openRows[i];
+    const isLast = i === openRows.length - 1;
+    const share = openSum > 0
+      ? (Number(r.amount_due) || 0) / openSum
+      : 1 / openRows.length;
+    const add = isLast ? gap - allocated : Math.round(gap * share * 100) / 100;
+    allocated += add;
+    const newDue = Math.round(((Number(r.amount_due) || 0) + add) * 100) / 100;
+    if (newDue <= 0) continue;
+    const paid = Number(r.amount_paid) || 0;
+    const { error: upErr } = await supabase
+      .from("invoice_payments")
+      .update({
+        amount_due: newDue,
+        balance_remaining: Math.round((newDue - paid) * 100) / 100,
+        payment_status: derivePaymentStatus(newDue, paid),
+        is_paid: paid + 0.005 >= newDue,
+      } as any)
+      .eq("id", r.id);
+    if (upErr) throw upErr;
+    adjusted++;
+  }
+
+  try { await syncInvoicePaymentStatus(invoiceId); } catch { /* non-fatal */ }
+
+  return {
+    status: "rescheduled",
+    gap,
+    scheduleTotalBefore: before,
+    scheduleTotalAfter: before + allocated,
+    adjustedRows: adjusted,
+  };
+}
+
+/** Flag an invoice for manual rescheduling — shows up in the Needs Review queue. */
+async function flagNeedsReschedule(invoiceId: string, reason: string): Promise<void> {
+  const { data: inv } = await supabase
+    .from("vendor_invoices")
+    .select("notes")
+    .eq("id", invoiceId)
+    .maybeSingle();
+  const prior = String((inv as any)?.notes ?? "");
+  const stamp = `[needs reschedule] ${reason}`;
+  const notes = prior.includes("[needs reschedule]") ? prior : (prior ? `${prior}\n${stamp}` : stamp);
+  await supabase
+    .from("vendor_invoices")
+    .update({ terms_status: "needs_review", notes } as any)
+    .eq("id", invoiceId);
 }
