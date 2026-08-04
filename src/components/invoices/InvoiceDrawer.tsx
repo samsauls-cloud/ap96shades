@@ -58,6 +58,29 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
   const [activeTab, setActiveTab] = useState("line-items");
   const [pdfLoadError, setPdfLoadError] = useState(false);
   const [uploadingPdf, setUploadingPdf] = useState(false);
+  const [undoingMerge, setUndoingMerge] = useState(false);
+
+  const handleUndoMerge = async () => {
+    if (!invoice) return;
+    setUndoingMerge(true);
+    try {
+      const { undoDuplicateShipmentMerge } = await import("@/lib/invoice-dedup");
+      const res = await undoDuplicateShipmentMerge(invoice.id);
+      toast.success(
+        `Removed ${res.removed} duplicate line(s) — total restored to ${formatCurrency(res.newTotal)}`
+      );
+      queryClient.invalidateQueries({ queryKey: ["vendor_invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["invoice_stats"] });
+      queryClient.invalidateQueries({ queryKey: ["invoice_payments"] });
+      queryClient.invalidateQueries({ queryKey: ["ap_full_audit"] });
+      onUpdate();
+    } catch (e: any) {
+      toast.error(e?.message ?? "Could not undo the merge");
+    } finally {
+      setUndoingMerge(false);
+    }
+  };
+
   const [localPdfUrl, setLocalPdfUrl] = useState<string | null>(null);
   const [editingTerms, setEditingTerms] = useState(false);
   const [approvingExisting, setApprovingExisting] = useState(false);
@@ -341,8 +364,8 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
 
         {/* Multi-shipment banner */}
         {(inv as any).is_multi_shipment && (
-          <div className="mb-4 p-3 rounded-lg bg-blue-500/10 border border-blue-500/20">
-            <p className="text-sm font-medium text-blue-500 flex items-center gap-2">
+          <div className="mb-4 p-3 rounded-lg bg-blue-500/10 border border-blue-500/20 space-y-2">
+            <p className="text-sm font-medium text-blue-500 flex items-center gap-2 flex-wrap">
               📦 Multi-Shipment Invoice — {(inv as any).shipment_count || 2} shipments
               {(inv as any).last_shipment_date && (
                 <span className="text-[10px] text-muted-foreground font-normal">
@@ -351,8 +374,32 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
                 </span>
               )}
             </p>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5" disabled={undoingMerge}>
+                  {undoingMerge ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileX className="h-3 w-3" />}
+                  Undo merge / remove duplicate shipment
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Remove duplicate shipment lines?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This collapses identical line items down to one copy, restores the
+                    invoice subtotal/total from the remaining lines, and clears the
+                    multi-shipment flags. The payment schedule is not touched. Genuinely
+                    different lines are kept.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleUndoMerge}>Remove duplicates</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </div>
         )}
+
 
         {/* PO total invoiced */}
         {(inv as any).po_total_invoiced && inv.po_number && (
