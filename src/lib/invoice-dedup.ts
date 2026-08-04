@@ -343,18 +343,48 @@ export async function mergeExtendedInvoice(
 ) {
   const { data: current } = await supabase
     .from("vendor_invoices")
-    .select("line_items, shipment_count, pdf_url")
+    .select("line_items, shipment_count, pdf_url, filename, last_shipment_file")
     .eq("id", existingId)
     .single();
 
   if (!current) throw new Error("Could not find existing record to merge");
 
+  // Last-line defence: refuse to merge the same source document twice.
+  const fn = normalizeFilename(incomingFilename);
+  if (
+    fn &&
+    [normalizeFilename((current as any).filename), normalizeFilename((current as any).last_shipment_file)]
+      .filter(Boolean)
+      .includes(fn)
+  ) {
+    throw new Error(
+      `Duplicate invoice — "${incomingFilename}" was already imported for this invoice. Nothing was merged.`
+    );
+  }
+
   const existingItems = (
     Array.isArray(current.line_items) ? current.line_items : []
   ) as unknown as LineItem[];
 
-  const mergedItems = [...existingItems, ...newItems];
+  // Only append lines that are genuinely new relative to what is already stored.
+  const storedKeys = extractLineKeys(existingItems);
+  const storedLoose = extractLooseLineKeys(existingItems);
+  const storedUpc = extractUpcKeys(existingItems);
+  const trulyNew = newItems.filter(li => {
+    if (storedKeys.has(lineKey(li))) return false;
+    if (storedLoose.has(lineKeyLoose(li))) return false;
+    const uk = lineKeyUpc(li);
+    if (uk && storedUpc.has(uk)) return false;
+    return true;
+  });
+
+  if (trulyNew.length === 0) {
+    throw new Error("Duplicate invoice — no new line items to merge. Nothing was changed.");
+  }
+
+  const mergedItems = [...existingItems, ...trulyNew];
   const shipmentCount = (current.shipment_count || 1) + 1;
+
 
   const updatePayload: any = {
     line_items: mergedItems as any,
