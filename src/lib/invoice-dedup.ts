@@ -302,7 +302,20 @@ export async function mergeExtendedInvoice(
     .eq("id", existingId);
 
   if (error) throw error;
+
+  // A merge raises the invoice total — bring the existing payment schedule up to
+  // the new total (preserving paid installments) and keep invoice_amount in sync.
+  // If the gap can't be absorbed automatically, the invoice is flagged
+  // "needs reschedule" and appears in the Needs Review queue.
+  try {
+    const { reconcileScheduleAfterMerge } = await import("./payment-queries");
+    return await reconcileScheduleAfterMerge(existingId, combinedTotal);
+  } catch (e) {
+    console.error("[merge] schedule reconciliation failed", e);
+    return null;
+  }
 }
+
 
 // ── PO Linkage ────────────────────────────────────────────
 export async function updatePOTotalInvoiced(poNumber: string, vendor: string) {
