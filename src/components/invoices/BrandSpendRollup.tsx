@@ -51,8 +51,13 @@ interface BrandBucket {
 interface UnscheduledInvoice {
   id: string;
   invoice_number: string | null;
+  invoice_date: string | null;
+  vendor: string;
   total: number;
+  scheduled: number;
+  gap: number;
 }
+
 
 interface VendorBucket {
   name: string; // canonical (normalizeVendor) display name
