@@ -161,12 +161,26 @@ function lineKeyLoose(li: LineItem): string {
   return `${item}|${lt}`;
 }
 
+// UPC-based key: catches re-imports where the extraction produced a different
+// item_number/sku text but the same physical product, qty and price.
+function lineKeyUpc(li: LineItem): string | null {
+  const upc = String((li as any).upc ?? "").replace(/\D+/g, "");
+  if (!upc) return null;
+  const qty = Number(li.qty_shipped ?? li.qty_ordered ?? li.qty ?? 0);
+  const price = Number(li.unit_price ?? 0).toFixed(2);
+  return `${upc}|${qty}|${price}`;
+}
+
 function extractLineKeys(items: LineItem[]): Set<string> {
   return new Set(items.map(lineKey));
 }
 
 function extractLooseLineKeys(items: LineItem[]): Set<string> {
   return new Set(items.map(lineKeyLoose));
+}
+
+function extractUpcKeys(items: LineItem[]): Set<string> {
+  return new Set(items.map(lineKeyUpc).filter(Boolean) as string[]);
 }
 
 // ── UPC / Model extraction ────────────────────────────────
@@ -177,7 +191,7 @@ function extractUPCs(items: LineItem[]): Set<string> {
 // ── Dedup result types ────────────────────────────────────
 export type DedupAction =
   | { type: "new" }
-  | { type: "true_duplicate"; existingId: string }
+  | { type: "true_duplicate"; existingId: string; reason?: string }
   | {
       type: "extended";
       existingId: string;
@@ -187,13 +201,20 @@ export type DedupAction =
       combinedTotal: number;
     };
 
+function normalizeFilename(name: string | null | undefined): string {
+  if (!name) return "";
+  return name.toLowerCase().replace(/\.[a-z0-9]+$/i, "").replace(/[\s_\-().]+/g, "");
+}
+
 // ── Main dedup check ──────────────────────────────────────
 export async function checkInvoiceDuplicate(
   invoiceNumber: string,
   vendor: string,
   incomingItems: LineItem[],
-  incomingTotal: number
+  incomingTotal: number,
+  incomingFilename?: string | null
 ): Promise<DedupAction> {
+
   // Resolve through alias map (wizard-defined + static) so "Dita"/"DITA"/
   // "DITA Eyewear" all collapse to one canonical vendor before the dup test.
   const normalizedVendor = await normalizeVendorAsync(vendor);
