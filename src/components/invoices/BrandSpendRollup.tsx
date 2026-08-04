@@ -136,8 +136,13 @@ function buildRollup(invoices: VendorInvoice[], payments: InvoicePayment[]) {
       bucket.unscheduled.push({
         id: inv.id,
         invoice_number: (inv as any).invoice_number ?? null,
+        invoice_date: (inv as any).invoice_date ?? null,
+        vendor: v,
         total: invTotal,
+        scheduled: sched ?? 0,
+        gap: invTotal - (sched ?? 0),
       });
+
     }
 
     // Allocate this invoice's `total` across brands by line-item share, so
