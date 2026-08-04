@@ -1117,7 +1117,12 @@ export interface InvoicePaymentRollup {
   invoice_payment_status: string;
 }
 
-export function computeInvoiceRollup(payments: InvoicePayment[]): InvoicePaymentRollup {
+export function computeInvoiceRollup(
+  payments: InvoicePayment[],
+  /** Invoice header total — when supplied, the paid/partial decision is made
+   *  against the invoice total instead of only the existing schedule rows. */
+  invoiceTotal?: number,
+): InvoicePaymentRollup {
   const total_installments = payments.length;
   const installments_paid = payments.filter(p => p.payment_status === "paid" || p.payment_status === "overpaid").length;
   const installments_partial = payments.filter(p => p.payment_status === "partial").length;
@@ -1125,11 +1130,16 @@ export function computeInvoiceRollup(payments: InvoicePayment[]): InvoicePayment
   const total_amount_due = payments.reduce((s, p) => s + p.amount_due, 0);
   const total_amount_paid = payments.reduce((s, p) => s + p.amount_paid, 0);
   const total_balance_remaining = payments.reduce((s, p) => s + p.balance_remaining, 0);
+  const effective_total = Math.max(total_amount_due, Number(invoiceTotal ?? 0) || 0);
 
   let invoice_payment_status = "unpaid";
   if (payments.some(p => p.payment_status === "disputed")) invoice_payment_status = "disputed";
-  else if (installments_paid === total_installments && total_installments > 0) invoice_payment_status = "paid";
+  else if (
+    installments_paid === total_installments && total_installments > 0
+    && total_amount_paid + 0.005 >= effective_total
+  ) invoice_payment_status = "paid";
   else if (total_amount_paid > 0) invoice_payment_status = "partial";
+
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   if (payments.some(p => isOverdue(p.due_date, p.payment_status))) {
