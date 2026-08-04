@@ -492,10 +492,26 @@ export default function BrandSpendRollup({ variant = "full", defaultNetOfCredits
               </tbody>
             </table>
             {unscheduledAll.length > 0 && (
-              <div className="px-3 py-2 text-[11px] text-amber-400/90 border-t border-border bg-amber-500/5">
-                {unscheduledAll.length} invoice{unscheduledAll.length === 1 ? "" : "s"} totaling {formatCurrency(unscheduledTotal)} are confirmed without a payment schedule and won't appear on the payment calendar.
+              <div className="border-t border-border bg-amber-500/5">
+                <button
+                  type="button"
+                  onClick={() => setFooterOpen(o => !o)}
+                  className="w-full text-left px-3 py-2 text-[11px] text-amber-400/90 hover:text-amber-300 flex items-start gap-1.5"
+                >
+                  {footerOpen ? <ChevronDown className="h-3.5 w-3.5 mt-px shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 mt-px shrink-0" />}
+                  <span>
+                    {unscheduledAll.length} invoice{unscheduledAll.length === 1 ? "" : "s"} totaling {formatCurrency(unscheduledTotal)} are confirmed without a payment schedule and won't appear on the payment calendar.{" "}
+                    <span className="underline">{footerOpen ? "Hide list" : "Show which ones"}</span>
+                  </span>
+                </button>
+                {footerOpen && (
+                  <div className="px-3 pb-3">
+                    <UnscheduledList rows={unscheduledAll} showVendor />
+                  </div>
+                )}
               </div>
             )}
+
           </div>
         )}
       </CardContent>
