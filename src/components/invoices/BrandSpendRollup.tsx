@@ -199,10 +199,58 @@ function buildRollup(invoices: VendorInvoice[], payments: InvoicePayment[]) {
   return { vendors, grand, unscheduledAll };
 }
 
+/** Inline list of unscheduled invoices — each row links to the invoice drawer. */
+function UnscheduledList({ rows, showVendor }: { rows: UnscheduledInvoice[]; showVendor?: boolean }) {
+  return (
+    <div className="overflow-x-auto rounded border border-amber-500/30 bg-amber-500/5">
+      <table className="w-full text-[11px]">
+        <thead className="bg-amber-500/10 text-amber-300/90">
+          <tr>
+            {showVendor && <th className="text-left px-2 py-1 font-semibold">Vendor</th>}
+            <th className="text-left px-2 py-1 font-semibold">Invoice #</th>
+            <th className="text-left px-2 py-1 font-semibold">Date</th>
+            <th className="text-right px-2 py-1 font-semibold">Invoice total</th>
+            <th className="text-right px-2 py-1 font-semibold">Scheduled</th>
+            <th className="text-right px-2 py-1 font-semibold">Gap</th>
+            <th className="px-2 py-1" />
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(u => (
+            <tr key={u.id} className="border-t border-amber-500/20">
+              {showVendor && <td className="px-2 py-1">{u.vendor}</td>}
+              <td className="px-2 py-1 font-mono">
+                <Link to={`/invoices?open=${u.id}`} className="text-amber-300 hover:underline">
+                  {u.invoice_number || u.id.slice(0, 8)}
+                </Link>
+              </td>
+              <td className="px-2 py-1 text-muted-foreground">{u.invoice_date ?? "—"}</td>
+              <td className="px-2 py-1 text-right tabular-nums">{formatCurrency(u.total)}</td>
+              <td className="px-2 py-1 text-right tabular-nums">{formatCurrency(u.scheduled)}</td>
+              <td className="px-2 py-1 text-right tabular-nums text-amber-400 font-medium">{formatCurrency(u.gap)}</td>
+              <td className="px-2 py-1 text-right">
+                <Link
+                  to={`/invoices?open=${u.id}`}
+                  className="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
+                >
+                  Fix schedule <ExternalLink className="h-3 w-3" />
+                </Link>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function BrandSpendRollup({ variant = "full", defaultNetOfCredits = false }: Props) {
   const qc = useQueryClient();
   const [netOfCredits, setNetOfCredits] = useState(defaultNetOfCredits);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [unschedOpen, setUnschedOpen] = useState<Set<string>>(new Set());
+  const [footerOpen, setFooterOpen] = useState(false);
+
 
   const { data: invoices = [], isLoading: loadingInv } = useQuery({
     queryKey: ["brand_spend_invoices"],
