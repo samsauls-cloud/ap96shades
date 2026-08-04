@@ -1302,3 +1302,127 @@ export async function clearManualStatusOverride(
     try { await syncInvoicePaymentStatus(current.invoice_id); } catch { /* non-fatal */ }
   }
 }
+
+// ============================================================================
+// Multi-shipment merge → schedule reconciliation
+//
+// When an additional shipment increases vendor_invoices.total after a payment
+// schedule already exists, the schedule rows (and invoice_payments.invoice_amount)
+// used to be left at the first shipment's amount. The invoice then looked
+// "unscheduled" in the Purchased-by-Brand rollup and could even read as fully
+// paid while only half the invoice was covered.
+//
+// This helper:
+//   1. re-stamps invoice_amount on every schedule row to the new invoice total,
+//   2. spreads the increase across installments that are NOT already paid
+//      (preserving every already-paid / partially-paid amount),
+//   3. flags the invoice as "needs reschedule" (terms_status = needs_review,
+//      so it surfaces in the Needs Review queue) when it cannot cover the gap
+//      without touching paid installments.
+// ============================================================================
+export interface MergeRescheduleResult {
+  status: "no_schedule" | "already_covered" | "rescheduled" | "needs_reschedule";
+  gap: number;
+  scheduleTotalBefore: number;
+  scheduleTotalAfter: number;
+  adjustedRows: number;
+}
+
+export async function reconcileScheduleAfterMerge(
+  invoiceId: string,
+  newInvoiceTotal: number,
+): Promise<MergeRescheduleResult> {
+  const total = Number(newInvoiceTotal) || 0;
+
+  const { data: rows, error } = await supabase
+    .from("invoice_payments")
+    .select("id, amount_due, amount_paid, payment_status, due_date, invoice_amount")
+    .eq("invoice_id", invoiceId)
+    .order("due_date", { ascending: true });
+  if (error) throw error;
+
+  const all = rows ?? [];
+  if (all.length === 0) {
+    return { status: "no_schedule", gap: total, scheduleTotalBefore: 0, scheduleTotalAfter: 0, adjustedRows: 0 };
+  }
+
+  const live = all.filter(r => r.payment_status !== "void");
+  const before = live.reduce((s, r) => s + (Number(r.amount_due) || 0), 0);
+  const gap = total - before;
+
+  // Always keep invoice_amount in sync with the merged invoice total.
+  await supabase
+    .from("invoice_payments")
+    .update({ invoice_amount: total } as any)
+    .eq("invoice_id", invoiceId);
+
+  if (Math.abs(gap) <= 1) {
+    return { status: "already_covered", gap, scheduleTotalBefore: before, scheduleTotalAfter: before, adjustedRows: 0 };
+  }
+
+  if (gap < 0) {
+    // Schedule over-covers the invoice — never shrink paid work automatically.
+    await flagNeedsReschedule(invoiceId, `Payment schedule totals ${before.toFixed(2)} but invoice total is ${total.toFixed(2)} after a shipment merge. Manual reschedule required.`);
+    return { status: "needs_reschedule", gap, scheduleTotalBefore: before, scheduleTotalAfter: before, adjustedRows: 0 };
+  }
+
+  // Distribute the increase across installments with no recorded payment.
+  const openRows = live.filter(r => (Number(r.amount_paid) || 0) <= 0.005 && r.payment_status !== "disputed");
+  if (openRows.length === 0) {
+    await flagNeedsReschedule(invoiceId, `A shipment merge raised the invoice total to ${total.toFixed(2)} but every installment is already paid (schedule covers ${before.toFixed(2)}). Add an installment for the ${gap.toFixed(2)} difference.`);
+    return { status: "needs_reschedule", gap, scheduleTotalBefore: before, scheduleTotalAfter: before, adjustedRows: 0 };
+  }
+
+  const openSum = openRows.reduce((s, r) => s + (Number(r.amount_due) || 0), 0);
+  let allocated = 0;
+  let adjusted = 0;
+  for (let i = 0; i < openRows.length; i++) {
+    const r = openRows[i];
+    const isLast = i === openRows.length - 1;
+    const share = openSum > 0
+      ? (Number(r.amount_due) || 0) / openSum
+      : 1 / openRows.length;
+    const add = isLast ? gap - allocated : Math.round(gap * share * 100) / 100;
+    allocated += add;
+    const newDue = Math.round(((Number(r.amount_due) || 0) + add) * 100) / 100;
+    if (newDue <= 0) continue;
+    const paid = Number(r.amount_paid) || 0;
+    const { error: upErr } = await supabase
+      .from("invoice_payments")
+      .update({
+        amount_due: newDue,
+        balance_remaining: Math.round((newDue - paid) * 100) / 100,
+        payment_status: derivePaymentStatus(newDue, paid),
+        is_paid: paid + 0.005 >= newDue,
+      } as any)
+      .eq("id", r.id);
+    if (upErr) throw upErr;
+    adjusted++;
+  }
+
+  try { await syncInvoicePaymentStatus(invoiceId); } catch { /* non-fatal */ }
+
+  return {
+    status: "rescheduled",
+    gap,
+    scheduleTotalBefore: before,
+    scheduleTotalAfter: before + allocated,
+    adjustedRows: adjusted,
+  };
+}
+
+/** Flag an invoice for manual rescheduling — shows up in the Needs Review queue. */
+async function flagNeedsReschedule(invoiceId: string, reason: string): Promise<void> {
+  const { data: inv } = await supabase
+    .from("vendor_invoices")
+    .select("notes")
+    .eq("id", invoiceId)
+    .maybeSingle();
+  const prior = String((inv as any)?.notes ?? "");
+  const stamp = `[needs reschedule] ${reason}`;
+  const notes = prior.includes("[needs reschedule]") ? prior : (prior ? `${prior}\n${stamp}` : stamp);
+  await supabase
+    .from("vendor_invoices")
+    .update({ terms_status: "needs_review", notes } as any)
+    .eq("id", invoiceId);
+}
