@@ -451,7 +451,16 @@ export default function BrandSpendRollup({ variant = "full", defaultNetOfCredits
                           )}
                         </td>
                       </tr>
+                      {unschedOpen.has(v.name) && v.unscheduled.length > 0 && (
+                        <tr className="bg-amber-500/5">
+                          <td />
+                          <td colSpan={4} className="px-3 py-2">
+                            <UnscheduledList rows={v.unscheduled} />
+                          </td>
+                        </tr>
+                      )}
                       {open && (
+
                         <>
                           <tr className="bg-muted/10">
                             <td />
