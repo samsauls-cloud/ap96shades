@@ -223,7 +223,7 @@ export async function checkInvoiceDuplicate(
   // with different casing (the original DITA bug).
   const { data } = await supabase
     .from("vendor_invoices")
-    .select("id, line_items, total, is_multi_shipment, shipment_count")
+    .select("id, line_items, total, subtotal, filename, last_shipment_file, is_multi_shipment, shipment_count")
     .eq("invoice_number", invoiceNumber)
     .ilike("vendor", normalizedVendor)
     .limit(1);
@@ -236,6 +236,25 @@ export async function checkInvoiceDuplicate(
   const existingItems = (
     Array.isArray(existing.line_items) ? existing.line_items : []
   ) as unknown as LineItem[];
+
+  // ── Guard 0: same source document ────────────────────────
+  // If the incoming file is the very same document already on file (or already
+  // merged in as a shipment), this is a re-import — never merge it as a new
+  // shipment, that is what doubled invoices in the past.
+  const incomingFn = normalizeFilename(incomingFilename);
+  if (incomingFn) {
+    const existingFns = [
+      normalizeFilename((existing as any).filename),
+      normalizeFilename((existing as any).last_shipment_file),
+    ].filter(Boolean);
+    if (existingFns.includes(incomingFn)) {
+      return {
+        type: "true_duplicate",
+        existingId: existing.id,
+        reason: "Same source file already imported for this invoice",
+      };
+    }
+  }
 
   const incomingUPCs = extractUPCs(incomingItems);
   const existingUPCs = extractUPCs(existingItems);
@@ -251,6 +270,18 @@ export async function checkInvoiceDuplicate(
     genuinelyNewItems = genuinelyNewItems.filter(li => !existingLooseKeys.has(lineKeyLoose(li)));
   }
 
+  // Third pass: UPC + qty + price — catches re-extractions where the item
+  // number/sku text came out differently but it is physically the same line.
+  if (genuinelyNewItems.length > 0) {
+    const existingUpcKeys = extractUpcKeys(existingItems);
+    if (existingUpcKeys.size > 0) {
+      genuinelyNewItems = genuinelyNewItems.filter(li => {
+        const k = lineKeyUpc(li);
+        return !(k && existingUpcKeys.has(k));
+      });
+    }
+  }
+
   if (genuinelyNewItems.length === 0) {
     return { type: "true_duplicate", existingId: existing.id };
   }
@@ -262,6 +293,28 @@ export async function checkInvoiceDuplicate(
       return { type: "true_duplicate", existingId: existing.id };
     }
   }
+
+  // ── Guard 1: whole-document match ────────────────────────
+  // Same line count and same document total (or the incoming total equals the
+  // existing subtotal, the signature of a doubled row) => re-import, not a
+  // genuine second shipment.
+  const existingTotal = Number(existing.total ?? 0);
+  const existingSubtotal = Number((existing as any).subtotal ?? 0);
+  const sameMoney =
+    (incomingTotal > 0 && Math.abs(incomingTotal - existingTotal) < 0.01) ||
+    (incomingTotal > 0 && existingSubtotal > 0 && Math.abs(incomingTotal - existingSubtotal) < 0.01);
+  if (
+    sameMoney &&
+    incomingItems.length > 0 &&
+    incomingItems.length === existingItems.length
+  ) {
+    return {
+      type: "true_duplicate",
+      existingId: existing.id,
+      reason: "Same line count and same invoice total as the existing record",
+    };
+  }
+
 
   // There are genuinely new line items — this is an extended invoice
   const oldCount = existingItems.length;
