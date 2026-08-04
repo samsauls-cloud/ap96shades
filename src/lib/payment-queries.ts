@@ -325,9 +325,19 @@ export async function syncInvoicePaymentStatus(invoiceId: string): Promise<void>
   if (fetchErr) throw fetchErr;
   if (!allInstallments || allInstallments.length === 0) return;
 
+  // Denominator must be the invoice header total when the schedule under-covers
+  // it (e.g. a multi-shipment merge doubled the total but not the schedule).
+  const { data: inv } = await supabase
+    .from("vendor_invoices")
+    .select("total")
+    .eq("id", invoiceId)
+    .maybeSingle();
+  const headerTotal = Number((inv as any)?.total ?? 0) || 0;
+
   const anyDisputed = allInstallments.some(p => p.payment_status === "disputed");
   const live = allInstallments.filter(p => p.payment_status !== "void");
-  const totalDue = live.reduce((s, p) => s + (Number(p.amount_due) || 0), 0);
+  const scheduleDue = live.reduce((s, p) => s + (Number(p.amount_due) || 0), 0);
+  const totalDue = Math.max(scheduleDue, headerTotal > 0 ? headerTotal : scheduleDue);
   const totalPaid = live.reduce((s, p) => s + (Number(p.amount_paid) || 0), 0);
 
   let newStatus: string;
@@ -335,6 +345,7 @@ export async function syncInvoicePaymentStatus(invoiceId: string): Promise<void>
   else if (totalPaid <= 0.005) newStatus = "unpaid";
   else if (totalPaid + 0.005 >= totalDue) newStatus = "paid";
   else newStatus = "partial";
+
 
   const { error } = await supabase
     .from("vendor_invoices")
