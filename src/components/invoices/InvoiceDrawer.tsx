@@ -58,6 +58,29 @@ export function InvoiceDrawer({ invoice, open, onClose, onUpdate }: Props) {
   const [activeTab, setActiveTab] = useState("line-items");
   const [pdfLoadError, setPdfLoadError] = useState(false);
   const [uploadingPdf, setUploadingPdf] = useState(false);
+  const [undoingMerge, setUndoingMerge] = useState(false);
+
+  const handleUndoMerge = async () => {
+    if (!invoice) return;
+    setUndoingMerge(true);
+    try {
+      const { undoDuplicateShipmentMerge } = await import("@/lib/invoice-dedup");
+      const res = await undoDuplicateShipmentMerge(invoice.id);
+      toast.success(
+        `Removed ${res.removed} duplicate line(s) — total restored to ${formatCurrency(res.newTotal)}`
+      );
+      queryClient.invalidateQueries({ queryKey: ["vendor_invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["invoice_stats"] });
+      queryClient.invalidateQueries({ queryKey: ["invoice_payments"] });
+      queryClient.invalidateQueries({ queryKey: ["ap_full_audit"] });
+      onUpdate();
+    } catch (e: any) {
+      toast.error(e?.message ?? "Could not undo the merge");
+    } finally {
+      setUndoingMerge(false);
+    }
+  };
+
   const [localPdfUrl, setLocalPdfUrl] = useState<string | null>(null);
   const [editingTerms, setEditingTerms] = useState(false);
   const [approvingExisting, setApprovingExisting] = useState(false);
