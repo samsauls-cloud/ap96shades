@@ -101,6 +101,22 @@ export async function fetchPayments(): Promise<InvoicePayment[]> {
   });
   const normalized = data.map(normalizePayment);
 
+  // Invoice header totals — the header payment status must be derived against
+  // the INVOICE total, not just the existing schedule rows. A multi-shipment
+  // merge can double vendor_invoices.total while leaving the schedule at the
+  // first shipment's amount; deriving from schedule rows alone would then
+  // report "paid" when only half the invoice is actually paid.
+  const invoiceTotals = new Map<string, number>();
+  try {
+    const invRows = await fetchAllRows<{ id: string; total: number }>("vendor_invoices", {
+      select: "id, total",
+      label: "invoice_totals_for_payments",
+    });
+    for (const r of invRows) invoiceTotals.set(r.id, Number(r.total) || 0);
+  } catch {
+    // Fall back to schedule-only derivation if the header read fails.
+  }
+
   // Compute invoice-level status for each row
   const byInvoice = new Map<string, InvoicePayment[]>();
   for (const p of normalized) {
@@ -114,8 +130,12 @@ export async function fetchPayments(): Promise<InvoicePayment[]> {
     if (!p.invoice_id) return p;
     const siblings = byInvoice.get(p.invoice_id) ?? [p];
     const live = siblings.filter(s => s.payment_status !== "void");
-    const totalDue = live.reduce((s, x) => s + (Number(x.amount_due) || 0), 0);
+    const scheduleDue = live.reduce((s, x) => s + (Number(x.amount_due) || 0), 0);
     const totalPaid = live.reduce((s, x) => s + (Number(x.amount_paid) || 0), 0);
+    const headerTotal = invoiceTotals.get(p.invoice_id) ?? 0;
+    // Denominator = the larger of the schedule and the invoice header total, so
+    // an under-covering schedule can never make a half-paid invoice look paid.
+    const totalDue = Math.max(scheduleDue, headerTotal > 0 ? headerTotal : scheduleDue);
     const invoiceStatus =
       siblings.some(s => s.payment_status === "disputed") ? "disputed"
       : totalPaid <= 0.005 ? "unpaid"
@@ -124,6 +144,7 @@ export async function fetchPayments(): Promise<InvoicePayment[]> {
     return { ...p, invoice_payment_status: invoiceStatus, sibling_count: siblings.length };
   });
 }
+
 
 export async function fetchPaymentsForInvoice(invoiceId: string): Promise<InvoicePayment[]> {
   const { data, error } = await supabase
