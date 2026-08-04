@@ -271,7 +271,8 @@ export default function ReaderPage() {
         invoice.invoice_number,
         invoice.vendor,
         lineItems,
-        invoice.total || 0
+        invoice.total || 0,
+        file.name
       );
 
       if (dedupResult.type === "true_duplicate") {
@@ -299,14 +300,29 @@ export default function ReaderPage() {
 
       if (dedupResult.type === "extended") {
         if (!isAtomic) {
-          await mergeExtendedInvoice(
-            dedupResult.existingId,
-            dedupResult.newItems,
-            dedupResult.combinedTotal,
-            invoice.invoice_date,
-            file.name,
-            (invoice as any).pdf_url ?? null
-          );
+          try {
+            await mergeExtendedInvoice(
+              dedupResult.existingId,
+              dedupResult.newItems,
+              dedupResult.combinedTotal,
+              invoice.invoice_date,
+              file.name,
+              (invoice as any).pdf_url ?? null
+            );
+          } catch (mergeErr: any) {
+            // Merge refused (duplicate re-import) — report as a duplicate, don't double the invoice
+            updateDoc(docId, {
+              status: "duplicate",
+              vendor: invoice.vendor,
+              doc_type: invoice.doc_type,
+              invoice_number: invoice.invoice_number,
+              total: invoice.total || 0,
+              line_items_count: lineItemsCount,
+              duplicateDbId: dedupResult.existingId,
+              extendedInfo: mergeErr?.message ?? "Duplicate invoice — already imported.",
+            });
+            return;
+          }
         }
         updateDoc(docId, {
           status: "extended",

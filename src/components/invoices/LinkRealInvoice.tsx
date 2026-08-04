@@ -106,7 +106,7 @@ export function LinkRealInvoice({ proforma, onLinked }: Props) {
 
       // Dedup check
       const dedup = await checkInvoiceDuplicate(
-        invoice.invoice_number, invoice.vendor, parsed.line_items || [], invoice.total || 0
+        invoice.invoice_number, invoice.vendor, parsed.line_items || [], invoice.total || 0, file.name
       );
       if (dedup.type === "true_duplicate") {
         // Link the existing one instead
